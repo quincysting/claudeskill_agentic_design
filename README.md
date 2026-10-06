@@ -10,6 +10,12 @@ sources such as the MCP and A2A specifications, OWASP's 2026 lists and Anthropic
 tested: a fresh Claude instance that had never seen each skill ran it on a realistic scenario, and an independent
 judge scored the result.
 
+**Quick install** (Claude Code, all skills, every project):
+
+```bash
+npx skills add quincysting/claudeskill_agentic_design -g -a claude-code --skill '*'
+```
+
 ## The skills
 
 | Skill | Use it to | Try asking |
@@ -29,7 +35,28 @@ and so on. Install all eight for the best results.
 
 ## Install
 
-### Claude Code
+### With npx (recommended)
+
+You need Node.js. The [`skills` CLI](https://github.com/vercel-labs/skills) installs straight from this repository:
+
+```bash
+# All eight skills for Claude Code, available in every project (~/.claude/skills/)
+npx skills add quincysting/claudeskill_agentic_design -g -a claude-code --skill '*'
+
+# Into the current project only (.claude/skills/); commit it to share the skills with your team
+npx skills add quincysting/claudeskill_agentic_design -a claude-code --skill '*'
+
+# See what's available, then pick
+npx skills add quincysting/claudeskill_agentic_design --list
+npx skills add quincysting/claudeskill_agentic_design -g -a claude-code --skill agent-architect --skill agent-threat-modeler
+```
+
+Add `-y` to skip the confirmation prompts. In Windows `cmd.exe`, write `--skill *` without the quotes. Leave out
+`-a claude-code` to pick target agents interactively; the CLI can also install into Codex, Cursor and other
+agents that read `SKILL.md` skills (see [Limits](#limits)). Later, `npx skills update` pulls new versions and
+`npx skills remove agent-architect` removes a skill.
+
+### Manually
 
 Copy the skill folders into your personal skills directory (available in every project):
 
@@ -46,8 +73,10 @@ Copy-Item -Recurse claudeskill_agentic_design\skills\* $HOME\.claude\skills\
 ```
 
 To share them with a team through one repository instead, copy them into that project's `.claude/skills/`
-folder and commit it. Start a new Claude Code session afterwards; the skills load automatically and trigger when
-your request matches their description. You can also call one by name, for example `/agent-architect`.
+folder and commit it.
+
+Whichever way you install, start a new Claude Code session afterwards. The skills load automatically and trigger
+when your request matches their description. You can also call one by name, for example `/agent-architect`.
 
 ### Claude apps and the API
 
