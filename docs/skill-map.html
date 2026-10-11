@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Skill map</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1200px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · claudeskill_agentic_design</p>
+    <h1>Eight skills, one folder each</h1>
+
+    <svg viewBox="0 0 960 528" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="skill-map-title skill-map-desc">
+      <title id="skill-map-title">Skill map: eight skill folders by stage</title>
+      <desc id="skill-map-desc">The repository's skills folder holds eight skills grouped by when you use them: decide (business case), design (architecture, model choice), build (tools, context) and prove and run (evals, operations, security), with agent-architect as the place to start; each skill folder contains SKILL.md, references, templates and, in two skills, scripts.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- Stage axis: order of use -->
+      <g font-family="'Geist Mono', monospace" font-size="8" font-weight="500" letter-spacing="0.18em" fill="#4f5d75" text-anchor="middle">
+        <text x="150" y="60">01  DECIDE</text>
+        <text x="370" y="60">02  DESIGN</text>
+        <text x="590" y="60">03  BUILD</text>
+        <text x="810" y="60">04  PROVE AND RUN</text>
+      </g>
+      <line x1="193" y1="57" x2="327" y2="57" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="413" y1="57" x2="550" y2="57" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="630" y1="57" x2="745" y2="57" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- Zone: skills/ -->
+      <rect x="40" y="84" width="880" height="296" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="52" y="88" width="168" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="56" y="97" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" letter-spacing="0.14em">SKILLS/ · ONE FOLDER PER SKILL</text>
+
+      <!-- 01 Decide -->
+      <rect x="60" y="204" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="60" y="204" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="150" y="233" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agentic-business-case</text>
+      <text x="150" y="250" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">ROI · pilot · governance</text>
+
+      <!-- 02 Design -->
+      <rect x="280" y="160" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="280" y="160" width="180" height="64" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <rect x="392" y="166" width="60" height="12" rx="2" fill="transparent" stroke="rgba(235,108,54,0.40)" stroke-width="0.8"/>
+      <text x="422" y="175" fill="#eb6c36" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">START HERE</text>
+      <text x="370" y="193" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-architect</text>
+      <text x="370" y="210" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">workflow vs agent · loop</text>
+
+      <rect x="280" y="248" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="280" y="248" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="370" y="277" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-model-selector</text>
+      <text x="370" y="294" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">model per role · tuning</text>
+
+      <!-- 03 Build -->
+      <rect x="500" y="160" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="500" y="160" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="590" y="189" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-tool-designer</text>
+      <text x="590" y="206" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">tools · MCP · A2A</text>
+
+      <rect x="500" y="248" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="500" y="248" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="590" y="277" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-context-designer</text>
+      <text x="590" y="294" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">RAG · memory · context</text>
+
+      <!-- 04 Prove and run -->
+      <rect x="720" y="116" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="720" y="116" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="810" y="145" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-eval-designer</text>
+      <text x="810" y="162" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">eval plan · judges · CI</text>
+
+      <rect x="720" y="204" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="720" y="204" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="810" y="233" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-ops-reviewer</text>
+      <text x="810" y="250" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">tracing · cost · readiness</text>
+
+      <rect x="720" y="292" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="720" y="292" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="810" y="321" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-threat-modeler</text>
+      <text x="810" y="338" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">threats · approval gates</text>
+
+      <!-- Editorial aside -->
+      <text x="60" y="348" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', serif">Each skill hands related questions to the sibling that owns them.</text>
+
+      <!-- Strip: inside each skill folder -->
+      <line x1="40" y1="404" x2="920" y2="404" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="40" y="424" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">INSIDE EACH SKILL FOLDER</text>
+
+      <g stroke="#bfc0c0" stroke-width="1">
+        <line x1="60" y1="440" x2="60" y2="492"/>
+        <line x1="280" y1="440" x2="280" y2="492"/>
+        <line x1="500" y1="440" x2="500" y2="492"/>
+        <line x1="720" y1="440" x2="720" y2="492"/>
+      </g>
+      <g font-family="'Geist Mono', monospace" font-size="11" font-weight="600" fill="#2d3142">
+        <text x="72" y="452">SKILL.md</text>
+        <text x="292" y="452">references/</text>
+        <text x="512" y="452">templates/</text>
+        <text x="732" y="452">scripts/</text>
+      </g>
+      <g font-family="'Geist', sans-serif" font-size="10" fill="#4f5d75">
+        <text x="72" y="470">procedure Claude follows</text>
+        <text x="292" y="470">checklists, catalogues, dated facts</text>
+        <text x="512" y="470">skeleton of the deliverable</text>
+        <text x="732" y="470">runnable Python helpers</text>
+      </g>
+      <g font-family="'Geist', sans-serif" font-size="10" fill="#7a8399">
+        <text x="72" y="486">loads when the skill triggers</text>
+        <text x="292" y="486">read only when a step needs it</text>
+        <text x="512" y="486">design doc, plan or review</text>
+        <text x="732" y="486">cost and ROI models, 2 skills</text>
+      </g>
+    </svg>
+  </div>
+</body>
+</html>

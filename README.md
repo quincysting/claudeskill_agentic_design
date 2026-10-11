@@ -83,15 +83,14 @@ when your request matches their description. You can also call one by name, for 
 Each folder under `skills/` is a standard skill (a `SKILL.md` with YAML frontmatter plus supporting files). Where
 your Claude product supports uploading custom skills, zip the individual skill folder and upload it.
 
-## What's in a skill
+## How the repo is organised
 
-```
-skills/agent-eval-designer/
-  SKILL.md        the procedure Claude follows: inputs to gather, steps, decision tables, output shape, quality bar
-  references/     depth loaded only when needed: pattern catalogues, checklists, statistics, dated facts
-  templates/      skeletons for the deliverable (eval plan, threat model, design doc, business case)
-  scripts/        small runnable helpers (two skills have one)
-```
+![Map of the eight skill folders by stage: decide, design, build, prove and run, with agent-architect as the starting point, and the files inside each skill folder](docs/skill-map.png)
+
+*Each skill is one folder under `skills/`. `SKILL.md` holds the procedure (inputs to gather, steps, decision
+tables, output shape, quality bar); `references/` holds the depth Claude reads only when a step needs it, including
+`aws-implementation-notes.md` in seven skills; `templates/` holds the deliverable skeletons. The diagram's source is
+[`docs/skill-map.html`](docs/skill-map.html).*
 
 Two skills include Python helpers that need only the standard library:
 
