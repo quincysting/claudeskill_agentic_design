@@ -27,7 +27,7 @@ Priority: **P0** wrong irreversible action, duplicate side effect, cross-tenant 
 
 ## Confirming the fixes
 - Tool-choice eval: <cases to add, especially the confused pairs and negative cases; runs; ship bar>.
-- Checks to add in code or tests: <idempotency replay test, authorization test, timeout path>.
+- Checks to add in code or tests: <idempotency replay test, authorization test, timeout path, schema contract test; run them under the agent's own credentials>.
 
 ## Assumptions
 - <assumption> (**blocking** if a finding or fix depends on it; how to check)

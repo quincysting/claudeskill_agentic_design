@@ -68,7 +68,7 @@ Steps marked "build both": <list, with the comparison in §9>.
 
 **Stop conditions:** <goal met, enough info, no progress rule, resource limits>
 
-**Exits:** completed / partial / awaiting_approval / handed_off / escalated / failed: <what each returns and who sees it; which downstream decisions end the run with handed_off and which event starts the follow-up run>
+**Exits:** completed / partial / awaiting_approval / handed_off / escalated / failed: <what each returns and who sees it; the durable sink each non-completed exit lands in; which downstream decisions end the run with handed_off and which event starts the follow-up run>
 
 **Failure handling**
 
@@ -77,9 +77,9 @@ Steps marked "build both": <list, with the comparison in §9>.
 
 **Idempotency and versions:** <key scheme for each write; run-trigger dedupe; current-state checks before money moves; version scheme for regenerated outputs>
 
-**State and checkpoints:** <state schema fields; checkpoint points; run ID; pinned config>
+**State and checkpoints:** <state schema fields and schema version; checkpoint points; run ID; pinned config and peer versions; writer rule (single consumer per case or conditional writes)>
 
-**Execution mode:** sync / async / triggered / continuous, because <latency, waits>
+**Execution mode:** sync / async / triggered / continuous, because <latency, waits; for ordered-stream triggers: retry bounds and failure sink>
 
 ## 5. Planning and reasoning
 
@@ -89,7 +89,7 @@ Steps marked "build both": <list, with the comparison in §9>.
 ## 6. Agent topology
 
 - **Decision:** single / multi, because <split-test answers>
-- If multi: topology, coordinator (code), message schema, context slice per agent, conflict rule, caps, transport.
+- If multi: topology, coordinator (code), message schema and how it evolves, discovery and addresses, context slice per agent, credentials per agent with the denial test, conflict rule, caps, transport and partition key, any direct peer call as a documented exception.
 - Single-agent baseline for comparison: <which>
 
 ## 7. Human oversight points

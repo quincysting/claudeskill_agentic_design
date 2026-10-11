@@ -6,7 +6,8 @@ Load this for Mode B. One agent is a project. Fifty agents built by different te
 
 - **Register.** Every agent that can run in production has a record: identity, owner, purpose, what it may touch, certification. MESH calls the registry the system of record for agents, policies, certifications and users [MESH ch9]. ENTERPRISE asks for a central repository of every agentic system with a live list of policies, audited while they run [ENTERPRISE ch6].
 - **Enforce.** One control plane (orchestrator or gateway) reads those records and checks every call before it reaches a model, tool or another agent. The owner of an agentic system owns its orchestrator [ENTERPRISE ch7]. Domain agents get no direct route to models, systems or each other. That is why enforcement can be architectural rather than behavioural: people found workarounds to service catalogs, but agents can be forced by design to call governed services [ENTERPRISE ch8].
-- **Prove.** The control plane writes a trace of plan, tool calls, approvals, version and owner into tamper-evident storage. The evidence goes back to owners and certifiers, who recertify, restrict or revoke [MESH ch12], [ENTERPRISE ch7].
+- **Protect the controls.** Whoever may switch the gate to log-only, detach its rules or replace an entry point's authorizer can disable every control at once, with no code change. Governance decides who holds that right: a small, separately held role and an alarm on every change from day one, then a second person to approve each change and a periodic review of the holders as the estate grows (table below). The technical controls (gate modes, rollout, drift checks) belong to agent-threat-modeler.
+- **Prove.** The control plane writes a trace of plan, tool calls, approvals, version and owner into tamper-evident storage. The evidence goes back to owners and certifiers, who recertify, restrict or revoke [MESH ch12], [ENTERPRISE ch7]. Tamper-evident means write-once storage, records hash-chained to the previous one, or a keyed MAC whose key the writers don't hold. A hash stored next to each row only shows the row agrees with itself. For accountability the trail must also show who acted for whom: under one trace ID per request, each hop names the user, the acting agent and its version, and the credential it was issued. agent-threat-modeler specifies the record fields.
 
 Principles to open the operating model with: humans remain accountable; autonomy is earned, not given; logs are the source of truth [MESH ch13]. Policies "unless translated into machine-enforceable rules, are insufficient" [MESH ch13].
 
@@ -19,6 +20,8 @@ Principles to open the operating model with: humans remain accountable; autonomy
 | Traces retained with agent version and owner | Tamper-evident audit store; tiered access to traces |
 | Named business owner and safety owner per agent | Fleet managers; platform SLAs; certified templates |
 | Kill switch and credential revocation per agent | Automated recertification triggers from drift and error budgets |
+| Agent identities issued by the existing identity provider, each tagged with its owning team | Operators may manage only identities their team owns (tag-based access, §2) |
+| A named few may change the gate's mode, rules or authorizer; every change raises an alarm | Second-person approval for those changes; quarterly review of who holds the right |
 
 ## 2. Four registries, not one
 
@@ -36,14 +39,14 @@ Runtime traces live in the observability store, linked to the registry by agent 
 | Field | Why |
 |---|---|
 | namespace:name, SemVer version | Identity; a fork or rename never inherits permissions [MESH ch12] |
-| Business owner, safety owner (named people) | Accountability for value and for risk [MESH ch13] |
+| Business owner, safety owner (named people) | Accountability for value and for risk [MESH ch13]. Mirror the owning team onto the agent's identity as a tag, and let operators manage only identities whose tag matches their own team. One access policy then serves every team, and the identity system enforces the owner the registry records |
 | Purpose (specific), non-responsibilities | A breach becomes a verifiable event. "Drafts replies to customer emails using ticket history" is a purpose; "optimise user experience" is not [MESH ch12], [ENTERPRISE ch6] |
 | Policies attached | Constraints such as "never send directly to customers" |
 | Risk tier | Sets certification depth and what the control plane passes |
 | Allowed tools / actions, allowed collaborators, pinned model versions | Default deny |
 | Decision rights: autonomous / pre-approval / post-review per action class | MESH's "digital employee" framing [MESH ch13] |
 | Certification record: issuer, date, version, policies covered, state, expiry | [MESH ch8] |
-| Configuration fingerprint (hash of prompts, tools, model version) | Proves the running config is the certified one [ENTERPRISE ch6] |
+| Configuration fingerprint (hash of prompts, tools, model version and security config: inbound authorizer, allowed clients and audiences, policy set, gate enforcement mode) | Proves the running config is the certified one [ENTERPRISE ch6]. The security fields matter because a gate switched to log-only, or an authorizer dropped by an update, changes no prompt or tool yet removes a control |
 | Lifecycle state, dependants, cost ceiling | Retirement, impact analysis, spend control |
 | Regulatory flags: personal data, EU AI Act class, log retention | Drives the audit and oversight duties |
 
@@ -77,8 +80,10 @@ Error-budget autonomy: value SLOs (completion, cycle time, cost to serve, satisf
 ```python
 import hashlib, json, time
 
-def fingerprint(prompts: dict, tools: list, model_version: str) -> str:
-    blob = json.dumps({"p": prompts, "t": sorted(tools), "m": model_version}, sort_keys=True)
+def fingerprint(prompts: dict, tools: list, model_version: str, security: dict) -> str:
+    # security: authorizer, allowed clients and audiences, policy set, gate mode
+    blob = json.dumps({"p": prompts, "t": sorted(tools), "m": model_version, "s": security},
+                      sort_keys=True)
     return hashlib.sha256(blob.encode()).hexdigest()
 
 def admit(rec: dict, running_hash: str, tool: str) -> tuple[bool, dict]:
@@ -93,7 +98,7 @@ def admit(rec: dict, running_hash: str, tool: str) -> tuple[bool, dict]:
     return all(checks.values()), checks  # write checks + agent@version + owner to the audit log
 ```
 
-A failed `unchanged` check opens a recertification task for the named owner.
+A failed `unchanged` check opens a recertification task for the named owner. Compute the running hash from the configuration read back from the platform, not from the deploy template: update APIs that replace the whole configuration silently drop any field you didn't resend, the authorizer included.
 
 ## 4. Accountability and liability
 
@@ -127,7 +132,7 @@ The platform needs an owner and service levels too. EVALS gives a shared eval li
 
 **Agent team roles** (roles, not necessarily people) [MESH ch13]: agent owner (purpose, value, risk, autonomy boundaries); agent engineers (prompts, tool contracts, retrieval, guardrails, unit economics); agent SREs (SLOs, error budgets, incidents, kill switches); governance and certification lead (policy turned into tests, tiers, certification); evaluation and human-in-the-loop supervisor (golden suite, regressions, escalation and override rates as drift signals); policy and ethics liaison; release manager (canaries, rollback, evidence before release). Above several teams: a fleet manager per mission-aligned fleet [MESH ch13].
 
-**Governance bodies.** In mature organisations, extend the existing chief AI, data and risk roles and committees: approve high-risk use cases, set logging standards, review incidents, report to the board [ENTERPRISE ch7]. Without them, AGENTICAI's global bank used three tiers: a steering committee, a centre of excellence that standardised and checked compliance, AI champions per department, plus an ethics board reviewing major implementations early enough to change them [AGENTICAI ch10]. A committee decision must end as a registry field the control plane reads. Otherwise approvals happen in meetings while the agent runs with whatever access its developer gave it.
+**Governance bodies.** In mature organisations, extend the existing chief AI, data and risk roles and committees: approve high-risk use cases, set logging standards, review incidents, report to the board [ENTERPRISE ch7]. Without them, AGENTICAI's global bank used three tiers: a steering committee, a centre of excellence that standardised and checked compliance, AI champions per department, plus an ethics board reviewing major implementations early enough to change them [AGENTICAI ch10]. A committee decision must end as a registry field the control plane reads. Otherwise approvals happen in meetings while the agent runs with whatever access its developer gave it. The same goes for identity: issue agent identities from the identity provider and privileged-access system the organisation already treats as authoritative, not from a parallel store. Two identity paths split the audit trail, and credentials on the second path escape the revocation process at retirement.
 
 **Timing**: encourage experiments early, avoid premature standardisation on one framework, standardise per large group once patterns emerge [BUILDAPPS ch1]. A paved road makes the governed path the fast one.
 
@@ -178,3 +183,13 @@ BUILDAPPS cites Klarna replacing roughly 700 customer-service roles with a chatb
 - metrics on engagement and retention alongside value.
 
 In the EU, deployers of high-risk systems at work must inform workers' representatives and affected workers before use (see eu-ai-act-2026-10.md).
+
+## 11. AWS mapping (as of 2026-10)
+
+AWS mapping for this file's identity and control-plane duties. As of 2026-10; services change, verify before use. Technical depth (gate rollout, token exchange, audit record fields) stays with agent-threat-modeler.
+
+- **Ownership by tag (§2 owner row).** AgentCore Identity workload identities and credential providers take tags and support tag-based IAM conditions ([AgentCore Identity tagging](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/identity-tagging.html), external). Set the owning-team tag at creation and allow operator actions only where the resource's team tag equals the principal's.
+- **Protect the controls (§1).** `bedrock-agentcore:UpdateGateway` alone can switch a gateway's policy engine from ENFORCE to LOG_ONLY or detach it; no separate action or condition key guards the mode ([policy enforcement modes](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/policy-enforcement-modes.html), external). Grant it only to the separately held role and alarm on every `UpdateGateway` event in CloudTrail. LOG_ONLY still logs "would deny", so dashboards can look normal while nothing is enforced.
+- **No unauthenticated entry points.** The `bedrock-agentcore:GatewayAuthorizerType` condition key (`AWS_IAM`, `CUSTOM_JWT`, `NONE`) lets a service control policy forbid no-auth gateways across the organisation ([gateway condition keys](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/security-gateway-condition-keys.html), external).
+- **Fingerprint the live config (§3).** In the labs, an AgentCore Runtime update replaced the whole configuration, dropping authorizer and header settings that weren't resent, and published a new default version (unverified). Read the configuration back after every deploy before hashing it.
+- **Credential issuance in the trail (§1 Prove).** In the labs, workload-identity token calls were CloudTrail data events, recorded only when a trail selects them, and a trail whose advanced event selectors listed only data events stopped recording management events (unverified). Select both, and deliver the trail to write-once storage (S3 Object Lock).

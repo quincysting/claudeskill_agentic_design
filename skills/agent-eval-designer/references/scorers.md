@@ -20,6 +20,16 @@ Cost per verdict, mid-2026 prices [EVALS ch11]: code check free and under 1 ms; 
 
 DEFGUIDE argues against one generative judge for everything: slow, expensive, inconsistent. Put small classifiers and embedding models in between [DEFGUIDE ch9]. EVALS's "about 60% deterministic, 40% judge" split is a heuristic with no data behind it [EVALS ch4]. Push as much into code as the qualities allow.
 
+## Scoring level
+
+Each scorer reads one level of evidence. Pick the level before you pick a scorer or a platform evaluator type, because a scorer given the wrong level can't see the failure.
+
+| Level | Evidence it sees | Typical scorers |
+|---|---|---|
+| Tool call | One call's arguments and the context just before it | Argument accuracy, wrong tool chosen |
+| Turn (one trace) | One reply and the context before it | Faithfulness, tone, reference answer, required facts |
+| Session | The whole trajectory and the final state | Goal completion, expected tool set, precondition order, assertions |
+
 ## Deterministic checks for agents
 
 Most agent qualities are rule-decidable [DEFGUIDE ch9][SYSTEMS ch14]:
@@ -86,6 +96,7 @@ def precedes(names, first, then):
 
 - **Required facts.** List the facts the answer must contain (amount, ID, deadline) and check them after normalising. EVALS stores these as metadata and checks with a contains-all scorer [EVALS ch3].
 - **Embedding pre-filter.** Cosine ≥ about 0.95 counts as a pass and < 0.5 as a fail; only the middle band goes to a judge [EVALS ch4]. For paraphrase thresholds start near 0.85 and tune on observed false passes and false fails [EVALS ch4]. Never rely on embeddings where exact values matter: "refund $49" and "refund $94" embed almost identically.
+- **Divergence check.** When a trial has both a reference-free score (helpfulness, coherence, tone) and a reference-based or state-based one, list the trials where the first is high and the second fails. These are confident wrong answers: an agent that invents an account balance fluently can score top marks on helpfulness and zero on correctness. Use them as the first fluent-but-wrong cases in judge calibration (llm-judges.md, calibration step 1). A suite with only reference-free judges cannot see this failure.
 
 ## LLM judge, pairwise ranking
 
@@ -131,7 +142,7 @@ Split safety evals by who causes the harm; each threat model has its own metric 
 | Manipulation through data: injected instructions in documents, tool results, web pages, poisoned memory | Attack success rate, plus task success under attack | Does not follow injected instructions and still finishes the real task |
 | No adversary: the agent errs on a benign task (wrong files deleted, irreversible step without pausing) | Harmful-action rate on benign tasks | Hard checks on attempted actions, confirmation before irreversible steps |
 
-The third is the least standardised and depends on your own tasks and harness [ILLUSTRATED ch7]. Run threat tests alongside behaviour tests from the prototype on [DEFGUIDE ch8]. Small samples say little. "100% mitigation" on one attack per type, or 3 of 3 blocked injections, has a 95% lower bound around 44% (see statistics.md). Attack design and coverage belong to agent-threat-modeler; this plan reserves the slots, the metrics and the gates.
+The third is the least standardised and depends on your own tasks and harness [ILLUSTRATED ch7]. Run threat tests alongside behaviour tests from the prototype on [DEFGUIDE ch8]. Small samples say little. "100% mitigation" on one attack per type, or 3 of 3 blocked injections, has a 95% lower bound around 44% (see statistics.md). Attack design and coverage belong to agent-threat-modeler; this plan reserves the slots, the metrics and the gates. If agents pass a user's identity on to other agents or services, reserve slots for agent-threat-modeler's four delegation property tests (propagation, scope narrowing, agent ceiling, reach) and score them as hard checks.
 
 ## Multi-agent systems
 

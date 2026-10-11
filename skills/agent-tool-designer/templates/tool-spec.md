@@ -8,7 +8,7 @@
 - **Build first:** <the first two or three tools and the eval>.
 
 ## Context
-Model and API: <provider, model, strict mode yes/no, forced tool_choice yes/no>. Host: <own loop | framework | MCP hosts>; host controlled by us: <yes | no: list which levers are not ours>. Caller identity: <how authenticated, on whose behalf>. Consumers: <own agent | other teams | third parties>.
+Model and API: <provider, model, strict mode yes/no, forced tool_choice yes/no>. Host: <own loop | framework | MCP hosts>; host controlled by us: <yes | no: list which levers are not ours>. Caller identity: <how authenticated (verified token), on whose behalf>. Gateway or policy engine in front: <none | which; backends callable only from it: yes/no>. Consumers: <own agent | other teams | third parties>.
 
 ## Inventory
 

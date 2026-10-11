@@ -110,6 +110,9 @@ Every path ends in one of these, carried to the final output:
 
 Partial output beats fake completeness [SYSTEMS ch16]. A common bug: the step cap or an error routes to the same summariser as success, and a truncated run produces a confident report. Carry the status through.
 
+- Each optional step reports what it did: `called`, `not_needed` or `failed: <reason>`. A single flag that reads the same for "skipped" and "broke" makes a failure look like success.
+- Every non-`completed` exit lands somewhere durable that a person or system works from: the approval queue, the receiving system for `handed_off`, a review queue for `escalated` and `partial`, a dead-letter queue for `failed` once retries are exhausted. Each item carries the run ID, status, reason and a checkpoint reference. A log line alone is not a sink. Prove each sink with a test that forces that exit and checks the item arrives.
+
 ### Downstream decisions: hand off, don't hold the run
 
 Use `awaiting_approval` only when the run itself holds the pending action and the decision comes back to it quickly, through the agent's own UI or queue, within minutes to hours.
@@ -127,6 +130,7 @@ Holding a run open for days pins old configuration, ties up resources and acts o
 | Failure | Response |
 |---|---|
 | Model output breaks schema | Inner loop: re-ask with the validation error, bounded [DEFGUIDE ch5] |
+| Closed-vocabulary output (a label, yes/no, met/not met) that is not exactly one allowed value, or no answer (timeout) | Its own `invalid` class: re-ask once, then escalate. Never map it onto a real label, and never onto the adverse one: a garbled reply must not become a denial. Adverse decisions stay with a person (autonomy-and-shape.md) |
 | Transient tool or network error | Retry with backoff, bounded |
 | Tool unavailable | Alternative tool or path if one exists; else partial or failed |
 | Optional enrichment fails | Degrade: continue, mark output partial [SYSTEMS ch10] |
@@ -148,8 +152,29 @@ Two correction loops, kept separate [DEFGUIDE ch5]: the **inner loop** re-asks t
 - Keep the minimum the workflow needs, in a database, not process memory: runtime status (busy, waiting, error), task status, task state detailed enough to restart and diagnose [MESH ch5].
 - Most systems are stateless per request with task state in an external store [SYSTEMS ch10].
 - Checkpoint at every step boundary, keyed by run ID (thread ID per conversation branch). A checkpoint holds intermediate tool results, the node where execution paused, pending routing, and the configuration to resume with the same model, prompt, tools and policy, so a late failure does not repay earlier expensive reasoning [DEFGUIDE ch5].
-- Pin configuration per run: load the policy, hash it, write policy and schema hashes and run ID into state, so a config change cannot alter a run in flight [DEFGUIDE ch5].
+- Pin configuration per run: load the policy, hash it, write policy and schema hashes and run ID into state, so a config change cannot alter a run in flight [DEFGUIDE ch5]. Peer agents are configuration too: a multi-step run calls versioned endpoints or aliases fixed at run start, or a deploy mid-run means later steps talk to different code.
 - Human waits use the same mechanism: interrupt + checkpointer, resume when input arrives [BUILDAGENTIC ch2].
+- When new input arrives for a stored case, restart from the first phase whose inputs changed and reuse the checkpoints before it.
+
+### One writer per run
+
+Two writers can hold the same run: a retry and a resume, two replicas, a redelivered event. With unconditional writes the last writer wins and the other write is lost without an error. Either:
+- make state writes conditional: create only if the key does not exist; update only if the stored version equals the version you read, and increment it. On a failed condition, reload and decide again; never blind-overwrite. IDs for append-only records (ledger entries, step logs) come from a conditional create or a time-ordered unique ID, never "read the last ID and add one"; or
+- route every event for one run or case through a single consumer (multi-agent.md, "Partitioning"), so there is one writer by construction.
+
+```python
+def save(store, run_id, state, read_version):     # read_version is 0 for a new run
+    ok = store.put_if(run_id, {**state, "version": read_version + 1}, expect_version=read_version)
+    if not ok:
+        raise StaleState(run_id)                    # reload and re-decide; never overwrite
+```
+
+### Typed, versioned checkpoints
+
+- Serialise through the state schema (a typed model), not ad hoc JSON. Enums, nested records and optional fields must round-trip; a string compared with an enum is silently false.
+- Store a state-schema version with every checkpoint. On load, migrate known older versions and refuse unknown ones: end the run `failed` with the reason, or restart it deliberately from a recorded position. Never resume from state the code can't read.
+- Test resume across processes: write in one process, kill it, load in a fresh one, compare field by field. A same-process test passes even with an in-memory store.
+- When a run consumes a stream, record the last position it committed. On a restart without usable state, start from that position or the earliest retained one, never "latest" by default, which skips the backlog.
 
 ## Execution mode
 
@@ -158,6 +183,16 @@ Two correction loops, kept separate [DEFGUIDE ch5]: the **inner loop** re-asks t
 | Sync request-response | Short, bounded work inside the UX latency budget |
 | Async job | Long analysis, slow tools, approval waits. Needs job IDs, status, cancellation, correlation IDs, retries [SYSTEMS ch10] |
 | Long-running across many context windows | Keep progress outside the model: a progress file, a structured task list with each item marked failing until verified, git commits per unit; each session picks one unfinished item, verifies it end to end, records it (Anthropic, "Effective harnesses for long-running agents", 2025-11) |
+| Triggered from an ordered stream | Events for one key must be handled in order (a partitioned log, change events per case). Needs bounded retries and a tested failure sink (below) |
+
+### Ordered streams: poison events and failure sinks
+
+In an ordered stream one failing event stops everything behind it in its partition, and the trigger retries it until the event expires while the backlog grows.
+- Bound retries by count and by event age, and split a failing batch to isolate the bad event.
+- Report the first failed event and stop processing the rest of the batch, so later events aren't handled before it; the source redelivers from there.
+- Send the isolated event to a failure sink with enough to replay it. If the sink stores only pointers (partition and offset), keep the source's retention longer than your triage time.
+- Attach the sink to the trigger that reads the stream. A sink configured for another invocation path never sees these failures, and a sink that never fires looks exactly like a healthy one. Prove the path with a test that injects a malformed event and checks it lands in the sink.
+- Partition by the case or session whose events must stay in order (multi-agent.md, "Partitioning").
 
 ## Estimating at volume
 
@@ -222,4 +257,4 @@ def done(store, run_id, st, status, payload):
     return {"status": status, "result": payload, "steps": st["steps"]}
 ```
 
-Left out on purpose, add per design: on resume, execute `pending` once approved instead of re-planning; time and cost budgets next to the step budget; schema validation of the final answer; per-step trace records; a circuit breaker.
+Left out on purpose, add per design: on resume, execute `pending` once approved instead of re-planning; time and cost budgets next to the step budget; schema validation of the final answer; per-step trace records; a circuit breaker; conditional, versioned `store.save` when more than one process can hold a run (see "One writer per run").

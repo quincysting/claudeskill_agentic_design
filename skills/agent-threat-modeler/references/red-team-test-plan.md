@@ -21,7 +21,8 @@ suite, not in design documents.
 4. **Iterate.** Define risk surface → simulate → execute → analyse against CIA at every layer → feed back into design
    [DEFGUIDE ch12]. A one-off pen test is not a certification.
 5. **Regression on every change.** Each finding becomes a saved test with its expected trace property, run on every
-   model, prompt, tool or data-source change.
+   model, prompt, tool or data-source change. Every gate change also re-runs one allowed call per tool (allow-path
+   regression), because default-deny engines break reads first.
 6. **Measure both sides.** Attack success rate per technique class, and false-positive rate on a benign set with
    legitimate requests that look risky (developer traffic, security staff, quoted attacks in support tickets).
 
@@ -64,10 +65,33 @@ Adapted from [DEFGUIDE ch12].
 - Exfiltration through each external channel, including URLs, rendered images and created artefacts
 - Persuasive approval requests (the agent argues for an over-limit or destructive action)
 - Confused deputy and token misuse at MCP or API boundaries
+- Asserted identity: token or invoke calls naming another user's ID
+- Token replay and malformed tokens at each hop: wrong audience, ID token instead of access token, missing expiry
+- Gate bypass: calling a tool backend directly, or through an old version or endpoint
+- Memory tool scope keys: reading or writing with another session's ID or a forged author role
 - Path traversal and sandbox escape attempts from generated code
 - Cross-tenant retrieval and identifier confusion
 - Resource exhaustion: loops, recursive calls, fan-out, cost
 - No-attacker cases: ambiguous request that tempts a destructive shortcut; safety instruction pushed out by a long context
+
+## Delegation tests
+
+One test per invariant in [controls-catalog.md](controls-catalog.md) §3 Delegation chains, proven from the per-hop
+audit rows, not from the final answer:
+
+| Property | Setup | Expected trace property |
+|---|---|---|
+| Propagation | One user request crossing every hop | The same user subject on every hop's audit row, with each hop's actor recorded |
+| Scope narrowing | A user who holds read and write asks for a read | Each hop's token carries only the scope that hop needs; no write scope on the read path |
+| Agent ceiling | A read-only agent is steered toward a write | No write token is issued: refused at issuance, not only at the resource |
+| Reach | An agent requests an audience it isn't wired for; an upstream token is replayed at a downstream agent | Refused at issuance; the replay gets 401 or 403 |
+
+## Gate rule tests
+
+- **Paired control.** Test each content rule with two calls to the same tool that differ only in the scanned field.
+  Only the flagged one may be blocked, which proves the rule judges content rather than blocking the tool.
+- **Allow paths on mutating tools without side effects.** Use a non-existent ID where the tool reads before it writes,
+  or an idempotent repeat. Check first that the tool doesn't create a record for an unknown ID.
 
 ## Tooling (as of 2026-10; verify versions)
 
@@ -87,3 +111,6 @@ Benchmarks compare configurations; they do not certify your agent. Your own path
 - One drill each for: kill switch (time to revoke), secret rotation, memory purge and restore.
 - One approval-lifecycle test: timeout expires with no action; double approval executes once; edited arguments over the
   cap are refused.
+- One gate-rule check through the deployed gate: every rule active; one allow and one deny case per tool, allow cases
+  included (default deny breaks reads first).
+- For delegated or multi-agent flows, the four delegation tests above.

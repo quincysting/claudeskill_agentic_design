@@ -45,7 +45,7 @@ Ask for what's missing. If the user can't answer, proceed on stated assumptions 
 **Mode B (governance)**
 1. The estate: number of agents, builders, stacks, what each reads and writes, which are in production, low-code agents included.
 2. Existing bodies: risk committee, model risk, change board, data governance, CISO.
-3. How model calls and tools are wired today (direct vendor keys? gateway?), and what is logged and for how long.
+3. How model calls and tools are wired today (direct vendor keys? gateway?), what is logged and for how long, where agent identities come from (the existing identity provider or a separate store), and who may change the gateway's settings. If the estate runs on AWS, map the identity and control-plane duties with references/governance-operating-model.md §11.
 4. Org shape: business units building agents, central platform team or not.
 5. EU exposure: provider or deployer, Annex III areas touched, workplace use, sector regulators.
 
@@ -80,8 +80,8 @@ Use references/governance-operating-model.md and templates/governance-plan.md.
 
 1. **Size the estate and the trigger.** Inventory every agent, low-code ones included. Governance becomes necessary when the first agent writes to a system of record or a second team builds agents. Plan a day-1 minimum and later additions; don't prescribe the full apparatus for three agents.
 2. **Register.** Set up four registries: agent, action catalog, model, prompt/config. Use the agent-registry minimum schema. Make registration a deploy-pipeline step, and have the control plane refuse unregistered agents.
-3. **Tier and certify.** Put every agent in T0-T3. The tier sets certification depth, approvals, recertification cadence and what the control plane passes. Bind each certificate to version plus configuration fingerprint. Recertify on model, prompt or tool change, on expiry, and on error-budget breach; pin model versions.
-4. **Enforce and prove.** Agents get no direct path to models, systems of record or each other. The gateway checks registration, certification and allowed tools on every call, enforces cost ceilings, and writes traces with version and owner to tamper-evident storage. Agent identity and per-action approval mechanics go to agent-threat-modeler.
+3. **Tier and certify.** Put every agent in T0-T3. The tier sets certification depth, approvals, recertification cadence and what the control plane passes. Bind each certificate to version plus configuration fingerprint, which covers security config (authorizer, allowed clients, policy set, gate mode) as well as prompts, tools and model (references/governance-operating-model.md §2-3). Recertify on model, prompt or tool change, on expiry, and on error-budget breach; pin model versions.
+4. **Enforce and prove.** Agents get no direct path to models, systems of record or each other. The gateway checks registration, certification and allowed tools on every call, enforces cost ceilings, and writes traces with version and owner to tamper-evident storage that shows who acted for whom. Name who may change the gate itself (mode, rules, authorizer): a separate role, a second approver, an alarm on every change. Issue agent identities from the existing identity provider, tagged with the owning team (references/governance-operating-model.md §1, §2, §5). Agent identity and per-action approval mechanics go to agent-threat-modeler.
 5. **Assign accountability.** Name an owner for each of the four areas. Give every agent a business owner and a safety owner. For T2/T3 agents, answer the five second-layer RACI questions and say where code enforces each one. Handle liability through contracts, logs and insurance.
 6. **Regulation.** Screen each use case: prohibited practice? Annex III? Art. 6(3) derogation (never with profiling)? Provider or deployer? Art. 50 disclosure? Map each duty to a registry field, trace, oversight assignment or workforce step, with its date (references/eu-ai-act-2026-10.md). Compare each date with today's date and mark it "applies now" or "from <date>". For regulated sectors (banking, insurance, investment services, credit), add the sector regimes from §7 of that file. Mark the result "not legal advice; counsel to confirm".
 7. **Operating model.** Central platform, federated builders: the platform team owns gateway, registry, eval framework and paved road; business units own domain agents and KPIs; enabling teams own standards and reviews. Extend existing committees before creating new ones, and make every committee decision end as a registry field. Fill roles before creating new job titles.
@@ -171,7 +171,7 @@ Before returning, check:
 - [ ] Numbers come from the script, not mental arithmetic; the largest pilot-uncertainty drivers are named and the pilot measures them; baseline facts are measured, not left to the pilot.
 - [ ] The pilot has a control, a stabilisation period, a sample-size estimate, and exit and kill criteria tied to the model.
 - [ ] All five risk categories have owners; liability is allocated.
-- [ ] (Mode B) Every committee decision maps to a registry field or a control-plane check; tiers set certification weight; retirement revokes credentials.
+- [ ] (Mode B) Every committee decision maps to a registry field or a control-plane check; tiers set certification weight; retirement revokes credentials; the fingerprint covers security config; changes to the gate have a named role and an alarm, plus a second approver once the estate grows.
 - [ ] EU AI Act dates come from the reference file (Annex III from 2 Dec 2027, Annex I from 2 Aug 2028, Art. 50 from 2 Aug 2026), each marked "applies now" or "from <date>"; regulated sectors list their sector regimes; the "not legal advice" note is present.
 - [ ] Sibling skills are named where their work starts.
 
@@ -191,6 +191,7 @@ Before returning, check:
 | Governance as documents and meetings | Registry plus control-plane refusal; decisions become fields |
 | MESH-style certification for every read-only helper | Tier it |
 | Writing "the agent must not..." in the prompt and calling it a control | Enforce in tools and orchestration |
+| Guarding the agents but not the switch that turns the guards off | Name who may change the gate; second approver and alarm on every change; fingerprint the security config |
 | Pre-Omnibus EU dates (Annex III in Aug 2026) or confident legal conclusions | Use the reference file's dates; mark "not legal advice; counsel to confirm" |
 | False precision ("ROI 284.7%") | Ranges and scenarios, with the drivers named |
 | Moving the containment range until the floor test passes | Set the range from evidence first; a low end under breakeven + 10 points means pilot only |
@@ -209,3 +210,5 @@ Distilled from these books (chapter numbers as in the original editions):
 - *AI Agents with MCP* (MCP): ch9 registries and gateways. *Systems Thinking for Agentic AI* (SYSTEMS): ch18 trust classes. *Designing Large Language Model Applications* (DLLMA): ch1.
 
 External (fetched 2025-2026): Anthropic, Building effective agents, https://www.anthropic.com/engineering/building-effective-agents · METR 2025 study, https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/ and 2026 update, https://metr.org/blog/2026-02-24-uplift-update/ · Brynjolfsson, Li, Raymond, NBER w31161, https://www.nber.org/papers/w31161 · Gartner forecast as reported, https://techresearchonline.com/news/gartner-agentic-ai-projects-termination-forecast/ · EU AI Act timeline, https://artificialintelligenceact.eu/implementation-timeline/ · Orrick on the Digital Omnibus, https://www.orrick.com/en/Insights/2026/07/EU-AI-Act-Update-Digital-Omnibus-Finalizes-8-Compliance-Changes · AI Act Articles 6, 12, 26 and Annex III at artificialintelligenceact.eu · MCP Registry, https://modelcontextprotocol.io/registry/about · A2A agent discovery, https://a2a-protocol.org/latest/topics/agent-discovery/ · NIST NCCoE agent identity concept paper, https://csrc.nist.gov/pubs/other/2026/02/05/accelerating-the-adoption-of-software-and-ai-agent/ipd
+
+Practitioner lab notes (AWS AgentCore and data labs, 2026-10). AWS documentation checked 2026-10-11: policy enforcement modes, https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/policy-enforcement-modes.html · gateway condition keys, https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/security-gateway-condition-keys.html · AgentCore Identity tagging, https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/identity-tagging.html

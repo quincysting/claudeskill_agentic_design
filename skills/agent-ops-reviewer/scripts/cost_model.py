@@ -1,5 +1,5 @@
 """Per-request cost and latency model for an agent: expected value, a likely high (about p95) request,
-the capped ceiling, per-step share, peak load per model tier and three what-ifs. Standard library only.
+the capped ceiling, per-step share, peak load per model tier and three or four what-ifs. Standard library only.
 
   python cost_model.py               # example spec (self-check runs first)
   python cost_model.py spec.json     # your spec (self-check runs first)
@@ -140,16 +140,24 @@ def peak_load(spec):
     return rpm, load
 
 
+def churned(steps):
+    """Prefix changes per request (timestamp, request ID before the cache point): every read becomes a write."""
+    return [{**s, "cached": 0.0, "written": s.get("cached", 0.0) + s.get("written", 0.0)} for s in steps]
+
+
 def what_ifs(spec):
     steps = spec["steps"]
+    churn = {}
     if any(s.get("cached", 0.0) for s in steps):
         cache = ("prompt cache off", [{**s, "cached": 0.0, "written": 0.0} for s in steps])
+        churn = {"prompt cache churning (every cached token written, none read)": expected(spec, churned(steps))}
     else:  # nothing cached yet: show the stable-prefix case, 80% of input read and 5% written
         cache = ("prompt cache on (80% read, 5% written)", [{**s, "cached": 0.8, "written": 0.05} for s in steps])
     cheapest = min(spec["prices"], key=lambda m: spec["prices"][m]["in"] + spec["prices"][m]["out"])
     top = max(steps, key=lambda s: step_cost(spec, s))
     return {
         cache[0]: expected(spec, cache[1]),
+        **churn,
         f"BOUND, not a plan: all steps on '{cheapest}' (no quality or repair cost)":
             expected(spec, [{**s, "model": cheapest} for s in steps]),
         f"'{top['name']}' calls halved": expected(spec, [{**s, "calls": s["calls"] / 2} if s is top else s
@@ -252,7 +260,11 @@ def selftest():
     assert abs(expected(spec) - 0.03707) < 1e-4, expected(spec)
     assert abs(ceiling(spec) - 1.2704) < 1e-4, ceiling(spec)
     assert expected(spec) < heavy(spec) < ceiling(spec)
-    assert expected(spec, [{**s, "cached": 0.0} for s in spec["steps"]]) > 2 * expected(spec)
+    off = expected(spec, [{**s, "cached": 0.0} for s in spec["steps"]])
+    assert off > 2 * expected(spec)
+    assert abs(expected(spec, churned(spec["steps"])) - 0.092001) < 1e-6  # hand-checked: input x (1 + 0.25 x cached)
+    assert expected(spec, churned(spec["steps"])) >= off  # write multiplier >= 1: churn costs at least cache-off
+    assert len(what_ifs(spec)) == 4 and len(what_ifs({**spec, "steps": [{**s, "cached": 0.0} for s in spec["steps"]]})) == 3
     spec["steps"][2]["max_calls"] = None
     assert ceiling(spec) is None and any("UNBOUNDED" in w for w in warnings(spec))
     merged = merge(EXAMPLE, {"prices": {"mid": {"in": 3.0}}})

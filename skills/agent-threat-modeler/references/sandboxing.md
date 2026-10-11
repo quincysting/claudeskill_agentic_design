@@ -107,6 +107,9 @@ success fell from 23.6% to 11.2% with mitigations; one in nine is not acceptable
 - Human confirmation before purchases, posting or sending, sharing personal data, accepting terms of service, and
   changing account settings.
 - Treat everything on screen as untrusted content, including text in images.
+- Record sessions for audit to storage the agent can't reach or alter (write-once retention), and keep control-plane
+  logs (who started which session, as whom) beside the recordings. Together with a least-privilege execution role,
+  the recordings tie each action to a session and each session to a caller.
 - Prefer the most structured surface that exists: API or CLI, then DOM or accessibility tree, then pixels. An API call
   can be validated before it runs; a click can only be checked afterwards.
 - Vendor guidance (as of 2026-10, Anthropic computer-use docs) repeats these points: dedicated VM or container, minimal

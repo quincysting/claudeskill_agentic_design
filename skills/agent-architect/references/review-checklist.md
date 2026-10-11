@@ -54,19 +54,29 @@ Severity: **Critical** = can cause irreversible harm or data loss; **High** = bu
 | Critical constraint exists only in the prompt | High (Critical if destructive) | Enforce in orchestrator, tool layer or policy engine [ENTERPRISE ch7] |
 | No step, time or cost cap, or caps left at framework defaults nobody chose | High | Budgets with numbers, sized from eval worst case (control-loop.md) |
 | No no-progress detection | High | Stop on repeated (tool, args) or N steps without new facts [SYSTEMS ch8] |
-| Cap-hit, error and success exits produce the same output | High | Exit statuses carried to the output; partial results say what is missing |
+| Cap-hit, error and success exits produce the same output, or a step's flag reads the same for "not needed" and "failed" | High | Exit statuses carried to the output; partial results say what is missing; per-step status `called` / `not_needed` / `failed: <reason>` |
+| Off-list or unparseable model output (a label, yes/no, a timeout) defaults to a real answer | Critical if it defaults to an adverse decision, else High | Treat it as `invalid`: re-ask once, then escalate (control-loop.md failure table) |
+| A non-`completed` exit only writes a log line, or a dead-letter or failure sink has never been seen to fire | High | Durable sink per exit with run ID and checkpoint reference; a test that forces each exit (control-loop.md, "Exit statuses") |
+| Run state or checkpoints written with an unconditional overwrite where more than one writer can exist (retry plus resume, replicas, redelivered events) | High | Conditional create/update on a version, or one consumer per case (control-loop.md, "One writer per run") |
+| Checkpoints stored as untyped JSON with no schema version, or resume tested only inside one process | High | Serialise through the typed state schema, version it, test write-kill-reload across processes (control-loop.md) |
+| Ordered-stream trigger with unbounded retries, or a poison event that blocks its partition | High | Bounded retries by count and age, batch splitting, report the first failure, a tested failure sink (control-loop.md, "Ordered streams") |
 | Required check failure lets the run continue | High | Stop or escalate; degrade only for optional steps [SYSTEMS ch10] |
 | Model calls for deterministic work (fetching the obvious next thing, formatting, arithmetic) | Medium (High at volume) | Prefetch and compute in code [SYSTEMS ch16] |
 | Several agents with the same context, tools and output schema (role theatre) | High | Merge; apply the split test [SYSTEMS ch13] |
 | LLM manager/coordinator routing every step, accumulating summarising and judging | High | Coordinator in code; LLM routing as enum + FINISH |
 | Every agent receives the full conversation history | Medium | Task + named context slice; filter handoffs [DEFGUIDE ch2] |
 | Agents can message each other without a hop cap or repetition detection | High | Hop and round caps, tailspin detection [ENTERPRISE ch6] |
+| A split justified by data or permissions, but every agent's identity can reach every store, or nobody has tested a denial | High | Per-agent credentials scoped to its own stores; a negative test per other agent (multi-agent.md, "If you split") |
+| Undocumented direct call between agents, with no budget, fallback, audit record or status | Medium | Document it as an exception, or route it through the orchestrator (multi-agent.md) |
+| Message types hand-copied into each agent, or receivers that reject unknown fields | Medium | One schema source, additive changes, contract tests, readers deployed first (multi-agent.md) |
+| Peer address compiled into another agent's package | Medium | Address in the registry entry or deploy-time configuration |
 | Critique or reflection loop with no round cap, or reflection on every step without a signal | Medium | 1 to 2 rounds; trigger on evidence [DLLMA ch10] |
 | Reasoning effort high everywhere, never measured | Medium | Sweep per task family; default low or adaptive [BUILDAGENTIC ch7] |
 | Hand-parsed THOUGHT/ACTION text format | Medium | Native tool calling or structured output |
 | No checkpoints on runs that wait for people or last minutes | High | Checkpoint per step with config versions; durable execution if long |
 | Checkpoints hold only messages | Medium | Add tool results, pending routing, config versions [DEFGUIDE ch5] |
 | Policy or prompt can change mid-run | Medium | Pin and hash config per run [DEFGUIDE ch5] |
+| A peer agent's deploy changes the code a running case talks to | Medium | Call peers at versions or aliases fixed at run start (control-loop.md) |
 | No trace that answers "why did it do that?" | High | Per-step trace; hand to agent-ops-reviewer |
 | Raw chain-of-thought shown to users or used as the audit record | Medium | Log structured decisions and reasons [SYSTEMS ch3] |
 | Agent with no remaining autonomy (every step forced by rules) | Low | Replace with code [ENTERPRISE ch1] |
@@ -91,10 +101,11 @@ Severity: **Critical** = can cause irreversible harm or data loss; **High** = bu
 - [ ] Tools have risk tiers; writes gated in code; approvals where the tier requires.
 - [ ] Budgets with numbers: steps, calls, tokens or cost, wall time, breadth.
 - [ ] No-progress detection.
-- [ ] Every exit designed: completed, partial, awaiting_approval, handed_off, escalated, failed; downstream decisions start a new run.
-- [ ] Retries split by failure class; idempotency on writes; required-check failure stops the run.
-- [ ] State schema; checkpoint per step with versions; run ID; config pinned per run.
-- [ ] Execution mode fits the latency target; long runs async and resumable.
+- [ ] Every exit designed: completed, partial, awaiting_approval, handed_off, escalated, failed; downstream decisions start a new run; every non-completed exit lands in a durable sink that a test has seen fire.
+- [ ] Retries split by failure class; idempotency on writes; required-check failure stops the run; off-list model output is `invalid`, never a real answer.
+- [ ] Typed state schema with a version; checkpoint per step; run ID; config and peer versions pinned per run; resume tested across processes.
+- [ ] One writer per run: conditional state writes or a single consumer per case.
+- [ ] Execution mode fits the latency target; long runs async and resumable; ordered-stream triggers have bounded retries and a failure sink.
 
 **Reasoning**
 - [ ] Each model step names its dials with numbers and the signal each depends on.
@@ -108,6 +119,10 @@ Severity: **Critical** = can cause irreversible harm or data loss; **High** = bu
 - [ ] Orchestrator in code; typed messages validated at each hop; context slices written down.
 - [ ] Caps on calls, hops, rounds; repetition detection; written conflict rule.
 - [ ] Run ID propagated; nested trajectories traceable.
+- [ ] Each agent's credentials reach only its own stores, proven by a denial test.
+- [ ] Inter-agent schemas come from one source and change additively; discovery by capability and minimum version where agents release independently; addresses in configuration.
+- [ ] Any direct agent-to-agent call is a documented exception with budget, fallback, audit record and status.
+- [ ] Event-driven: partitioned by case or session; log retention covers replay and audit.
 
 ## 6. Report shape
 

@@ -57,6 +57,8 @@ Weighing common pro-split claims:
 
 Separate a **reasoning plane** (model-driven roles) from a **control plane** in code: authorisation, orchestrator, schema and policy checks, state, approval gates, tool execution, timeouts, cost limits, tracing [SYSTEMS ch13]. Agents propose; the runtime decides.
 
+**Make the boundary real in credentials.** A data or permission boundary that justifies a split must exist in credentials, not only in prompts or tool lists. Each agent's runtime identity reaches only its own stores. Prove it with a negative test (a policy simulation or a real call) showing that every other agent's identity is denied. Review the effective permissions, not policy names: a harmlessly named inline grant can open another agent's store. Threat-model the rest with agent-threat-modeler.
+
 ### Topology
 
 Words mean different things in different sources; say which you mean.
@@ -70,7 +72,7 @@ Words mean different things in different sources; say which you mean.
 | Hierarchy (teams of teams) | Supervisors of supervisors [DEFGUIDE ch2] [MESH ch14] | Many specialists in distinct sub-domains; one chain of control | Harder to debug; a flat supervisor with five workers often suffices |
 | Peer handoff / swarm | The receiver takes over the conversation [DEFGUIDE ch2] | Conversations that move between experts | Low repeatability; default handoffs may forward full history; ping-pong [BUILDAGENTIC ch5] |
 | Network / democratic | Any agent messages any other | Rarely | Expensive in messages, hard to predict |
-| Event-driven fleet | Per-agent queues, pub/sub, replay [MESH ch7] [MESH ch10] | Long-running async work, many instances | Overkill for request/response features |
+| Event-driven fleet | Per-agent queues, pub/sub, replay [MESH ch7] [MESH ch10] | Long-running async work, many instances | Overkill for request/response features; partition key and log retention (Communication) |
 | Cross-organisation over A2A | Remote agent owned by another team or company [ILLUSTRATED ch8] | Real organisational boundary | Authorisation outside the prompt; protocol details: agent-tool-designer |
 
 ### Coordinator
@@ -82,10 +84,31 @@ Words mean different things in different sources; say which you mean.
 ### Communication
 
 - **Default: orchestrator-mediated, typed messages.** Every message passes the orchestrator, which validates it, updates state and picks the next step: one place for schemas, permissions, retries, stop rules and logging [SYSTEMS ch13]. No free-form agent chat.
-- **Event bus is a transport, not a contract.** Queues and pub/sub (Kafka, NATS JetStream, Redis Streams, RabbitMQ) decouple senders and give replay [MESH ch10] [BUILDAPPS ch8]; they carry the typed messages. Small messages with new information only; fetch history by conversation ID [MESH ch10].
+- **Event bus is a transport, not a contract.** Queues and pub/sub (Kafka, NATS JetStream, Redis Streams, RabbitMQ) decouple senders and give replay [MESH ch10] [BUILDAPPS ch8]; they carry the typed messages. Small messages with new information only; fetch history by conversation ID [MESH ch10]. Replay and audit work only as long as the log keeps the events: a compacted topic keeps the latest value per key, which suits a state snapshot and not a history.
+- **Partitioning.** Partition by the entity whose events must stay in order: case, session or run ID. That spreads load, keeps each case's events ordered and gives each case a single consumer, which removes most concurrent-writer problems (control-loop.md, "One writer per run"). A low-cardinality key (region, team, tenant) creates hot partitions. Poison events: control-loop.md, "Ordered streams".
 - **Transport ladder:** in-process calls → message broker → actor framework (pays off beyond roughly 10 to 20 agents or under tight latency) → durable workflow engine for long runs [BUILDAPPS ch8].
 - **Task lifecycle:** every task gets an ID and explicit states (e.g. ready, working, pending, error, complete), so a stalled task waits visibly [MESH ch10].
 - **Shared state** (blackboard, workspace): append-only, attributed writes; record which version each step consumed [SYSTEMS ch13].
+
+### Contracts between separately deployed agents
+
+Independent release is one of the reasons to split, so plan for agents that ship at different times.
+- **One source per message schema:** a shared package or generated code, with a contract test per hop in CI. Hand-copied types drift, and the mismatch surfaces as a type error several hops later.
+- **Change schemas additively.** New fields are optional with defaults; receivers ignore fields they don't know instead of failing, while still validating every field they use; a field is removed only after every producer has stopped sending it. A strict parser that rejects unknown fields turns every schema change into a coordinated release.
+- **Deploy readers before writers:** the agent that must accept a new field ships first.
+- **Discovery.** With a handful of fixed agents, static configuration is enough; don't build a registry for four agents. A registry earns its place when agents are versioned or released independently. Then resolve by capability and minimum version, fail loudly when nothing matches (no silent fallback to another agent), and confirm the address before first use by fetching the agent's own self-description (for A2A, its agent card; protocol details with agent-tool-designer).
+- **Addresses are configuration.** Keep the invocable address with the registry entry or in deploy-time configuration. An address compiled into another agent's package couples their releases and forces a rebuild whenever the peer moves.
+- **Pin peer versions per run** (control-loop.md, "State and checkpoints").
+
+### Direct calls between agents: the documented exception
+
+The default stays orchestrator-mediated. If one agent must call another directly, write it down as an exception: which caller, which callee, on which branch. Give it:
+- the same context slice and validation as an orchestrated hop;
+- its own call and time budget, and a fallback that keeps the run correct when the peer is down;
+- an audit record attributed to the calling agent, under the run ID;
+- a status in the response: `called`, `not_needed` or `failed: <reason>`. One flag that reads the same for "not needed" and "failed" hides failures.
+
+More than one or two such exceptions means the orchestrator design is wrong.
 
 ### Context passing
 
@@ -93,6 +116,7 @@ Words mean different things in different sources; say which you mean.
 - Subagent whose output must cohere with decisions made elsewhere: share those decisions explicitly as a structured decisions record, or do not split.
 - Subagent brief (Anthropic, 2025-06): objective, output format, tool and source guidance, task boundaries; scale effort to the query (1 agent with 3 to 10 tool calls for fact-finding; 2 to 4 subagents with 10 to 15 calls each for comparisons).
 - Exact or sensitive values travel between agents through code, not through the model [ENTERPRISE ch1].
+- Enforce the slice in code at send time: an allowlist of fields per receiving agent, applied to agent-initiated calls too.
 
 ### Memory topology
 

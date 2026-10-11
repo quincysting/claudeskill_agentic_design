@@ -18,13 +18,13 @@ Include a section marked *(optional)* only when its condition holds. Otherwise w
 |---|---|---|---|---|
 
 ## 3. Retrieval
-- **Mode:** <none / cached corpus / always-retrieve / gate / agentic / GraphRAG / text-to-SQL> because <named reason>.
+- **Mode:** <none / cached corpus / always-retrieve / gate / agentic / GraphRAG / text-to-SQL / metric catalog> because <named reason>.
 - **Sources and indexes:** one line per index: content, trust tier (official / derived / community), ACL, owner. Mixed records (tickets, email, chat): what goes into a sanitised index and what stays a live lookup.
-- **Index time:** parsing checks per format; chunking rule; chunk context prepended; metadata schema incl. `tenant_id`, `acl_groups`, `version` or derived `status` and `last_modified`; re-index and deletion triggers.
+- **Index time:** parsing checks per format; chunking rule; chunk context prepended; metadata schema incl. `tenant_id`, `acl_groups`, `version` or derived `status` and `last_modified`; re-index and deletion triggers; idempotent upsert key; post-ingest checks (per-source counts, canary query, backfill or reconcile).
 - **Staleness:** version source, or for undated documents the detection signals, age limits per document type, and the owner review queue.
 - **Query time:** query handling (split instructions, rewriting yes/no and why); BM25 ∥ dense, fused with RRF (k=…); ACL pre-filter from the session; candidates …; reranker …; floor …; chunks passed …; per-source quotas and trust order; evidence item format with IDs, date and status; not-found behaviour; error routing.
 - **Agentic controls** *(optional: only if the agent controls retrieval)*: mandatory-search rule; first retrieval in code?; budgets (hops / calls / tokens / seconds); stop and abstain rule; what is carried between hops.
-- **Caches:** key (incl. permission scope and index version) and invalidation.
+- **Caches:** key (incl. permission scope and ingest generation) and invalidation.
 
 ## 4. Memory
 Long-term memory warranted? <yes/no + the recurrence evidence>
@@ -32,7 +32,7 @@ Long-term memory warranted? <yes/no + the recurrence evidence>
 | Type | Store | Key / scope | Write trigger | Decider | Validation | Update rule | Expiry / forgetting | Deletion path | Read path (floor, cap) |
 |---|---|---|---|---|---|---|---|---|---|
 
-- **Thread state:** checkpointer, retention, where the raw transcript is kept; current-task line and attempt ledger (chat) or progress record (long runs): who writes them, cap, what happens at session end.
+- **Thread state:** checkpointer, retention, where the raw transcript is kept; concurrency control (conditional writes or a single writer) and read order; current-task line and attempt ledger (chat) or progress record (long runs): who writes them, cap, what happens at session end.
 - **Replay/fork policy** *(optional: only if threads are replayed or forked)*: is long-term memory versioned or rolled back?
 - **Multi-agent topology** *(optional: only with sub-agents or several agents)*: shared vs local memory, sub-agent persistence mode.
 
@@ -76,7 +76,7 @@ volatile tail:    …   rebuilt every turn (current-task line, ledger, evidence,
 **Cost** *(when there is a target)*: estimate or low/high range, the assumption that drives it, and the measurements that will replace it.
 
 ## 6. Safety and privacy
-- Permission enforcement points; identity source; cache scoping.
+- Permission enforcement points; identity source (memory tools bind scope keys and author role server-side); cache scoping; row and column entitlements for table and metric queries.
 - Untrusted-content rule for memory writes and for instructions.
 - Deletion map (every copy, including sanitised cards derived from deleted records).
 - Hand-offs: <what goes to agent-threat-modeler>

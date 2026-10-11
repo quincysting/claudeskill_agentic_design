@@ -39,6 +39,8 @@ Ask for these or find them in the code. If an answer is missing, write the assum
 8. **Production settings.** Model and version, temperature, prompt version, tool list, step limit. Evals run at these settings.
 9. **Policies and who owns them.** Rules the agent must follow (approval limits, refund rules, data handling) and the person who decides each. Include the ones that look obvious and aren't, such as whether "card on file" plus "book it" counts as consent to charge.
 
+If the system runs on AWS, map each decision with [references/aws-implementation-notes.md](references/aws-implementation-notes.md).
+
 When reviewing, also collect the dataset (size, sources, version), scorer code, runner, judge prompt, any calibration data, a recent report, and the rule CI uses to pass or fail. Read the code, not just the README: the defects that matter most are in edge-case branches (see [references/review-checklist.md](references/review-checklist.md)).
 
 ## Procedure
@@ -66,13 +68,16 @@ When reviewing, also collect the dataset (size, sources, version), scorer code, 
    - For write tools that move money or book things, inject "write succeeded, response lost" faults (timeout after commit, duplicate user message, restart mid-task) and check for exactly one write.
    - Validate a multi-turn user simulator against real or dogfood conversations before trusting it.
    - Details for all three: datasets-and-harness.md.
+   - If the scorer reads trials from traces or logs instead of the harness's own recorder, the telemetry pipeline is part of the instrument. Check that export is live before sending traffic, wait on each trial's spans with a deadline, sample eval sessions at 100%, and treat a trace that never arrives as a harness fault to rerun and report, never a silently dropped trial (datasets-and-harness.md, requirement 13).
+   - Record the prompt and config version each trial actually ran with. A run that mixes versions is a harness error (requirement 6).
 
-5. **Choose a scorer per quality, cheapest adequate first.** Use [references/scorers.md](references/scorers.md) and the decision table below. The ladder is code check, then embedding pre-filter (only with a reference answer), then rubric LLM judge, then human. For trajectories: fail on forbidden actions, skipped preconditions and blown budgets; compare tool *sets* (recall, precision, argument accuracy) and check order only where it carries meaning; report efficiency as a soft score; never require one exact sequence. For RAG inside the agent, score retrieval and generation separately. For safety, cover the three threat models: misuse, manipulation through data, and benign-task harm.
+5. **Choose a scorer per quality, cheapest adequate first.** Use [references/scorers.md](references/scorers.md) and the decision table below. The ladder is code check, then embedding pre-filter (only with a reference answer), then rubric LLM judge, then human. For trajectories: fail on forbidden actions, skipped preconditions and blown budgets; compare tool *sets* (recall, precision, argument accuracy) and check order only where it carries meaning; report efficiency as a soft score; never require one exact sequence. For RAG inside the agent, score retrieval and generation separately. For safety, cover the three threat models: misuse, manipulation through data, and benign-task harm. Decide which level each scorer reads (tool call, turn or session), and pair every reference-free judge (helpfulness, coherence, tone) with a reference-based or state check on a labelled slice; only that pairing exposes confident wrong answers (scorers.md, "Scoring level" and "Divergence check").
 
 6. **Design and calibrate each judge.** Follow [references/llm-judges.md](references/llm-judges.md).
    - Write a versioned rubric with three to five weighted criteria and defined score levels, phrased as the workflow's practical questions ("is every claim supported by the retrieved policy?", "should this message be sent?"). It returns JSON with reasons, uses the lowest-variance sampling the provider accepts (temperature 0 where allowed; the newest Claude models reject non-default sampling parameters, so there rely on a fixed versioned prompt, structured output and a majority of three samples), and comes from a different model family than the agent where possible.
    - Before a judge gates anything, have a person label 50 to 100 cases from this task, including fluent-but-wrong outputs. Report chance-corrected agreement (Cohen's κ on pass/fail) and the judge's **false-pass rate**. Until then the judge ranks outputs for human review and nothing more.
    - Pin the judge model and rubric version, and recalibrate whenever either changes.
+   - If people tune prompts against judge scores, keep one release-time evaluator they don't tune against (llm-judges.md, "Held-out evaluator").
    - When expert hours are scarce, shrink the judge's job rather than skip calibration. Move every checkable quality into code, calibrate only the criteria that gate, and do one criterion per labelling round, highest risk first.
 
 7. **Set trials and reliability metrics.** Run every task at least 3 times (5 is better) for customer-facing or side-effecting agents, and report pass^k next to pass@1, computed per task and then averaged. Use pass@k only where a verifier allows retries or when comparing training checkpoints. See [references/statistics.md](references/statistics.md). Fit trial counts to the budget by risk: more trials on side-effecting slices, one on read-only slices in nightly runs. Estimate the cost per run from measured agent cost per trial, not just judge cost ([references/ci-gates.md](references/ci-gates.md), "Agent inference cost").
@@ -98,7 +103,7 @@ When reviewing, also collect the dataset (size, sources, version), scorer code, 
 
 11. **Write the output and check it** against the Quality bar below. Include a short rollout: what exists by the end of week 1, by launch, and after launch.
 
-**Review mode.** When asked to review an existing setup, do steps 1 and 2 from what you find, then work through [references/review-checklist.md](references/review-checklist.md): first the "cannot fail" checks (scorers that pass on empty or missing data, dropped errors, averaged hard checks, oracle leakage), then statistics, judge calibration and gates. For "evals pass but production fails", use the symptom table in that file. Report findings by severity with the exact location, then a fix for each.
+**Review mode.** When asked to review an existing setup, do steps 1 and 2 from what you find, then work through [references/review-checklist.md](references/review-checklist.md): first the "cannot fail" checks (scorers that pass on empty or missing data, dropped errors, platform averages that lose failed or trace-less sessions, judge scales no wrong answer can fall into, averaged hard checks, oracle leakage), then statistics, judge calibration and gates. For "evals pass but production fails", use the symptom table in that file. Report findings by severity with the exact location, then a fix for each.
 
 ## Decision guide
 
@@ -187,7 +192,9 @@ Before returning, check that the output:
 - [ ] gives each judge a versioned rubric with defined levels, and a calibration plan with κ and false-pass rate, before it gates;
 - [ ] fails trials on forbidden actions and skipped preconditions without demanding one exact path;
 - [ ] stubs or sandboxes write tools, starts every trial clean, and is shown to fail against a deliberately broken agent;
-- [ ] counts errored trials as failures and reports the error rate;
+- [ ] if trials are read from telemetry, checks the pipeline before traffic, waits per trial, samples eval sessions at 100% and reports missing traces as harness faults;
+- [ ] records the prompt and config version per trial and rejects runs that mix versions;
+- [ ] counts errored and missing trials as failures (recomputing any platform average from per-session results) and reports the error rate;
 - [ ] runs multiple trials and reports pass^k for side-effecting or customer-facing agents;
 - [ ] puts an interval and task count on every rate, sizes the suite for the decision, and compares versions paired;
 - [ ] says which split each number comes from, sizes the held-out split for the release claim, and counts effective tasks where variants cluster;
@@ -225,6 +232,9 @@ Before returning, check that the output:
 | Calling deterministic pre-merge checks "free" | Scoring is free; agent runs aren't. Budget agent inference per run |
 | Live read data and wall-clock dates in tasks | Fixed clock; fixtures or versioned recordings |
 | Testing only clean failures of write tools | Inject "committed but timed out" and check for exactly one write |
+| Quoting a hosted evaluator's batch average as the result | It averages the sessions it found. Recompute from per-session results with missing = failed; report sent, scored and errored |
+| Gating on a platform's built-in judges | Generic, uncalibrated rubrics: calibrate on your labels first, or use them to rank only |
+| Editing a runtime-read prompt while a run is still sending | Pin one prompt and config version per run; assert it before scoring |
 
 ## Sources
 
@@ -237,11 +247,15 @@ Distilled from a cross-book study guide; book chapters by key:
 - BUILDAGENTIC: *Building Agentic AI*, ch3, ch4, ch5 (retrieval metrics, rubric grader, tool-selection study).
 - MESH: *Agentic Mesh*, ch6; ENTERPRISE: *The Agentic Enterprise*, ch6; DLLMA: *Designing Large Language Model Applications*, ch5; MCP: *AI Agents with MCP*, ch7.
 
+Practitioner lab notes (AWS AgentCore and data labs, 2026-10).
+
 External (checked 2026-10):
 - Anthropic, "Demystifying evals for AI agents" (2026-01): https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents
 - E. Miller, "Adding Error Bars to Evals" (2024-11): https://arxiv.org/abs/2411.00640
 - Zheng et al., "Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena" (2023-06): https://arxiv.org/abs/2306.05685
 - Zhu et al., "Establishing Best Practices for Building Rigorous Agentic Benchmarks" (2025-07): https://arxiv.org/abs/2507.02825
 - Cemri et al., "Why Do Multi-Agent LLM Systems Fail?" (MAST, 2025-03, rev. 2025-10): https://arxiv.org/abs/2503.13657
+- AWS, "AgentCore Evaluations: Evaluation types" (checked 2026-10-11): https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/evaluations-types.html
+- AWS, "AgentCore ground truth evaluations" (checked 2026-10-11): https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/ground-truth-evaluations.html
 
 All intervals, sample sizes and test probabilities in this skill were computed with standard binomial formulas; the code is in references/statistics.md.

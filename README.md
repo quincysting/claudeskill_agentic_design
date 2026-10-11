@@ -100,6 +100,18 @@ Two skills include Python helpers that need only the standard library:
 - `agentic-business-case/scripts/roi_model.py`: monthly ROI, payback, breakeven containment, sensitivity and a
   fundable / pilot-only / not-fundable verdict. Running it with no arguments runs its self-check.
 
+## What's new
+
+**October 2026: lessons from hands-on AWS labs.** The skills were checked against a set of hands-on AWS labs
+(AgentCore identity and token exchange, gateways and policy, memory, evaluations, observability, multi-agent state,
+graph and vector data). Where a lab exposed a gap, the fix went into the vendor-neutral core as a rule, checklist
+item or common mistake. Examples: exchange the token at every hop instead of forwarding it, fail closed on missing
+token claims, use conditional writes for shared memory, count missing eval sessions as failures, and keep volatile
+fields out of the cached prompt prefix. Seven skills gained `references/aws-implementation-notes.md`, which maps
+each principle to AWS services and lists the gotchas the labs hit. `agentic-business-case` covers the same ground
+in a section of its governance reference. The four most-changed skills were re-tested cold on new scenarios with
+planted problems, and an independent judge passed all four.
+
 ## How these skills were built
 
 1. Eleven books were converted to text and each was read in full, chapter by chapter, to produce a per-book digest.
@@ -139,6 +151,8 @@ not affiliated with the authors or publishers. If you find the guidance useful, 
   October 2026 and kept in clearly named files such as `references/current-facts-2026-10.md`,
   `references/model-landscape-2026-10.md` and `references/eu-ai-act-2026-10.md`. Check them before relying on
   them, and send a pull request when they change.
+- The AWS notes (`references/aws-implementation-notes.md`) are dated October 2026 too. AWS services change
+  quickly; verify a setting in the AWS documentation before you rely on it.
 - The skills give design and review guidance. They do not replace testing your own system, and the regulatory
   material in `agentic-business-case` is not legal advice.
 - The skills are written for Claude. Other agents that read `SKILL.md` files may use them, but they were only

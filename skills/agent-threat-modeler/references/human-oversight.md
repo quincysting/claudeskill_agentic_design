@@ -60,6 +60,7 @@ States: `pending → approved | rejected | expired | escalated`, and `edited`, w
 | Record approver identity, decision, time, and any override reason | Audit and accountability |
 | Separation of duties for the highest tier: requester ≠ approver; two people for the most sensitive actions | One compromised or careless person is not enough |
 | Approval request revalidated at execution time | State may have changed while it waited (balance, stock, permissions) |
+| The agent can only request; a separate executor identity runs the approved action | A policy engine in front of tools can't see approval state, so the agent's own permit must stop at the request tool ([controls-catalog.md](controls-catalog.md) §2) |
 
 **What the reviewer sees, in this order:** (1) the exact action and arguments: recipient list, amount, SQL, diff;
 (2) the evidence the agent used; (3) the gate's reason for asking, written by code; (4) the agent's own explanation,
@@ -110,7 +111,9 @@ point, not a measured threshold.
 
 **Capacity check: approvals per day (always do the arithmetic).**
 1. For each action class that can reach a person: volume per day × share expected to ask (from the tiers, taint rules
-   and expected escalations). The sum is approvals per day.
+   and expected escalations). The sum is approvals per day. Count each class at its current rung on the autonomy ladder
+   (§5), not its target: a class at "approve each" during a pilot asks for every instance. Run the check once per
+   rollout stage, since the asks fall only as classes are promoted.
 2. Minutes per review: time about 20 real or mock reviews. If you can't, state an assumption and label it.
 3. Review budget: reviewers × minutes per day each can spend on review.
 4. Require approvals × minutes per review ≤ about half the budget. The half is this skill's convention for headroom
@@ -136,6 +139,10 @@ Ladder: **observe (shadow) → suggest or draft → approve each → act and not
     is about 3/n. Pick n = 3 ÷ the failure rate you can tolerate: 100 clean cases bound it near 3%, 300 near 1%. Start
     with 100 for reversible classes and 300 for low-value sub-classes of irreversible actions, over at least two weeks
     of real traffic.
+  - Set the ceiling v of a low-value sub-class from a loss budget: v is the highest amount for which (daily volume of
+    actions at or under v) × v × (3 ÷ n) stays within the loss the owner accepts per day, where n is the clean-case
+    count above. The owner signs v; actions above it stay at "ask every
+    time".
   - Zero severe failures in the window (wrong recipient, over a limit, data exposed, unauthorised action), and a
     substantive edit or rejection rate no worse than the owner accepts from a person doing the same work.
   - Demote on any severe failure, or when the rejection or undo rate over the last n cases exceeds twice the rate at

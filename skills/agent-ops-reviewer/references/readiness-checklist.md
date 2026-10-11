@@ -40,10 +40,10 @@ Percent = points / (2 × applicable items). Report per area and overall.
 
 | ID | Item | Evidence |
 |---|---|---|
-| B1 **B** | One trace ID per request reaches model calls, tool calls, MCP calls, retrieval, validation and logs; sub-agents inherit it; the request ID also goes into provider metadata | Pick one production trace and follow it end to end |
+| B1 **B** | One trace ID per request reaches model calls, tool calls, MCP calls, retrieval, validation and logs; sub-agents inherit it; the request ID also goes into provider metadata | Pick one production trace and follow it end to end; a log line from each component carries the same trace ID as the trace; parallel branches stay in the request's trace. Best: a test with a fake tracer asserts one trace per request (concurrent branches included) and the trace ID on every log line |
 | B2 | One span per step (model, tool, retrieval, validation, guardrail, handoff) with status and error class | Trace view shows the steps, not only entry and exit |
 | B3 | Root and model spans carry agent version, prompt name and version, model ID and parameters, config version, environment | Attributes on a sample trace |
-| B4 | Root records stop reason, iterations, retries, fallbacks, degraded flag, tokens including cache-read, and cost | Attributes on a sample trace |
+| B4 | Root records stop reason, iterations, retries, fallbacks, degraded flag, tokens including cache-read, and cost | Attributes on a sample trace; token counts mapped to the spec's meaning per provider (input includes cached tokens); a test checks the cost arithmetic |
 | B5 | Decisions recorded: selected tool and arguments (or a hash in production), planner choice, validation result, approvals | Attributes or events |
 | B6 | OpenTelemetry-based or OTLP-exportable; GenAI convention names where they exist; instrumentation versions pinned (the conventions are Development status) | Dependency pins; exporter config |
 | B7 | User feedback and online-eval verdicts join the trace by ID | Feedback event or table keyed by trace ID |
@@ -65,7 +65,7 @@ Percent = points / (2 × applicable items). Report per area and overall.
 |---|---|---|
 | D1 | Dashboard by layer (infrastructure, model, agent loop, quality, economics, user) with p50, p95, p99 | Dashboard link |
 | D2 | Stop-reason and loop-iteration distributions tracked, with alerts on shifts | Panels and rules |
-| D3 | Alerts use windows with a minimum sample count, are layered (digest, warning, page) and are tuned towards at most one false page a week, with outcomes logged | Alert rules; alert log |
+| D3 | Alerts use windows with a minimum sample count, are layered (digest, warning, page) and are tuned towards at most one false page a week, with outcomes logged | Alert rules; alert log; rate alerts guarded by a denominator floor; each alert validated on a regression window (fires) and a benign window (stays quiet) |
 | D4 | Alert text names component and version and links example traces; relative triggers after deploys | Alert templates |
 | D5 | Runbook for quality alerts exists and was used | Runbook; last incident notes |
 | D6 | Drift statistics calibrated on own history and used to explain, not to page | Drift job config |
@@ -80,12 +80,13 @@ Percent = points / (2 × applicable items). Report per area and overall.
 | E3 | Samples scrubbed before they are written and deleted on a schedule | Sampler write path |
 | E4 | Eval spend tracked per scorer against a budget (5 to 15% of inference spend) | Cost report |
 | E5 | Implicit signals tracked: rephrase, abandonment, retries, bypass to a manual channel | Metrics |
+| E6 | Online scorers can catch confident wrong answers: groundedness against the trace's own tool results, claim-versus-action checks or code policy rules, plus a periodic labelled sample for reference-based correctness | Scorer list; not only helpfulness or tone judges |
 
 ## F. CI gates and versioning
 
 | ID | Item | Evidence |
 |---|---|---|
-| F1 **B** | Prompts, tool definitions, agent configs and model IDs are versioned; rollback is a version change, not a code edit | Registry or versioned files; version on traces |
+| F1 **B** | Prompts, tool definitions, agent configs and model IDs are versioned; rollback is a version change, not a code edit | Registry or versioned files; version on traces. A prompt or config read at runtime is pinned to a version, the version is on every trace, and changing it is a release (gate, then canary), not an edit |
 | F2 | An offline suite with a reviewed baseline exists | Dataset version; baseline file and its review |
 | F3 | The CI gate runs on PRs touching prompts, models, tools, configs or datasets | Workflow with path filter |
 | F4 | Deterministic regressions have zero tolerance; judged flips are rerun and tested as paired differences; tolerance came from repeated runs | Gate code; tolerance note |
@@ -102,6 +103,7 @@ Percent = points / (2 × applicable items). Report per area and overall.
 | G3 | Rollback has been rehearsed and its time is known | Drill record |
 | G4 | In-flight sessions survive deploys (sticky versions, rainbow deploys, checkpoints) | Deploy strategy |
 | G5 | Kill switch to disable the agent, or one tool, quickly | Feature flag |
+| G6 | After every deploy or config change, a smoke set runs: one canary question per tool or data source whose answer identifies the backend, plus one memory write-and-read in a new session if the agent has memory | Smoke job and its last run; health checks alone don't count |
 
 ## H. Improvement loop
 
@@ -119,8 +121,8 @@ Percent = points / (2 × applicable items). Report per area and overall.
 |---|---|---|
 | I1 | Written performance budget per task type (latency, calls, tokens, tool calls, steps, retries, cost) with an action at each limit (stop, degrade, go async) | Budget doc or config |
 | I2 | Expected, likely high (about p95) and capped ceiling cost per request known; monthly projection at expected volume and at peak (busiest day × 30) | Cost model with dated prices |
-| I3 | Cost attributed per workflow, tenant, feature and step from traces, not read off the invoice | Cost dashboard |
-| I4 | Cache-read token share on a dashboard, with an alert when a deploy breaks the cache | Panel; rule |
+| I3 | Cost attributed per workflow, tenant, feature and step from traces, not read off the invoice | Cost dashboard; a per-call ledger that reconciles with the invoice within a few percent; cost metric dimensions low-cardinality (no session or user IDs) |
+| I4 | Cache-read token share and cache write-to-read ratio on a dashboard, with an alert when a deploy breaks the cache | Panel; rule |
 | I5 | Deterministic work done in code; tool results trimmed; token ceiling per prompt section | Code; token budgets |
 | I6 | Any routing or cascade is judged on cost per successful task including repairs | Comparison report |
 | I7 | Batch or flex tiers used for evals, enrichment and backfills | Job config |
@@ -133,12 +135,13 @@ Percent = points / (2 × applicable items). Report per area and overall.
 | J1 | Each agent's serving tier is justified by its data sensitivity and load shape | Deployment doc |
 | J2 | A gateway or abstraction makes provider and model a config value; a second provider or model has passed the gate | Gateway config; CI run |
 | J3 | Provider rate limits (requests and tokens per minute) checked against peak load with headroom | Limits vs projected peak |
-| J4 | If self-hosting: weights on persistent storage, measured cold start, prefix caching on, KV cache sized for target concurrency at real context lengths, quantized checkpoint evaluated on own tasks | Infra config; load-test results. N/A when every model is a managed API |
+| J4 | If self-hosting: weights on persistent storage, measured cold start, prefix caching on, KV cache sized for target concurrency at real context lengths, quantized checkpoint evaluated on own tasks | Infra config; load-test results; base model pinned to an immutable revision and mirrored to own storage when serving adapters. N/A when every model is a managed API |
+| J5 | Each host's maximum execution time exceeds the agent's capped latency ceiling plus the async-job path; for an SLA, health checks replace unhealthy instances, autoscaling follows an agent signal, and instances span at least two zones | Host timeout vs `cost_model.py` latency ceiling; health check and scaling config |
 
 ## Fix priorities
 
 - **P0**: any blocker below 2; anything that can spend without bound, leak data or act twice; peak load above provider limits. Fix before launch or scale-up.
-- **P1**: gaps that stop you detecting or diagnosing a regression (B2 to B4, D1 to D3, E1 to E2, F2 to F5, G2 to G3, H1).
+- **P1**: gaps that stop you detecting or diagnosing a regression (B2 to B4, D1 to D3, E1 to E2, E6, F2 to F5, G2 to G3, G6, H1).
 - **P2**: cost and latency optimisations, hygiene, tooling.
 
 Within a tier, order by risk removed or money saved per unit of effort. Each fix names what to change, where (file, config, service), how to verify it (the metric or test that proves it), effort (S, M, L), an owner and when it is due: a date when the review targets one, otherwise "week N" counted from the review date (P0 fixes in the first weeks, before any scale-up).

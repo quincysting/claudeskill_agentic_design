@@ -42,7 +42,7 @@ Nothing enforces the controller column: a client may call anything. Design for t
 **Server checklist**
 - [ ] Tools cut from agent stories and namespaced; a modest number of active tools (the MCP book warns at 12-20 [MCP ch5]); users also run other servers.
 - [ ] Deterministic tool order; cache hints set if the list is stable.
-- [ ] Inputs typed and validated by the SDK, plus business validation in the handler. For each output type, an output schema with structured content and a text rendering.
+- [ ] Inputs typed and validated by the SDK from the same type the handler reads (no hand-maintained schema beside the code), plus business validation and state checks in the handler. For each output type, an output schema with structured content and a text rendering.
 - [ ] Errors: model-fixable and business-rule failures as tool errors with readable messages; protocol errors only for unknown tool, malformed request, missing client capability. Check how your SDK maps exceptions: in Python SDK v2 only `ToolError` text reaches the model.
 - [ ] No per-connection state. Cross-call state through explicit handles that are authorised on every call.
 - [ ] Side-effecting tools idempotent under re-sent requests.
@@ -55,7 +55,7 @@ Nothing enforces the controller column: a client may call anything. Design for t
 - [ ] Remote: TLS, authentication on every request, per-object and per-tool access control, rate limiting [MCP ch7], [MCP ch8].
 - [ ] No token pass-through: the server holds its own downstream credentials [MCP ch7].
 - [ ] No deprecated features in new code (sampling, roots, protocol logging).
-- [ ] Tested in an inspector, with automated tests on the critical paths and a tool-choice eval run against several models, since a server author does not pick the user's model [MCP ch7].
+- [ ] Tested in an inspector, with automated tests on the critical paths and a tool-choice eval run against several models, since a server author does not pick the user's model [MCP ch7]. Tests run with the credentials and token scopes real callers have, not an admin's.
 - [ ] One supported install path: a remote URL, a registry entry, a container image or a bundle [MCP ch7].
 
 **Gating by state on a stateless protocol.** A 2026-07-28 server must not vary `tools/list` per connection or as a side effect of earlier requests. It may vary the list by the authorization on the request. So:
@@ -95,7 +95,18 @@ The MCP book's verdict: for production there is no real alternative to Streamabl
 
 Server, as an OAuth resource server:
 - Publish protected-resource metadata. Answer unauthenticated requests with 401 and a pointer to that metadata, plus the scopes needed.
-- Accept only tokens issued for this server (audience check). Reject everything else, and never forward a client's token downstream.
+- Validate every inbound token in this order, and fail closed when a claim is **missing**, not only when it is wrong:
+  1. Signature, with the algorithm pinned (never `none`, never whatever the token header names).
+  2. `exp` present and in the future, `nbf`, and a maximum lifetime (`exp` minus `iat`). A check written as "reject if `exp` is set and past" accepts tokens that never expire.
+  3. Issuer.
+  4. Audience is this server. Reject everything else, and never forward a client's token downstream.
+  5. Token type is an access token. ID tokens from the same identity provider verify against the same keys, so check `typ` or the provider's token-use claim.
+  6. Client on an allowlist (the applications and partner agents you onboarded).
+  7. The scopes this tool needs.
+  8. Any policy claim you rely on, for example that the subject is a person.
+  9. When agents call for users, the calling agent stays within a per-actor ceiling the server keeps itself.
+- Take the user and tenant from the verified subject, never from a tool argument or a header the caller sets. Platforms often copy the subject into their own audit logs, so use opaque or pairwise subject IDs, not emails.
+- **Verified, not asserted, identity.** Never offer or build on an "act as user `<id>`" or "get a token for user `<id>`" call that trusts a plain user ID from any caller holding a permission: it lets every holder impersonate every user. Behind a gateway or runtime that validates tokens for you, decode claims without verifying them only for logging, and only if every route to the server (every version, alias and endpoint) passes a verifying authorizer.
 - On insufficient scope, return 403 `insufficient_scope` listing *all* scopes the operation needs in one challenge, not one at a time.
 - Keep the advertised scope set minimal and let clients step up for more.
 
@@ -110,7 +121,7 @@ Client:
 
 Either way, expose a separate, smaller partner tool set rather than your internal agent's tools, rate-limit per partner, and log the partner and end-user reference on every call.
 
-The protocol identifies the client application and binds tokens to a server. It does not give an agent an identity that survives delegation (user → agent A → agent B → tool). Per-hop scoped, short-lived tokens and an audit trail of "on whose behalf" remain your design work [MESH ch12], [ENTERPRISE ch6]. Confused-deputy setups (a server proxying a third-party OAuth provider with its own static client ID) need agent-threat-modeler [MCP ch7].
+The protocol identifies the client application and binds tokens to a server. It does not give an agent an identity that survives delegation (user → agent A → agent B → tool). That takes per-hop scoped, short-lived tokens and an audit trail of "on whose behalf" [MESH ch12], [ENTERPRISE ch6]. Each hop exchanges the token it received for a new one with the same subject, an audience naming only the next hop and scopes that never widen, and it never forwards the original. The full delegation-chain rules (the invariants, where to enforce reach, and the tests) are in agent-threat-modeler. Managed agent platforms increasingly broker the exchange and propagate caller identity; use them, but check those invariants either way. Confused-deputy setups (a server proxying a third-party OAuth provider with its own static client ID) need agent-threat-modeler [MCP ch7].
 
 ## §6 Client and host design
 
@@ -128,6 +139,8 @@ The protocol identifies the client application and binds tokens to a server. It 
 
 **Gateways.** A gateway puts many servers behind one authenticated endpoint, can expose a subset of tools, and can enforce per-request policy no single server sees. In the 2025 GitHub MCP incident a malicious pull request told an agent to copy private repository data into a public one. A gateway rule refusing cross-repository access within one request blocked it [MCP ch7]. Use a gateway or a private subregistry once you have many servers, one auth story to enforce, or a vetted-server policy [MCP ch9].
 
+A gateway is a control only when it is the only route: the servers and backends behind it accept calls only from the gateway's identity, and the gateway itself authenticates every caller (without that, identity-aware rules have no caller to check). Its policy rules see the request, not the record's state, so servers keep their own state checks (tool-design-rules §7). Managed gateways also tend to rename tools with a target prefix, negotiate an older protocol revision by default and return denials in their own shape; check each (current facts, "Managed MCP gateways").
+
 ## §7 A2A
 
 Use it when the other side is an agent you do not control, with its own tools, data, model and policies, and you want an outcome rather than a function result [ILLUSTRATED ch8]. The remote agent publishes an agent card (identity, endpoint, skills, security schemes) at a well-known URL. The client authenticates as the card says, sends a task, and gets status updates, follow-up questions (input required, auth required) and finally artifacts. The card's "skills" describe capabilities and are unrelated to Agent Skills.
@@ -142,10 +155,10 @@ Design points:
 ## §8 Review order for an MCP server
 
 1. Transport and deployment fit (production on Streamable HTTP, stateless).
-2. Auth: audience check, no pass-through, scopes, 401 and 403 behaviour.
+2. Auth: the receiver checklist in §5 (missing claims fail closed), no pass-through, no user IDs accepted as plain strings, scopes, 401 and 403 behaviour; every backend reachable only through the server or gateway that applies the checks.
 3. Tool surface: intent-level, namespaced, count, descriptions, schemas (run the tool-design checks).
 4. Error mapping in the actual SDK: does the model see the messages you wrote?
 5. Side effects: idempotency under resend, approvals via elicitation, handles.
 6. Injection surfaces: paths, SQL, shell, fetched content; the lethal trifecta across the server's tools (hand off if present).
 7. Deprecated or removed features, and SDK version pinning.
-8. Tests, inspector runs, tool-choice eval across models, distribution path.
+8. Tests and inspector runs under real callers' credentials, tool-choice eval across models, distribution path.

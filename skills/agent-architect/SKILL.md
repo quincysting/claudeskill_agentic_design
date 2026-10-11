@@ -44,6 +44,8 @@ Read the user's material (code, docs, tickets) before asking anything. Ask only 
 
 If item 1, 4 or 7 is unknown and cannot be inferred, ask at most three questions in one message. Otherwise proceed and list the assumptions in the doc.
 
+If the system runs on AWS, map each decision with [references/aws-implementation-notes.md](references/aws-implementation-notes.md).
+
 ## Procedure
 
 Design mode runs steps 1 to 10. Review mode runs step R first, then steps 1 to 10 to produce the target architecture.
@@ -66,9 +68,9 @@ Design mode runs steps 1 to 10. Review mode runs step R first, then steps 1 to 1
 
 6. **Choose the planning and reasoning strategy per agent step.** Use ReAct with native tool calling when the next action depends on the last observation. Use plan-and-execute when the plan should be reviewed and its steps map to registered tools. Add replanning when observations often invalidate the plan. Spend extra compute (effort, sampling, reflection) only where a signal makes it pay, and write the dial values as numbers. See `references/reasoning-strategy.md`.
 
-7. **Decide on one agent or several.** Default to one. Split only on a real boundary (data access, permissions, tool set, evaluation criteria, independent release), or for breadth-first parallel work that returns answers and has the token budget for it. Before splitting because of tool count or context size, try fixing it inside one agent. If you split, specify the topology, an orchestrator in code, typed messages, context slices, a conflict rule and caps. See `references/multi-agent.md`.
+7. **Decide on one agent or several.** Default to one. Split only on a real boundary (data access, permissions, tool set, evaluation criteria, independent release), or for breadth-first parallel work that returns answers and has the token budget for it. Before splitting because of tool count or context size, try fixing it inside one agent. If you split, specify the topology, an orchestrator in code, typed messages and how they evolve across separate deploys, context slices, per-agent credentials with a denial test, a conflict rule and caps. See `references/multi-agent.md`.
 
-8. **Specify the runtime and control loop.** Fill the ownership table: decide, validate, authorise, execute, store, record and stop each get one named component, and "the model" may own only *decide*. Then write the decision contract, the validation gate, tool risk tiers, budgets with numbers, stop conditions, exit statuses, retries per failure class, idempotency for writes and for run triggers (a redelivered webhook or event must map to the same run), versioning for outputs that get regenerated, the state schema and checkpoints, the execution mode, and where the loop lives. When a person or another system decides downstream on its own timeline, end the run with `handed_off` and start a new run on the decision event; keep `awaiting_approval` for short gates the run itself resumes. See `references/control-loop.md`.
+8. **Specify the runtime and control loop.** Fill the ownership table: decide, validate, authorise, execute, store, record and stop each get one named component, and "the model" may own only *decide*. Then write the decision contract, the validation gate, tool risk tiers, budgets with numbers, stop conditions, exit statuses, retries per failure class, idempotency for writes and for run triggers (a redelivered webhook or event must map to the same run), versioning for outputs that get regenerated, the state schema and checkpoints (typed, versioned, one writer per run), a durable sink for every non-completed exit, the execution mode (ordered-stream triggers need bounded retries and a tested failure sink), and where the loop lives. When a person or another system decides downstream on its own timeline, end the run with `handed_off` and start a new run on the decision event; keep `awaiting_approval` for short gates the run itself resumes. See `references/control-loop.md`.
 
 9. **Estimate and plan validation.**
    - **Per path:** typical and worst-case model calls and tokens (per document where documents fan out), p50 and p95 latency against the target, cost per task against the ceiling.
@@ -187,10 +189,10 @@ Check every item before returning; fix and re-check any that fail. An item that 
 - [ ] Every regulated or adverse decision has a human decider (or documented permission to automate) and a decision record with reason codes from a fixed list.
 - [ ] The ownership table names a component for decide, validate, authorise, execute, store, record and stop, and the model owns only decide.
 - [ ] Every budget has a number and a basis; there is a no-progress rule.
-- [ ] Every exit status is defined, downstream decisions use `handed_off` plus a new run, and no failure or cap-hit path can be presented as success.
-- [ ] Every write has an idempotency scheme, run triggers are deduplicated, and high-impact writes check current state first; retries are split by failure class; a failed required check stops the run.
+- [ ] Every exit status is defined, downstream decisions use `handed_off` plus a new run, no failure, cap-hit or invalid-output path can be presented as success or mapped to a real answer, and every non-completed exit lands in a durable sink.
+- [ ] Every write has an idempotency scheme, run triggers are deduplicated, and high-impact writes check current state first; retries are split by failure class; a failed required check stops the run; run state has one writer or conditional writes, and checkpoints are typed and versioned.
 - [ ] Each reasoning dial (effort, samples, reflection) names the signal that justifies it, or is set to its minimum.
-- [ ] A multi-agent design names its single-agent baseline and the boundary that justifies each split.
+- [ ] A multi-agent design names its single-agent baseline and the boundary that justifies each split, and that boundary exists in each agent's credentials.
 - [ ] Each "build both" step has a comparison with a primary metric, guardrails and a minimum gain set in advance.
 - [ ] The rollout section gives each step's starting authority, entry criteria for the next stage and a rollback trigger.
 - [ ] Latency and cost estimates are checked against the stated targets.
@@ -217,6 +219,9 @@ Check every item before returning; fix and re-check any that fail. An item that 
 | Quoting framework parameters or model features from memory as current | Mark them "verify against current docs" |
 | Reading a client's "approve above $X" as licence to automate everything below $X | Treat it as a floor; run the matrix for the band below it and graduate on evidence |
 | An adverse decision (denial, referral) justified only by the model's free text | A person decides; reason codes from a fixed list and evidence links in a decision record |
+| Mapping unparseable or off-list model output onto a real label ("anything but *met* counts as *not met*", which then denies) | Treat it as `invalid`: re-ask once, then escalate; never default to the adverse outcome |
+| Last-writer-wins run state when a retry, a resume or a second replica can write the same run | Conditional writes on a version, or one consumer per case |
+| Message types hand-copied into each agent; strict parsers that reject new fields | One schema source, additive changes, deploy readers before writers |
 | Holding a run open for days while someone decides in another system | End with `handed_off`; the decision event starts a new run that re-reads current state |
 | Asking a dozen questions before producing anything | Ask at most three blocking questions; otherwise assume, label and proceed |
 | Designing tool schemas, RAG or eval suites in depth | Mark the attachment point and hand off to the sibling skill |
@@ -233,6 +238,8 @@ Distilled from the following books. In `references/`, a citation such as [SYSTEM
 - DLLMA: *Designing Large Language Model Applications*, ch8, 10, 13.
 - ENTERPRISE: *The Agentic Enterprise*, ch1, 5, 6, 7.
 - AGENTICAI: *Agentic Artificial Intelligence*, ch2, 3, 6, 8.
+
+Practitioner lab notes (AWS AgentCore and data labs, 2026-10). They are the source of the guidance on one writer per run, typed and versioned checkpoints, invalid closed-vocabulary output, durable exit sinks, ordered-stream failures, inter-agent schema evolution, discovery and addresses, direct peer calls, partitioning, per-agent credentials and pinned peer versions, and of [references/aws-implementation-notes.md](references/aws-implementation-notes.md).
 
 External (checked 2026-10):
 - Anthropic, Building effective agents (2024-12): https://www.anthropic.com/engineering/building-effective-agents

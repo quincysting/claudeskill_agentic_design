@@ -39,6 +39,8 @@ Ask for these, or find them in the code: model IDs in config, prompt files, eval
 7. **Constraints.** Data residency and privacy, licences, approved vendors, ability to self-host (GPUs, ML operations staff), need for token probabilities.
 8. **Change rate.** How often labels, policies and tools change.
 
+If the system runs on AWS, map each decision with [references/aws-implementation-notes.md](references/aws-implementation-notes.md).
+
 ## Procedure
 
 ### 1. Map the roles; remove the ones that need no model
@@ -70,10 +72,10 @@ For each role, take the cheapest configuration by cost per successful task that 
 Label 20 to 50 failures per role as a knowledge gap or a behaviour gap (`references/adaptation-ladder.md` §2). Knowledge gaps go to retrieval or a lookup tool (agent-context-designer), never to fine-tuning. Behaviour gaps climb the ladder in table C and stop at the first rung that meets the target. Check table E2 before recommending any rung that changes a generative model's weights (fixed-label classifiers were handled in step 4 under E1). "Not yet, because…" is a valid and common answer.
 
 ### 8. If weights will change, design the run
-Choose the method from table D. Specify the base model (chosen for knowledge and licence), LoRA by default, verified data with splits, a general-capability regression set, and a comparison on the same held-out tasks against what the tuned model would replace: the untrained base for generative tuning, the best prompted candidate for an encoder classifier. For RL, design the reward with `references/rl-and-reward-design.md`: gate before partial credit, adversarial reward tests before training, an independent held-out scorer, and filtering to tasks the model solves sometimes but not always. Name a fallback in case vendor-hosted tuning is withdrawn.
+Choose the method from table D. Specify the base model (chosen for knowledge and licence), LoRA by default, verified data with splits, a general-capability regression set, and a comparison on the same held-out tasks against what the tuned model would replace: the untrained base for generative tuning, the best prompted candidate for an encoder classifier. For RL, design the reward with `references/rl-and-reward-design.md`: gate before partial credit, adversarial reward tests before training, an independent held-out scorer, and filtering to tasks the model solves sometimes but not always. Keep the checkpoint with the best validation metric, not the last one, and add a parity test showing that serving uses the training template, special tokens, tokenizer and library versions (`references/adaptation-ladder.md` §6 and §8). Name a fallback in case vendor-hosted tuning is withdrawn.
 
 ### 9. Plan the lifecycle
-Pin model versions. Record retirement dates. Keep the bake-off harness, splits and configs versioned so a re-run is one command. List the re-run triggers (`references/bakeoff-protocol.md` §10). Keep all labelled data and tuning scripts so tuning can be repeated on the next base model.
+Pin model versions. Record retirement dates. For a tuned open-weight model, pin the base by an immutable revision (a commit hash, not a branch or "latest") and mirror it to your own storage. The adapter is valid only on that exact base revision, and an endpoint that downloads the base from a public hub at startup depends on that hub. Measure cold start with the base load included (`references/adaptation-ladder.md` §8). Keep the bake-off harness, splits and configs versioned so a re-run is one command. List the re-run triggers (`references/bakeoff-protocol.md` §10). Keep all labelled data and tuning scripts so tuning can be repeated on the next base model.
 
 ### 10. Write the output
 Use `templates/model-plan.md`. Check it against the quality bar before returning it.
@@ -184,6 +186,7 @@ Before returning, check that:
 - [ ] Every failure is labelled knowledge or behaviour, and knowledge gaps never go to fine-tuning.
 - [ ] The fine-tuning verdict lists which entry criteria (E1 or E2) are met and which are not, and every tuned model is compared with what it would replace.
 - [ ] Any RL plan has a gated reward, adversarial reward tests, an independent held-out scorer, a base-model comparison and a regression set.
+- [ ] Any training plan picks the checkpoint by validation metric, pins and mirrors the base revision, and includes a training-serving parity test.
 - [ ] The bake-off states task counts and the smallest difference it can detect at that count.
 - [ ] Confidence-based routing uses calibrated scores (log-probabilities or a classifier head), never stated confidence.
 - [ ] Licence, data residency and tuning availability are checked for every candidate.
@@ -201,6 +204,7 @@ Before returning, check that:
 | Comparing the incumbent's tuned prompt against untuned candidates | Equal adaptation budget per candidate on the dev split, scored on the test split |
 | Turning reasoning up everywhere, or assuming it helps tool selection | Sweep per role; default off or low for tools, labels and extraction |
 | Recommending fine-tuning to teach facts or policies | Retrieval or a lookup tool; tune only how the model uses them |
+| Fine-tuning on a product FAQ so the model answers product questions, then judging it by loss curves and one spot check | That is a knowledge gap, so the rung is retrieval over the FAQ; tuning only shapes answer style. Judge any tuned model on the held-out task eval against the base. Validation loss rising while training loss falls means memorisation |
 | Recommending fine-tuning before trying prompt, exemplars and a stronger model | Climb the ladder; record what each rung scored |
 | Comparing price per token or per call | Cost per successful task, including retries, repairs and escalations |
 | Routing or escalating on the model's stated confidence | Token probabilities or a classifier head; measure ECE on the user's labels |
@@ -222,6 +226,8 @@ Distilled from a cross-book study guide on agent design (chapters on model selec
 - *The Agentic Enterprise*: ch5 (log, label, fine-tune, distil), ch8 (portability).
 - *Agentic Mesh*: ch15 (model registry and versioned tuning pipelines).
 - *AI Evals in Practice*: ch6 (minimum flips for a real difference).
+
+Practitioner lab notes (AWS AgentCore and data labs, 2026-10).
 
 External (checked 2026-10):
 - Anthropic, Models overview and Effort documentation (fetched 2026-10-06): https://platform.claude.com/docs/en/about-claude/models/overview and https://platform.claude.com/docs/en/build-with-claude/effort

@@ -9,6 +9,7 @@ Every PR that touches prompts, tool definitions, model configuration, agent code
 ## Baseline
 
 A baseline is a saved report: dataset version, agent version (prompt, model, tools), judge model and rubric version, and per-task results keyed by stable task ID [EVALS ch6].
+- Take the prompt and config versions from what the trials recorded, not from the deploy request. A run with more than one version per component is invalid: rerun it, never save it (datasets-and-harness.md, requirement 6).
 - Save one before the first change. Without it there is nothing to compare against [EVALS ch6].
 - Save a new baseline only by decision, after a person has reviewed the diff, never automatically after a green run [EVALS ch13].
 - A baseline is valid only for its judge and dataset versions. When either changes, rerun the unchanged agent first and save that as the new baseline, so the next comparison isolates the agent change [EVALS ch5].
@@ -23,7 +24,7 @@ A baseline is a saved report: dataset version, agent version (prompt, model, too
 | Error rate | Block if above about 5% | Systematic breakage [EVALS ch2] |
 | Cost and latency per task | Warn (or block) above a stated budget | A "better" version at twice the cost is a trade-off someone must accept explicitly [SYSTEMS ch14] |
 
-**Tolerance.** Run the unchanged system three times and set the tolerance just above the spread you observe [EVALS ch6]. A tolerance of 0% raises constant false alarms because judge scores vary; 15% lets real drops through. 5% is a common starting point, 2 to 3% at release [EVALS ch6].
+**Tolerance.** Run the unchanged system three times and set the tolerance just above the spread you observe [EVALS ch6]. A tolerance of 0% raises constant false alarms because judge scores vary; 15% lets real drops through. 5% is a common starting point, 2 to 3% at release [EVALS ch6], but only where the split can measure it. A tolerance smaller than the split's minimum detectable difference (statistics.md, "State the minimum detectable difference") can't be enforced: a real drop of that size passes the gate most of the time. Print the MDE beside the tolerance in every report, and read the gate as catching only drops larger than the bigger of the two. On a small held-out split the MDE dominates (35 tasks: at least 6/35, about 17 points), so rely there on the paired sign test on confirmed flips and on the hard-check floors, not on the tolerance.
 
 **Why not "any new failure blocks".** The EVALS book's regression detector flags a regression if any previously passing case now fails, and its release gate demands zero new failures [EVALS ch6]. On judge-scored cases this mostly measures noise. If each of 100 passing cases flips by chance with probability 2%, at least one flips in 87% of runs. CI turns red most of the time and engineers learn to ignore it, which the same book describes [EVALS ch6]. Keep zero tolerance for deterministic checks only.
 
@@ -50,7 +51,7 @@ For stochastic agents a critical check can fail in 1 of 5 trials. That trial fai
 | Pre-merge (every relevant PR) | Minutes at most | Deterministic scorers on a tagged critical subset (about 30 to 50 tasks, mostly incident cases [EVALS ch2]), 1 trial, run concurrently, dev split | Scoring is free, but running the agent is not (see "Agent inference cost"). EVALS targets under about 30 s because slower pre-merge checks get bypassed [EVALS ch6]; with an agent in the loop, that is reachable only with a small concurrent subset. When only scorers or the dataset changed, re-score cached transcripts instead of rerunning the agent |
 | PR judge run (a few relevant PRs a week) | Minutes | Full dev split with judges, 3 trials per task where outputs vary | Judge $1–5 per run at mid-2026 prices [EVALS ch11], plus agent inference |
 | Nightly (dozens of PRs a day) | Up to an hour | Same as the PR judge run, on the day's main branch | Same |
-| Release | Before shipping | Hard checks on dev + held-out; release rates and intervals from held-out only (statistics.md, "Which split"); consensus judging; 5+ trials on side-effecting tasks; tolerance 2–3%; a person reads the five lowest-scoring passing cases [EVALS ch6] | Higher; accepted |
+| Release | Before shipping | Hard checks on dev + held-out; release rates and intervals from held-out only (statistics.md, "Which split"); consensus judging; a held-out evaluator scored beside the visible judges (llm-judges.md); 5+ trials on side-effecting tasks; tolerance 2–3% where the split's MDE allows it (see "Tolerance"); a person reads the five lowest-scoring passing cases [EVALS ch6] | Higher; accepted |
 
 Judge on every PR or nightly? With a few prompt PRs a week, run the judge on every PR that touches prompts, models, tools or datasets so the author sees the effect before merging. With dozens of PRs a day, keep pre-merge deterministic and catch semantic regressions nightly, accepting a day's delay [EVALS ch6][EVALS ch15].
 
@@ -64,6 +65,7 @@ Hard regressions (2):   book-intl-044 (charged twice), cancel-hold-009 (no confi
 Confirmed worse (3):    faq-baggage-012, change-date-031, refund-tax-007
 Confirmed better (1):   search-multi-city-002
 Net pass@1: 0.871 → 0.861 (paired Δ −0.010, 95% CI −0.024 to +0.004) · sign test p = 0.31
+Tolerance 3% · MDE ≈ 5.0 points (d = 0.10, 312 tasks): drops under 5 points can pass unseen
 pass^3 (side-effecting tasks): 0.74 → 0.71 · error rate 0.6% · cost/task $0.041 → $0.047 (+15%)
 ```
 

@@ -2,7 +2,7 @@
 
 Depth for Procedure steps 3-4. Citation keys like [SYSTEMS ch5] are expanded in SKILL.md under Sources.
 
-Contents: 1 Mode · 2 Index time (2.5 stale documents, 2.6 mixed or sensitive sources) · 3 Query time (3.4 several indexes) · 4 Agentic retrieval · 5 Graph and structured retrieval · 6 Caching · 7 Debug order
+Contents: 1 Mode · 2 Index time (2.5 stale documents and idempotent indexing, 2.6 mixed or sensitive sources, 2.7 ingest checks) · 3 Query time (3.4 several indexes) · 4 Agentic retrieval · 5 Graph and structured retrieval (metric catalog, entitlements; 5.1 one store per access pattern) · 6 Caching · 7 Debug order
 
 A RAG system is two pipelines that meet at an index. Index time: parse, chunk, attach metadata, embed, index. Query time: understand the query, search wide, narrow, assemble, generate. Read query time as a funnel. The first stage is judged by **recall** (did the evidence reach the candidate set at all?), later stages by **precision** (how much of what reaches the model is useful?). Nothing downstream recovers a document the first stage missed [DLLMA ch12 §The RAG Pipeline], and a failure usually runs down the chain: bad chunking, then weak retrieval, then poor ranking, then a thin context [SYSTEMS ch5 §5.10 Retrieval Quality Shapes Answers].
 
@@ -21,7 +21,8 @@ query time:  question -> split instructions / rewrite? -> BM25 ∥ dense (ACL pr
 | Retrieve-or-not gate | Open-domain questions, large models, latency matters | Proprietary, regulated or fast-changing data. Always retrieve there and let the model abstain [DLLMA ch12 §Deciding When to Retrieve] |
 | Retrieval as a tool (agentic RAG) | Several sources; the next lookup depends on the last result; one query can't cover the corpus | One well-designed lookup already answers reliably |
 | Plan-and-search research loop | Open-ended research over many pages | Interactive latency; simple lookups |
-| Text-to-SQL with retrieved schema hints | The answer lives in tables | Free text |
+| Text-to-SQL with retrieved schema hints | The answer lives in tables | Free text; governed numbers (use a metric catalog) |
+| Metric catalog (section 5) | The answer is a governed number: a KPI, regulatory ratio, financial figure or SLA value | Exploratory questions over tables nobody has defined metrics for |
 | GraphRAG | Relation chains, corpus-wide themes, and you have tested those question types | Independent documents; no budget to maintain a graph |
 
 The books disagree on the default. One presents agentic RAG as the natural next step [ILLUSTRATED ch4 §Agentic Retrieval-Augmented Generation]. Two others keep the fixed pipeline as the default because it is easier to build, test, cache, monitor and tune ([SYSTEMS ch5 §5.15 Advanced RAG: From Retrieval to Navigation]; [DLLMA ch10 §LLM Interaction Paradigms]). The measurements back the cautious position (section 4), so start with a fixed pipeline and add agent control only when you can name the reason.
@@ -48,7 +49,7 @@ Long context does not replace retrieval. Bigger windows cost more per call, add 
 - **Chunk size.** No book gives an ideal size. Test two or three granularities against your real queries [DLLMA ch11 §Chunking]. Keep an answer from being split across a boundary [EVALS ch7].
 
 ### 2.3 Metadata schema (per chunk)
-`chunk_id, doc_id, title, section_path, page, source, doc_type, version or effective_date, language, product, tenant_id, acl_groups, content_hash, indexed_at`
+`chunk_id, doc_id, title, section_path, page, source, doc_type, version or effective_date, language, product, tenant_id, acl_groups, content_hash, pipeline_version, batch_id, indexed_at`
 
 - Filter on these inside the search ([SYSTEMS ch5 §5.9 Metadata Filtering]). Filters can come from rules or from an LLM that parses the query [DLLMA ch12 §Retrieve].
 - **ACLs are the field most often missing.** Embeddings copied out of secured systems lose the access rules that governed them [MESH ch1 §The Agent Opportunity]. Carry them as metadata, sync them when the source changes, and enforce them per query from the authenticated identity.
@@ -57,11 +58,15 @@ Long context does not replace retrieval. Bigger windows cost more per call, add 
 - Use the same model for queries and documents. Use the similarity measure the model was trained with. With unit-normalised vectors, dot product equals cosine and costs less ([BUILDAGENTIC ch2]; [DLLMA ch11 §Similarity Measures]).
 - Short query against a long passage is an asymmetric workload, so prefer models trained for asymmetric search [DLLMA ch11 §Semantic Search].
 - **Similarity is not relevance.** "He is not retiring" scored 0.787 against "announced his retirement" and 0.768 against "did not announce his retirement" [DLLMA ch11 §Similarity Measures]. Absolute scores vary by model, so calibrate any threshold on your own data.
+- **The query must use the index's distance.** An approximate index is built for one distance metric. A query that orders by a different distance function can't use it and silently falls back to an exact scan: correct results, with latency that grows with the corpus. Check the query plan once per query shape, and give the filter columns used beside the vector search their own index.
+- **Dimension and metric are fixed when the index is created.** The vector field's dimension must equal the embedder's output size. An embedder change is a full re-index into a new index, switched over with an alias, not an in-place update.
 - Switching embedders is rarely the first fix. Seven embedders on the same evidence scored recall@10 between 0.610 and 0.720, the top five within 0.021 of each other, and domain mattered more than model [BUILDAGENTIC ch3 §Evaluating Evidence Retrieval]. Fix parsing, chunking, filters and corpus gaps first.
 - At scale: 100M 768-dim float32 vectors take about 300 GB. Matryoshka truncation and binary quantisation cut that with some loss [DLLMA ch11 §Optimizing Embedding Size]. Fine-tune with hard negatives when the vocabulary is unusual; a few thousand pairs can be enough [DLLMA ch11 §Fine-Tuning Embedding Models].
 
 ### 2.5 Freshness, staleness and deletion
 - Re-index on change, keyed by `content_hash`. Retire superseded versions or mark them. Stale and conflicting documents leave the model guessing ([SYSTEMS ch16 §16.10 Retrieval-Augmented Generation Integration]; [DLLMA ch12 §Limitations of RAG]).
+- **Make indexing idempotent.** Each run reads only its own increment (documents new or changed since the last good run), not the whole source again, and upserts by a stable chunk ID (document ID + chunk position). The content hash decides whether a chunk needs re-embedding. When a changed document yields fewer chunks, delete the leftovers. Confirm that the index honours the IDs you supply. If it assigns its own, every re-run duplicates chunks: delete by document ID before inserting, or deduplicate by chunk ID at query time (section 3.6) and count duplicates as an index-health metric (section 2.7).
+- **Ingest generation.** Keep one counter per index, the ingest generation. Every ingest run that passes its checks (section 2.7) increments it, incremental runs included, and the query path reads it. Retrieval and answer caches put it in their keys (section 6). An index or alias name is not a version here: nightly upserts into a live index never change it, so cached "not found" results would outlive the ingest that added the documents. Tag every chunk with the `batch_id` of the run that wrote it.
 - Deleting a source must remove its chunks, vectors and any cached retrievals or answers that used them.
 
 **When documents carry no version or effective date** (the usual case for wikis), derive a status per document at index time and store it as metadata: `status` (`current`, `needs_review`, `deprecated`, `archived`), `last_modified`, `owner`, `supersedes`.
@@ -93,6 +98,16 @@ Some sources are knowledge, live state and personal data at once. A helpdesk tic
 - The same split applies to memory. A user's open tickets are live state to fetch, not something to remember (memory-design.md §1).
 - In a single-company deployment, read "tenant" in this skill as the organisational boundary that matters (business unit, region, role group). The filtering rules stay the same.
 
+### 2.7 Check every ingest
+
+An ingest run that finishes without an error can still have indexed nothing: a source path one level off, a parser that returned empty text, a trigger that never fired, a link step that matched no rows. An empty or partial index raises nothing. It produces "not found" answers, or ungrounded ones, and the team starts tuning prompts (section 7). After every run:
+- **Assert per source:** documents seen > 0; chunks written roughly in line with the document count; an embedding for every chunk; and a known-answer canary query per source that returns its document. A zero count fails the run and raises an alert, not a warning.
+- **Validate records before load** (required fields, types, and the fields later steps link on) and send rejects to a quarantine with a reason.
+- **Backfill; don't rely on the trigger alone.** Event-triggered indexing sees only events that arrive after it is wired up and working. Run a backfill for what existed before, and a periodic reconcile that compares the source listing with the index listing to catch whatever arrived while the trigger was broken.
+- **Re-index after pipeline changes.** A change to parsing, chunking or linking code does nothing to chunks already indexed. Record `pipeline_version` on each chunk so you can tell which version built it.
+- **Make a bad ingest reversible**, so it is rolled back instead of repaired in place. Roll back an incremental run by batch: remove the chunks that carry its `batch_id` and re-ingest the documents it changed from their last good source version. Keep alias swaps for full rebuilds (an embedder or pipeline change, section 2.4): build a new index, run the same checks on it, and switch the alias only when they pass. A passing run, a rollback and an alias switch each advance the ingest generation (section 2.5), because each changes what queries can find.
+- With a graph, add the required-path checks from section 5 to the same gate.
+
 ## 3. Query time
 
 ### 3.1 Understand the query
@@ -122,6 +137,7 @@ def rrf(*rankings, k=60):                      # each ranking: list of doc ids, 
 ```
 
 - **Permission filter inside the search, before ranking.** Post-filtering a top-k list can come back short or empty, and an app-side filter that is forgotten on one code path leaks. Build retrieval test sets per permission scope, or a correct filter looks like a retrieval failure.
+- **Check how your engine filters approximate search.** "In the same query" can still mean "after the candidate cut-off": some engines take the index's top candidates first and filter them afterwards, so a selective filter (a small tenant, a narrow role) returns fewer than k results, or none. Use the engine's filtered or iterative approximate search, or a partition or index per scope for small, selective scopes, and keep the per-scope recall slice in the test set.
 - Depth: about 50 candidates per retriever as a start. Raise it if reranked recall is low; lower it if latency demands.
 
 ### 3.3 Rerank
@@ -187,16 +203,33 @@ flowchart LR
 ## 5. Graph and structured retrieval
 
 - **GraphRAG** serves two question types that chunk retrieval handles badly: relation chains (error → service → owning team → recent deploy → rollback procedure; [SYSTEMS ch5 §5.15 Advanced RAG: From Retrieval to Navigation]) and corpus-wide themes answered from community summaries [DLLMA ch12 §Retrieve]. The cost is an LLM call per chunk to extract entities and relations, plus calls per community to summarise, all repeated when documents change. Relations are much harder to extract than entities, and bad relationships are worse than missing ones. One book says GraphRAG "frequently produces better results" but gives no measurement [BUILDAPPS ch6 §Using Knowledge Graphs]. Build it only after a test set of those question types shows hybrid retrieval failing on them.
-- **Text-to-SQL.** Retrieve "evidence" (business-term-to-column hints) filtered by database, generate SQL with structured output, execute it with a read-only role, and fall back to a canned reply on failure [BUILDAGENTIC ch2]. Without the evidence hints, the agent's accuracy fell from about 51% to about 36% [BUILDAGENTIC ch4 §Case Study 3: From RAG to Agents].
+- **Graph links fail empty, not loud.** A traversal over a missing link returns an empty list with no error, so a broken graph reads as "no applicable answer". Define the required paths (for example, every entity has a class and every in-scope class has at least one rule or metric), count violations after each ingest (orphans per node type, entities missing a required path) and fail the ingest above a threshold (section 2.7). Make ingest reject an entity that lacks the field its link depends on instead of creating an unlinked node. At query time, an empty traversal from an entity with no class is an index defect: log it and return an error state, not "no applicable metric". Fix the data, not the query.
+- **Text-to-SQL.** Retrieve "evidence" (business-term-to-column hints) filtered by database, generate SQL with structured output, execute it with a read-only role that carries the caller's entitlements (next bullet), and fall back to a canned reply on failure [BUILDAGENTIC ch2]. Without the evidence hints, the agent's accuracy fell from about 51% to about 36% [BUILDAGENTIC ch4 §Case Study 3: From RAG to Agents].
+- **Entitlements at the data layer.** A read-only role stops writes, not cross-user reads: one shared read-only service role sees every user's rows. Run generated or catalogued queries under a principal that carries the caller's row and column entitlements (database row-level security, column grants, or the data catalog's row filters and column masks), resolved from the session identity. Check that each filter is in force for the principals it should cover; a filter that is defined but not granted or enabled restricts nothing. Test with two users who must see different rows.
+- **Metric catalog for governed numbers.** When the answer is a number someone is accountable for (a KPI, a regulatory ratio, a financial figure, an SLA value), don't generate SQL for it. Store each metric as `{metric_id, description, inputs, scope_parameters, owner, version, query_ref}`. The query itself lives in code or a reviewed repository, not in the catalog text the model sees. Map the question to a metric by similarity search over the descriptions, above a floor calibrated like any other (section 3.5). The model returns a metric ID and scope values; code checks both against the allow-list, runs the vetted query read-only with bound parameters under the caller's entitlements, and passes the value with its metric ID and version into the answer for citation. The model explains the number; it never computes it. An unknown metric ID is an error. No match above the floor means decline or route to a person, never a fallback to generated SQL. Watch for catalog drift, and for a description that matches while the scope doesn't, which is why code checks the scope values.
 - **Retrieved few-shot examples.** For repetitive tasks, retrieve solved examples similar to the input ([BUILDAGENTIC ch3 §Experiment: Different Types of Few-Shot Learning]; [DLLMA ch12 §RAG for Selecting In-Context Training Examples]).
+
+### 5.1 One store per access pattern
+
+Systems that combine retrieval, memory and structured data end up with several store types. Pick each by the access pattern it serves:
+
+| Access pattern | Store type | Note |
+|---|---|---|
+| Fetch a thread's turns in order by key | Key/range store | Read contract and conditional writes (memory-design.md §8) |
+| Durable user facts | Keyed records, optional embedding projection | memory-design.md §3 |
+| Walk relations (entity → class → rule or metric) | Graph | Structure only; vectors live in the search index |
+| Lexical and vector search over chunks, with filters | Search engine, or a relational database with both index types | One hybrid index per corpus (section 3.2) |
+| Exact numbers from audited tables | Relational source of record | Metric catalog (section 5) |
+
+Give each kind of data one home. When the same item must reach several stores (a chunk in the search index and its entity links in the graph), write it once to the canonical store and build the others as projections with an idempotent job keyed by the item's ID (section 2.5). A best-effort dual write from the request path leaves the stores diverging the first time one write fails, and nothing reports it. Keep vectors in one place unless a store comparison (evaluation.md §2) shows that a second copy earns its keep.
 
 ## 6. Caching in the retrieval path
 
 | Cache | Key | Invalidate on | Risk |
 |---|---|---|---|
 | Embeddings | content hash + model version | model change | none worth noting |
-| Retrieval results | normalised query + **permission scope** + index version | re-index, ACL change | cross-user leak if the scope is missing |
-| Final answers | query + scope + index version | any source change | stale or personalised answers; only for stable, low-risk, non-personalised questions |
+| Retrieval results | normalised query + **permission scope** + **ingest generation** (section 2.5) | new ingest generation, ACL change | cross-user leak if the scope is missing; stale "not found" if the generation is missing |
+| Final answers | query + scope + ingest generation | new ingest generation, any other source change | stale or personalised answers; only for stable, low-risk, non-personalised questions |
 
 Caching is a correctness and security decision as well as a speed one ([SYSTEMS ch12 §12.10 Caching]; [SYSTEMS ch5 §5.14 RAG Latency, Performance, and Caching]).
 

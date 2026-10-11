@@ -76,6 +76,8 @@ Rules the agent must follow. Only signed-off rules become hard checks; open ones
 - Recorded per trial: transcript (calls, args, results, errors, latency), tokens, cost, stop reason, final state
 - Errored trials = failed; error rate reported. Harness faults (simulator, recorder, unmatched recording) rerun and reported separately
 - Production settings; oracle visible to scorers only; suite shown to fail against a deliberately broken agent
+- Prompt and config version recorded per trial; runs with mixed versions rejected; runtime-read prompts pinned to <version>
+- Trials read from telemetry: <no / yes: export checked live before traffic, per-trial readiness wait with deadline, eval sessions sampled at 100%, missing trace = harness fault (rerun, then counted as failed)>
 
 ## 7. Scorers
 
@@ -84,7 +86,7 @@ Rules the agent must follow. Only signed-off rules become hard checks; open ones
 
 **Judge rubrics** (one per judge): criteria as practical questions, level definitions, weights or gate criteria, JSON output with reasoning first, judge model and family, rubric version.
 
-**Calibration plan:** <50–100> human-labelled cases per gating criterion and task type, labelled by <who>, 20% double-labelled; report κ, false-pass rate, confusion matrix, bias; readiness threshold <κ ≥ 0.6 and false-pass ≤ x%>; recalibrate on judge or rubric change and <quarterly>. Until ready, the judge ranks outputs for human review only.
+**Calibration plan:** <50–100> human-labelled cases per gating criterion and task type, labelled by <who>, 20% double-labelled; report κ, false-pass rate, confusion matrix, bias; readiness threshold <κ ≥ 0.6 and false-pass ≤ x%>; recalibrate on judge or rubric change and <quarterly>. Until ready, the judge ranks outputs for human review only. Held-out evaluator for release (not tuned against): <hidden-rubric judge / fresh human-labelled sample / none needed because prompts aren't tuned on judge scores>.
 **Schedule:** labels needed <criteria × task types × cases> ÷ capacity <hours/month × measured labels/hour> = <months> until the judge can gate.
 
 ## 8. Metrics and reporting
@@ -92,8 +94,9 @@ Rules the agent must follow. Only signed-off rules become hard checks; open ones
 - Hard-check pass rate (all must pass), with Wilson 95% interval and task count
 - pass@1 and pass^<k> (per task, averaged) for side-effecting tasks
 - Per-dimension soft scores; breakdown by tag (type, tool, risk, source, language)
-- Error rate, harness fault rate; cost and latency per task (median and p95)
+- Error rate, harness fault rate, sessions sent / scored / errored; cost and latency per task (median and p95)
 - Capability suite and regression suite reported separately
+- One production signal beside the offline headline: <complaint or escalation rate, from agent-ops-reviewer>; a rising offline score with a rising production signal means the instrument is broken until explained
 
 ## 9. Statistics
 

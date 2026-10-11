@@ -49,6 +49,7 @@ Fine-tuning verdict: <not now / yes for role X> because <criteria>.
 - Reward (RL only): <gate, partial credit, adversarial tests, independent held-out scorer>
 - Comparison: <what the tuned model replaces, on the same held-out tasks: untrained base for generative tuning; best prompted candidate for an encoder classifier>
 - Regression set: <general capabilities checked>
+- Checkpoint and serving: <checkpoint chosen by validation metric; base pinned to a revision and mirrored; training-serving parity test>
 - Lifecycle: <versioning, registry, rollback, re-run on next base model, fallback if hosted tuning is withdrawn>
 
 ## 7. Bake-off protocol

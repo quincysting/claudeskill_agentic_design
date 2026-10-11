@@ -165,6 +165,15 @@ Sources (checked 2026-10-06): https://claude.com/docs/connectors/building, https
 
 **Other hosts** (VS Code, Cursor, ChatGPT and others): not verified here. Check their docs for transports, elicitation, annotation handling, tool-count limits and result caps.
 
+## Managed MCP gateways
+
+Source: practitioner lab notes and cloud-provider docs, 2026-10. Managed gateways put many MCP servers or API targets behind one endpoint, often with a policy engine in front. A tool that works when called directly can still misbehave behind one, in the ways below (AWS specifics in [aws-implementation-notes.md](aws-implementation-notes.md)).
+- **Longer tool names.** Aggregating gateways prefix each tool with its target name and a separator. The prefix counts toward the 64-character portable budget, and policy rules usually refer to the prefixed name.
+- **Protocol version.** A gateway may negotiate an older MCP revision than your server supports unless you set the supported versions explicitly. A client helper can then fail even though auth works. Set the versions and test with the client you ship.
+- **Denial shape.** A policy denial may reach the client as a tool result with `isError: true` and a reason, or as a JSON-RPC error on an HTTP 4xx, depending on the gateway, its version and the negotiated revision. Check what your client passes to the model, parse error bodies on 4xx in smoke tests, and don't treat one gateway's error code as standard.
+- **Session rules.** Some gateways evaluate session-scoped rules (call caps, "tool B only after tool A", no outbound calls after a sensitive read). Per-caller sessions need an authenticated gateway.
+- **Listed is not permitted.** A gateway may list a tool if any circumstance could permit the call, so a listed tool can still be denied.
+
 ## A2A
 
 Source: https://a2a-protocol.org/latest/specification/, https://github.com/a2aproject/A2A/releases

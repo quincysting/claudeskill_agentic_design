@@ -25,6 +25,8 @@ Tasks needed for a given half-width:
 
 A 30-task suite cannot tell 75% from 85%. 29 of 30 passing is 97% with an interval of about 83 to 99%. Report counts ("29 of 30") with the interval, not "97%". One book's case study reports 99% on 30 to 34 tasks after tuning prompts against those same tasks [EVALS ch14]. The gain from its 20-of-30 baseline is real, but the final level is uncertain by about 16 points and has no held-out confirmation.
 
+**Worked example: a 10-session batch.** A hosted evaluation runs 10 questions, one trial each, against a pass bar of 0.80. The Wilson 95% intervals are 31 to 83% for 6 of 10, 49 to 94% for 8 of 10, and 72 to 100% even for 10 of 10. A perfect score can't show that the true rate clears 0.80. A drop to 0.60 can't be called a regression without a paired baseline. Two judges reporting 0.75 and 1.00 on the same 10 sessions are inside the noise. Use a batch this size to find failures, not to clear a bar.
+
 ## Zero failures is not zero risk
 
 If all n independent tasks pass, the 95% upper bound on the failure rate is about 3/n (rule of three). Repeated trials of one task are not independent, so count distinct tasks, not trials. Variants of one scenario are not fully independent either; see "Correlated tasks" below.
@@ -128,7 +130,17 @@ Within-one agreement on a 1 to 5 scale is 52% for two random raters, and about 7
 
 ## Errors count
 
-If 5% of trials crash and are dropped, a 95% pass rate is an unknown quality level [EVALS ch2]. Score errored trials as failures and report the error rate beside the pass rate.
+If 5% of trials crash and are dropped, a 95% pass rate is an unknown quality level [EVALS ch2]. Score errored trials as failures and report the error rate beside the pass rate. Hosted evaluators often report a mean over the sessions they managed to score, so failed invocations and sessions without traces drop out silently. Recompute the headline from per-session results, count each missing session as failed (for a mean score, at the scale's floor; see "Mean scores"), and report sessions sent, scored and errored.
+
+## Mean scores
+
+Everything above assumes pass or fail. When a judge returns a 0-to-1 or 1-to-5 score, prefer turning each session into pass or fail with a threshold fixed before the run, then use Wilson and the sign test as usual. If you must report the mean score itself, put an interval on it with a bootstrap that resamples scenarios (`bootstrap_mean` below), and compare versions with `paired_bootstrap` on per-task scores.
+
+A missing or errored session scores the scale's floor: 0 on a 0-to-1 scale, 1 on a 1-to-5 scale. If a hosted evaluator kept only its averages and session counts, the missing-as-floor mean is
+
+  (average × scored + floor × (sent − scored)) ÷ sent
+
+which on a 0-to-1 scale is average × scored ÷ sent. An average of 0.82 over 34 scored sessions out of 40 sent becomes 0.697. Without per-session scores, no interval or paired test is possible, so history kept only as averages can't support a decision; keep per-session results from now on.
 
 ## Gate noise
 
@@ -195,6 +207,14 @@ def paired_bootstrap(old, new, boot=2000, seed=0):
     draws = sorted(mean(d[i] for i in rng.choices(ids, k=len(ids))) for _ in range(boot))
     return mean(d.values()), draws[int(0.025 * boot)], draws[int(0.975 * boot)]
 
+def bootstrap_mean(by_scenario, boot=2000, seed=0):
+    """by_scenario: {scenario_id: [session scores]}, missing sessions already set to the floor.
+    Mean score with a 95% CI. Resamples scenarios, not sessions."""
+    ids, rng = sorted(by_scenario), random.Random(seed)
+    avg = lambda keys: mean(x for k in keys for x in by_scenario[k])
+    draws = sorted(avg(rng.choices(ids, k=len(ids))) for _ in range(boot))
+    return avg(ids), draws[int(0.025 * boot)], draws[int(0.975 * boot)]
+
 if __name__ == "__main__":
     assert [round(x, 2) for x in wilson(24, 30)] == [0.63, 0.9]
     assert tasks_for_halfwidth(0.8, 0.05) == 246
@@ -207,7 +227,10 @@ if __name__ == "__main__":
     assert gain == 0.5 and lo > 0
     assert icc([[1] * 6] * 25 + [[0] * 6] * 25) == 1.0 and round(n_eff(300, 6, 0.5)) == 86
     assert round(mde(0.10, 300), 3) == 0.051 and mde(0.0, 100) == 0.06
+    assert bootstrap_mean({i: [0.5, 0.5] for i in range(10)}) == (0.5, 0.5, 0.5)
+    m, lo, hi = bootstrap_mean({i: [i / 9] for i in range(10)})
+    assert lo < m == 0.5 < hi
     print("ok")
 ```
 
-Usage: `wilson(sum(per_task_pass), n_tasks)` for a headline rate; `mean(pass_hat_k(sum(r), len(r), 3) for r in results.values())` for pass^3; `sign_test(len(newly_failing), len(newly_passing))` for a gate.
+Usage: `wilson(sum(per_task_pass), n_tasks)` for a headline rate; `mean(pass_hat_k(sum(r), len(r), 3) for r in results.values())` for pass^3; `sign_test(len(newly_failing), len(newly_passing))` for a gate; `bootstrap_mean(scores_by_scenario)` for a mean judge score.

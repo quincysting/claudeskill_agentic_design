@@ -15,7 +15,7 @@ Severity: **Critical**: the suite can pass while the agent fails. **High**: the 
 
 ## What the current numbers mean
 
-| Reported | Tasks | Recomputed interval / test | Reading |
+| Reported | Tasks (sent / scored / errored) | Recomputed interval / test (missing = failed) | Reading |
 |---|---|---|---|
 
 ## First three changes

@@ -34,6 +34,9 @@ flowchart LR
 
 Untrusted inputs: <list every source that reaches the context>
 
+Entry points: <every endpoint, alias and deployed version that can invoke the agent, read from the live config; the
+authenticator on each; who can call each tool backend directly>
+
 ## Trifecta check (Step 5)
 
 | Flow | Private data | Untrusted content | External channel | Verdict and cut |

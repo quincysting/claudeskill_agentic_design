@@ -8,7 +8,7 @@ The judge receives the task input, the agent's output (or transcript), the rubri
 
 1. **Ask the workflow's practical questions**, not "rate the quality". For a code-review agent: is the finding real, is it grounded in the changed lines, is the severity justified, should this comment be shown [SYSTEMS ch14]. For a support agent: is every stated fact supported by a tool result, does the reply match what was executed, should a human have been involved. Generic quality prompts reward fluency.
 2. **Three to five criteria**, each tied to the task. More than about seven dilutes focus [EVALS ch5].
-3. **Define every score level**, e.g. 1 = factual errors, 3 = correct but incomplete, 5 = correct and complete [EVALS ch5]. Binary criteria (true/false) are easier to calibrate than 1 to 5 scales; prefer them where the decision is binary anyway.
+3. **Define every score level**, e.g. 1 = factual errors, 3 = correct but incomplete, 5 = correct and complete [EVALS ch5]. Binary criteria (true/false) are easier to calibrate than 1 to 5 scales; prefer them where the decision is binary anyway. Write the levels for this dimension. A scale copied from a template for another dimension (a faithfulness scale on a tone judge), or one whose top level asks only for a polite, on-topic reply, has no level a fluent wrong answer would land in. Test it before use: a known fluent-but-wrong output must score below the top level.
 4. **Weight so a fluent wrong answer cannot pass.** With correctness weighted 0.4, an answer scoring 5 on clarity and conciseness but 1 on correctness averages 2.5 and fails a 3.0 threshold [EVALS ch5]. Better still, make correctness a gate: fail if correctness < 3, whatever the rest.
 5. **Reason before score.** Ask for the reasoning field first; the reason is what makes a failure actionable [EVALS ch5].
 6. **Lowest-variance sampling** for the judge: temperature 0 [EVALS ch5] where the provider accepts it. The newest Claude models reject non-default temperature/top_p/top_k (as of 2026-10), so on those keep the default, pin the prompt and rubric versions, use structured output, and take the majority (or median) of three judge samples. The agent runs at production settings.
@@ -53,7 +53,7 @@ Ensembles help on high-stakes runs. Take the median of three judges from differe
 
 ## Calibration protocol
 
-1. **Sample 50 to 100 cases per task type** from real outputs [EVALS ch5]. Include passes, failures, borderline cases and outputs that sound right but are wrong. If failures are rare, oversample them; a judge that says "pass" to everything looks accurate on a set of passes.
+1. **Sample 50 to 100 cases per task type** from real outputs [EVALS ch5]. Include passes, failures, borderline cases and outputs that sound right but are wrong. If failures are rare, oversample them; a judge that says "pass" to everything looks accurate on a set of passes. The quickest source of sound-right-but-wrong cases is the divergence list: trials a reference-free judge scored high while a reference-based or state check failed (scorers.md, "Divergence check").
 2. **A person labels them blind** with the same rubric. Two people label at least 20% of them, to measure human agreement too [EVALS ch9].
 3. **Run the judge** on the same cases at its production settings.
 4. **Report:**
@@ -92,6 +92,10 @@ def false_pass_rate(human, judge):
     fails = [j for h, j in zip(human, judge) if not h]
     return sum(fails) / len(fails) if fails else float("nan")   # nan: no failures to test on
 ```
+
+## Held-out evaluator
+
+When people iterate prompts against judge scores, the prompt learns the rubric's wording, just as it learns the dev split. Keep at least one release-time evaluator nobody tunes against: a judge whose rubric the prompt authors don't see, or a fresh human-labelled sample. Calibrate it like any other judge; being hidden doesn't make it right. Report its score next to the visible judges. A growing gap between them means the prompt is learning the rubric rather than the task. A hidden judge guards the rubric, not the data, so it doesn't replace the held-out split (statistics.md, "Which split the numbers come from").
 
 ## Labelling schedule
 

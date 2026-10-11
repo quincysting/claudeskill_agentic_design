@@ -25,6 +25,18 @@ The cheapest control is a capability that does not exist.
 ## 2. The policy gate (single enforcement point)
 
 Exactly one code path turns a model proposal into a side effect. The model emits a structured request; the gate decides.
+
+**Make the gate unavoidable.** The backend behind each tool accepts calls only from the gate's identity (resource
+policy, network policy, or an allowlist of calling workloads). Anything else that holds invoke rights on the backend
+skips every rule. In a review, list who can call each backend directly, through every endpoint, alias and version.
+
+**What a gateway policy can and can't see.** A policy engine in front of tools evaluates the caller's identity, the
+tool and the arguments. It can enforce allowlists, caps on argument values, identity and tenant rules, and session
+counts. It can't know a record's real state, so a condition on a value the model supplies ("status is not shipped") is
+a hint, not a control. Facts about the world (status, balance, owner) are checked in the handler, or in a lookup the
+gate calls, against the system of record. Use both: the gateway for coarse, auditable limits, the handler for state. A
+single gate is right; a single place for every rule, with rule-free handlers behind it, is not.
+
 Checks, in this order:
 
 1. **Allowlist, default deny.** Unknown tool → deny.
@@ -33,10 +45,12 @@ Checks, in this order:
 4. **Budget.** Calls per task, parallel calls, wall time, money, tokens. Time spent waiting for a human does not count
    against the agent's timeout [DEFGUIDE ch6].
 5. **Arguments.** Schema (types, required fields) then semantics: IDs exist and belong to the tenant, paths resolve
-   inside the allowed root, URLs and recipients on allowlists, amounts and counts under hard caps.
+   inside the allowed root, URLs and recipients on allowlists, amounts and counts under hard caps. Content checks on
+   free-text arguments (§6).
 6. **Flow rules.** Taint: once untrusted content has entered the run, egress tools need approval or are denied.
    Resource scoping: a session that started on resource A may not touch resource B (the per-repository rule from the
-   trifecta case in [MCP ch7]).
+   trifecta case in [MCP ch7]). Order rules ("tool B only after tool A") and per-session call caps are flow rules too;
+   some gateways keep this session state in their policy engine.
 7. **Risk-tier routing.** Act and log / act and notify / ask a human / refuse ([human-oversight.md](human-oversight.md)).
    Hard limits (step 5) are checked before any human is asked, so an approval can never exceed them.
 8. **Execute** with the credential injected here and an idempotency key.
@@ -78,6 +92,34 @@ def gate(run, name, args):
     return execute(run, name, args)           # injects credential, sets run.tainted if rule["taints"]
 ```
 
+**If the gate is a declarative policy engine** (Cedar, OPA/Rego and similar), write rules with its semantics in mind:
+- Default deny blocks every tool that has no explicit allow, harmless reads included. Give every tool an allow before
+  turning enforcement on.
+- Write "allow unless X" as one conditional allow (permit tool T when the argument isn't X). A lone forbid also leaves
+  everything else denied.
+- Forbid beats allow, so keep forbids for cross-cutting guardrails that must win over any allow: tenant mismatch, an
+  injection score, a kill flag.
+- Make every field a rule reads required in the tool schema, or guard it with an existence check. In Cedar a policy
+  whose condition errors (a missing attribute, for example) is skipped. For a permit that is harmless, since the call
+  stays denied, but a forbid on an absent optional field silently stops applying.
+- Approval gates live outside the engine. The engine only allows or denies a call; it can't see whether a human
+  approved, and it doesn't route anything. For a gated action class, the agent's principal gets a permit only for a
+  request or propose tool (`request_refund_approval`, not `issue_refund`). A separate executor identity, allowed by
+  its own rule, runs the approved action keyed by approval ID after re-checking the hard limits and the record's state
+  ([human-oversight.md](human-oversight.md) §3).
+
+**Shipping a gate rule.** Rules need their own release process:
+- Lint: reject a rule with no condition, or a forbid with no exception, unless the reason is written next to it. Where
+  the engine can flag rules that always allow or always deny, run that analysis and justify any override in writing.
+- Roll out in log-only (shadow) mode beside the enforced set, and enforce once its decisions on real traffic match
+  what you expected.
+- After every change, confirm each rule reached an active state and shows up in decision logs. Rule creation can be
+  asynchronous and fail after the console reported success, and log-only evaluation can fail silently when a
+  permission is missing. A rule that failed to deploy turns an allow into an outage and a forbid into a hole. Alarm on
+  any rule that isn't active, and on decision logs going quiet.
+
+AWS mapping: [aws-implementation-notes.md](aws-implementation-notes.md).
+
 ## 3. Credentials and identity
 
 - **Broker, not tool.** Non-LLM code that executes the call adds the credential from a vault, per the agent's
@@ -86,17 +128,80 @@ def gate(run, name, args):
 - **Short-lived and scoped.** Per task or per resource where possible (single-repository tokens instead of personal
   access tokens [MCP ch7]); rotate on a schedule and on demand.
 - **Per-agent identity.** Each agent has its own workload identity (for example SPIFFE/SPIRE-style), separate from human
-  users, so you can scope, attribute and revoke one agent without stopping the rest [MESH ch12].
+  users, so you can scope, attribute and revoke one agent without stopping the rest [MESH ch12]. Federate these
+  identities into the identity provider and privileged-access system the organisation already treats as authoritative;
+  a parallel identity store splits the audit trail. When agents are split to separate data, the boundary has to exist
+  in their credentials, not only in prompts or tool lists. Verify it with a negative test (a policy simulation or a
+  real call) showing each agent's identity is denied every other agent's stores, and review the effective permissions,
+  not the policy names.
 - **Delegation.** When acting for a user, use delegated tokens that never exceed the user's rights; record both
-  identities in the audit log.
+  identities in the audit log. Across more than one hop, apply the invariants in "Delegation chains" below.
+- **Verified, not asserted, identity.** The user an agent acts for is proven by a token the identity provider signed
+  and the receiver validated (checklist below), not passed as a string by a trusted caller. An "act as user `<id>`" or
+  "get a token for user `<id>`" API is impersonation for every principal allowed to call it. Remove that permission,
+  and add an explicit deny so a later broad allow can't restore it.
+- **Acting for a person, or as itself, by design.** If an agent should only ever act for a signed-in person, turn off
+  its own machine-to-machine (client credentials) grant and have receivers require a claim that marks a human subject.
+  An agent that can mint tokens as itself becomes a standalone privileged principal once compromised.
+- **Unverified decoding.** Reading claims without checking the signature is acceptable only for logging, and only where
+  every route to the code (every version, alias and endpoint) has a verifying authorizer in front. Otherwise forged
+  claims become identity.
 - **No pass-through.** A server accepts only tokens issued for itself (audience check) and uses its own credentials
   downstream [MCP ch7].
 - **Local servers.** Pass a stdio MCP server only the environment variables it needs [MCP ch8].
-- **Logs.** Scrub secrets and personal data from logs, traces and caches; set retention [BUILDAPPS ch12].
+- **Logs.** Scrub secrets and personal data from logs, traces and caches; set retention [BUILDAPPS ch12]. Platforms
+  often copy the token subject into their own audit logs, so use opaque or pairwise subject IDs, not emails.
 - **Provider scope granularity.** Some providers can't separate reading from sending, or composing from sending, in
   one OAuth scope. Then keep the token in a proxy service that exposes only intent-level operations (create draft,
   reply in thread X) and enforces recipients and rates there; the agent never holds the token. An agent running on the
   user's own full-scope token is a finding, not a premise.
+
+### Delegation chains
+
+When agent A calls agent B, or a resource, for a user, A exchanges the token it received for a new one (OAuth 2.0
+Token Exchange, RFC 8693, or the identity provider's on-behalf-of flow). It never forwards the token it received. Four
+invariants hold at every hop:
+
+1. **Same subject.** The user's subject (`sub`) is unchanged end to end. Identity travels in the token, never as a
+   `user_id` field in the message.
+2. **Audience is the next hop only.** Each token is minted for exactly one receiver, so a token stolen at one hop is
+   useless at the next.
+3. **Scope never widens.** Effective rights = what the user holds ∩ the acting agent's ceiling ∩ what this task
+   needs. A read path never carries a write scope.
+4. **The actor is recorded.** The token names the acting agent (the `act` claim from RFC 8693, or `azp` /
+   `client_id`), and every audit row stores subject and actor together.
+
+Enforce reach in three places, so one misconfiguration isn't enough:
+- **Issuance.** The identity provider mints a given audience only for clients wired to call it, and caps scopes at the
+  client's ceiling.
+- **Invocation.** The receiving agent rejects tokens not addressed to it.
+- **Resource.** The API validates the token again and applies its own per-actor ceiling.
+
+Terminal resources consume tokens and never exchange them. Prefer sender-constrained tokens (mutual-TLS-bound or DPoP)
+where the platform supports them; otherwise keep lifetimes to minutes. Managed agent platforms increasingly broker the
+exchange and propagate caller identity for you. Use that, and check the four invariants either way. One test per
+invariant: [red-team-test-plan.md](red-team-test-plan.md) §Delegation tests.
+
+### What a receiver checks in a token
+
+Validate every inbound token in this order, and fail closed when a claim is **missing**, not only when it is wrong:
+
+1. Signature, with the algorithm pinned (never `none`, never whatever the token header names).
+2. `exp` present and in the future; `nbf`; a maximum lifetime (`exp` minus `iat`). An authorizer that skips the expiry
+   check when `exp` is absent accepts tokens that never expire.
+3. Issuer.
+4. Audience is this service.
+5. Token type is an access token. ID tokens from the same identity provider verify against the same keys, so check
+   `typ` or the provider's token-use claim.
+6. Client or actor on an allowlist.
+7. Required scope present.
+8. Policy claims, for example that the subject is a person.
+9. At a resource: the actor's rights stay within a per-actor ceiling the resource keeps itself.
+
+Take the user or customer from the verified subject, never from a request parameter. For the MCP server side of this
+checklist, see agent-tool-designer.
+
+AWS mapping: [aws-implementation-notes.md](aws-implementation-notes.md).
 
 ## 4. Breaking the trifecta
 
@@ -182,7 +287,12 @@ Design rules:
 - Weight by trust context: tool output gets higher injection and exfiltration sensitivity than authenticated staff
   input [DEFGUIDE ch12].
 - Map the score to allow / human review / block, and invoke the judge only between two thresholds (the book's scanner
-  uses 0.2 and 0.8 [DEFGUIDE ch12]; tune yours on a labelled set).
+  uses 0.2 and 0.8 [DEFGUIDE ch12]; tune yours on a labelled set). Before enforcing, run the check in shadow
+  (log-only) mode and set thresholds on the observed score distribution.
+- Scan the free-text **arguments of proposed calls** (reasons, notes, message bodies) as well as inputs and results.
+  Injection markers in an argument mean the plan was steered upstream: deny or route to a human, as a forbid no allow
+  can override. It is still detection, not the control for a P0 path. Test each such rule with a paired call
+  ([red-team-test-plan.md](red-team-test-plan.md) §Gate rule tests).
 - Choose the on-fail action per validator: fix or redact (deliver the rest), re-ask, filter one field, refrain, log only,
   raise [DLLMA ch10]. Prefer modification to blocking; a guardrail that blocks good answers can be worse than none [EVALS ch10].
 - Start from untrusted defaults, measure a bypass baseline with an automated red-team harness, tune only the categories
@@ -201,10 +311,20 @@ Design rules:
 - Do not store runs that read untrusted content as exemplars or "learned procedures" without review.
 - Keep a purge path: find all entries from a source or run and delete them; back up memory so you can restore a
   known-good state.
+- **Memory exposed as tools** (a memory MCP server, a memory API the agent calls): the server binds tenant, user,
+  session and author role from the authenticated request context; they are not tool parameters. The model writes only
+  as itself (assistant note, proposed fact); user turns are written by the application from the real user message.
+  Otherwise a model-chosen session key is a cross-session read, and a forged "user" turn reads back later as the
+  user's own words. Test it: call the read tool with another session's ID and expect a refusal. Memory design detail:
+  agent-context-designer.
 
 ## 8. Multi-agent links
 
-- mTLS between agents; authenticated, schema-validated messages; the receiver applies its own gate [MESH ch11].
+- mTLS between agents; authenticated, schema-validated messages; the receiver applies its own gate [MESH ch11]. Where
+  the runtime authenticates callers by bearer token instead (managed agent runtimes typically do), use audience-bound,
+  short-lived signed tokens per hop (§3 Delegation chains).
+- Agent-to-agent messages carry no `user_id` or tenant fields that the receiver trusts. Identity comes from the
+  verified token (§3).
 - Delegation never grants more than the delegator holds; no shared service accounts.
 - Loop limits, hop counts and circuit breakers on agent-to-agent calls; safe degradation when a dependency fails
   (partial result, defer, escalate; stop if a required check fails) [SYSTEMS ch11].
@@ -219,6 +339,7 @@ Client and host side:
 
 Server side:
 - OAuth 2.1 resource server: validate token audience and scopes; never pass client tokens downstream [MCP ch7].
+  Audience and scope are two of the receiver checks in §3; run all of them.
 - Proxies with a static client ID: per-client consent stored server-side, exact redirect-URI matching, single-use
   `state` set only after consent [MCP ch7].
 - Block private IP ranges during OAuth metadata discovery (SSRF); use an egress proxy.
@@ -231,16 +352,43 @@ MCP is an integration contract, not a security boundary [SYSTEMS ch7].
 
 ## 10. Detection and recovery
 
-- **Audit log** per tool call: agent identity, user identity, tool, redacted arguments, gate decision and reason,
-  approver, result status, trace ID. Machine-readable, so audits and red-team graders can use it.
+- **Audit log** per tool call and per delegation hop: trace ID, user subject and acting agent, audience and scope of
+  the token used, tool, redacted arguments, gate decision and reason, approver, result status. Decoded claims only,
+  never raw tokens. Machine-readable, so audits and red-team graders can use it. Mint the trace ID at the entry point;
+  downstream services accept it only from an authenticated upstream, never from a caller-supplied header or query
+  string.
+- **Tamper-evident** means write-once storage (object lock, an append-only ledger), each record hash-chained to the one
+  before it, or a keyed MAC whose key the writers don't hold. A hash stored next to each row only proves the row is
+  self-consistent: anyone who can rewrite the row can recompute it.
+- **Failed audit writes.** For irreversible actions, decide whether a failed audit write blocks the action. Default:
+  it does. Never swallow the error.
+- **Credential issuance is audited too**: every token or secret handed to an agent (which agent, on whose behalf,
+  audience, scope, time, outcome). Many platforms treat these as high-volume data events and record them only when
+  asked. Check that enabling them doesn't silently turn off other audit categories on the same trail.
 - **Behavioural baselines**: request rate per agent and tool, message volume between agent pairs, data volume read,
   spend. Raise anomalies for human review; quarantine automatically when an agent touches critical data or expensive
   services outside baseline [MESH ch11].
 - **Alerts on AI-specific signals**: invalid structured output, rising refusals, abnormal loop depth, unexpected approval
   frequency, repeated fallbacks [SYSTEMS ch11].
+- **Alerts on identity signals**: token-fetch and authorization failures per agent, and authentication attempts against
+  agents from unexpected callers. Emit zeros so an alarm doesn't sit in "no data".
+- **Canaries**: plant fake records or tokens an agent should never read or send, and alert when one appears in a log,
+  trace or outbound request.
+- **Protect the controls themselves.** The permission to change the gate's mode (enforce or log-only), detach its
+  policies, or replace an endpoint's authorizer is the permission to disable every control at once. Log-only mode
+  still logs "would have denied", so a switched-off gate looks like a working one. Give that permission to a separate,
+  narrowly held role, require a second person for changes, and alarm on every change to gate mode, rule set,
+  authorizer and allowed clients.
+- **Configuration drift.** Update APIs that replace the whole configuration drop any field you don't resend
+  (authorizer, header forwarding, environment), and may publish the result as the new default version. Build each
+  update from the current state, and after every deploy diff the security fields (authorizer, allowed audiences and
+  clients, header forwarding, gate attachment and mode) against the approved baseline. Setup wizards can add grants
+  nobody asked for, such as a default scope on a new client, so read back effective grants afterwards.
 - **Kill switch**: per agent and global, server-side (revoke credentials, halt the queue), reachable remotely, tested in
   drills. A local process kill is not enough [ENTERPRISE ch7].
 - **Rotation**: rotate secrets on demand; for secrets you can't rotate, remove them from the agent's reach [MESH ch11].
 - **Restore**: back up configuration, registry and memory; restore a known-good state [MESH ch11].
 - **Runbook**: detect → quarantine agent → revoke and rotate → scope the blast radius from the audit log → purge
   poisoned memory → restore → add the path to the regression suite → re-enable at a lower autonomy level.
+
+AWS mapping: [aws-implementation-notes.md](aws-implementation-notes.md).

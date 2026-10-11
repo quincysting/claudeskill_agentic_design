@@ -2,7 +2,7 @@
 
 Depth for Procedure steps 2 and 5. Citation keys are expanded in SKILL.md under Sources.
 
-Contents: 1 Information map · 2 Do you need long-term memory · 3 Types by update semantics · 4 Write policy · 5 Read policy · 6 Scope, privacy, deletion · 7 Consolidation and forgetting · 8 Threads and checkpoints · 9 Multi-agent memory · 10 Agent-written notes · 11 Poisoning (summary)
+Contents: 1 Information map · 2 Do you need long-term memory · 3 Types by update semantics · 4 Write policy · 5 Read policy · 6 Scope, privacy, deletion · 7 Consolidation and forgetting · 8 Threads, checkpoints and concurrent writers · 9 Multi-agent memory · 10 Agent-written notes and memory tools · 11 Poisoning (summary)
 
 Keep three things apart. The **context window** is the input of one call. **Memory** is state outside the model that survives the call. **Context** is what you put in the window for this step. Storing something is not the same as putting it in the prompt [SYSTEMS ch9]. There are two decisions to design: what the assembler reads into each call, and what the write gate lets into durable memory.
 
@@ -43,7 +43,7 @@ Every book uses the episodic / semantic / procedural split, and they disagree at
 | Episodic | Past task: input, actions, outcome, timestamp | **Append-only**, summarise later | Append log; add an embedding index only for similarity recall | Two different reads. **By recency** for continuity ("where we left off": latest note if recent). **By similarity with a floor** for "a case like this" | Irrelevant recall; overfitting to old cases |
 | Procedural | How to behave: instructions, workflows, format and safety rules | **Versioned, reviewed** like code | Prompt repository / workflow definitions [DLLMA ch10 §Data Stores] | Stable prefix | Unreviewed rule changes; reinforcing bad behaviour |
 
-Store preferences as facts with an upsert rule [DEFGUIDE ch10], not as episodes [AGENTICAI ch7]. An episode log of every mention forces the model to reconcile contradictions at read time. Storage options: in-process (fast, lost on restart), database (exact, durable, no semantic match), vector store (semantic, approximate), or hybrid, which is the common production choice of exact records plus semantic projections [SYSTEMS ch9]. If memory is a handful of keyed categories plus a few recent notes, a key lookup is enough and a vector store adds nothing. Add one only when the number of items outgrows what you can inject or select by key.
+Store preferences as facts with an upsert rule [DEFGUIDE ch10], not as episodes [AGENTICAI ch7]. An episode log of every mention forces the model to reconcile contradictions at read time. Storage options: in-process (fast, lost on restart), database (exact, durable, no semantic match), vector store (semantic, approximate), or hybrid, which is the common production choice of exact records plus semantic projections [SYSTEMS ch9]. If memory is a handful of keyed categories plus a few recent notes, a key lookup is enough and a vector store adds nothing. Add one only when the number of items outgrows what you can inject or select by key. When a design spans several store types (a key/range store for threads, a graph, a search index, a relational source of record), choose each by its access pattern and give every item one home (retrieval-pipeline.md §5.1).
 
 ## 4. Write policy
 
@@ -64,7 +64,7 @@ The precision figures are one author's estimates with no stated method [DEFGUIDE
 - Size cap per record.
 - Refuse secret and identifier patterns: national ID numbers, payment-card digit runs, PEM private keys, cloud access keys, API keys [DEFGUIDE ch10]. The regexes are examples; use your DLP rules where you have them.
 - **Source check.** Text that came from a tool, web page, retrieved document or another agent is never written to durable memory directly. Store a normalised candidate with provenance and status `proposed` until it is promoted by a rule or a review.
-- Identity: take the user and tenant from the verified session, never from a client-supplied string or the model's output [DEFGUIDE ch10].
+- Identity: take the user and tenant from the verified session, never from a client-supplied string or the model's output [DEFGUIDE ch10]. That includes memory exposed as tools (section 10).
 
 ### 4.4 Update rules (apply at write time, not read time)
 1. Supersede: a new fact that contradicts an old one in the same category marks the old one `superseded` and links to it.
@@ -98,7 +98,8 @@ def upsert(store, session, fact):              # scope comes from the session, n
     ns = (session.org_id, session.user_id, "fact")
     old = store.get(ns, fact.category)
     if old and old.value == fact.value: return  # dedupe
-    store.put(ns, fact.category, fact, supersedes=old and old.id)
+    store.put_if(ns, fact.category, fact, supersedes=old and old.id,
+                 expect_version=old.version if old else 0)  # conditional: reload on conflict (section 8)
 ```
 
 ## 5. Read policy
@@ -141,18 +142,32 @@ def upsert(store, session, fact):              # scope comes from the session, n
 
 LLM-curated memory (A-MEM's linked, self-rewriting notes; MemoryBank's portraits) suits research and personal assistants, where recall quality matters more than predictability [ILLUSTRATED ch4]. In production, adopt it only with a measured gain, provenance on every record, and an edit/delete path. The cheap deterministic path is the default because cost, predictability and auditability all favour it.
 
-## 8. Thread state, checkpoints and replay
+## 8. Thread state, checkpoints, replay and concurrent writers
 
 - Checkpoint thread state after every step, keyed by thread ID. That gives crash recovery, human-in-the-loop pauses and replay [DEFGUIDE ch10].
 - Time travel (rewind to an earlier checkpoint, edit, fork) is useful for debugging and audit. It **rewinds the thread, not the long-term store**, so decide explicitly whether durable memory is versioned or rolled back on replay [DEFGUIDE ch10].
 - Treat checkpoint payloads and stored memory as untrusted text when they are read back.
+- **Concurrent writers.** Two writers can hold the same thread or record: a retry and a resume, two replicas, a redelivered event, two turns arriving together, one user in two tabs or on two devices writing user-scoped memory. Make writes conditional. Create only if the key doesn't exist; update only if the stored version equals the version you read, then increment it. When the condition fails, reload and decide again. Never blind-overwrite. The alternative is one writer by construction: every event for a thread goes through a single consumer (partitioning by thread or case belongs to agent-architect).
+- **Append-only logs** (turns, episodes, ledger entries) need IDs that can't collide: a conditional create with retry, an atomic counter, or a time-ordered unique ID (UUIDv7, ULID). Reading the last ID and adding one is a race. Two concurrent appends get the same ID and the second silently replaces the first.
+
+```python
+class StaleWrite(Exception): ...
+
+def save(store, key, state, read_version):            # read_version is 0 when the key was absent
+    ok = store.put_if(key, {**state, "version": read_version + 1},
+                      expect_version=read_version)      # stored version must still equal what we read
+    if not ok:
+        raise StaleWrite(key)                           # caller reloads and decides again
+```
+
+- **Read contract.** Specify how the thread store returns a thread: explicit sort order (chronological for replay), page size and continuation, and the empty-thread case. Test it with a three-turn fixture: the turns come back 1, 2, 3, and a new thread returns an empty list, not an error. A flipped sort flag silently reverses the conversation and breaks any logic that reads "the last turn".
 
 ## 9. Multi-agent memory
 
 | Topology | Good | Bad |
 |---|---|---|
 | Per-agent local | Clean contexts | Agents drift apart; duplicated knowledge |
-| Shared global store | One source of truth | Every agent's context fills with the others' noise; needs concurrency control |
+| Shared global store | One source of truth | Every agent's context fills with the others' noise; needs concurrency control (conditional writes, section 8) |
 | **Hybrid** (local working state + shared durable facts and coordination artifacts) | What most production systems use [DEFGUIDE ch10] | Needs clear ownership of shared writes |
 
 Pass a sub-agent the current task brief, not the parent's history. Choose its persistence explicitly: per-invocation (remembers nothing between calls), per-thread (keeps its own history within the thread) or stateless (also loses interrupts and crash recovery) [DEFGUIDE ch10]. Messages between agents are shared context too, and need the same budgeting [ILLUSTRATED ch4].
@@ -161,6 +176,7 @@ Pass a sub-agent the current task brief, not the parent's history. Choose its pe
 
 - Giving the agent a write tool (an evidence log, a notes file, a memory directory) works for long tasks that span context resets, and for tasks that repeat [BUILDAGENTIC ch4 §Experiment: The Extended Mind Thesis and Agentic Memory]. Every note is an unreviewed model output, so add validation, provenance, size caps, expiry, and an edit/delete path.
 - A file-based memory tool also needs path-traversal checks and sensitive-data stripping, which provider memory tools leave to the application (provider-notes.md).
+- **Memory tools take their scope from the request, not the model.** When memory is exposed as tools (a memory server over a tool protocol, a memory API the agent calls), the server binds the scope keys (tenant, user, session) and the author role from the authenticated request context. They are not tool parameters. A model-chosen session key is a cross-session read path, and a model-chosen role lets an injected instruction write a forged user turn that later reads back as the user's own words. The model writes only as itself (an assistant note or a `proposed` fact); the application writes user turns from the actual user message. Test it: call the read tool with another session's ID and expect a refusal. Tool interface rules belong to agent-tool-designer.
 
 ## 11. Poisoning (summary; threat model → agent-threat-modeler)
 

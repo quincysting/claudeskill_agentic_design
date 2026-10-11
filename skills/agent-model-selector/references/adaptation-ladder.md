@@ -111,6 +111,7 @@ Data quality beats quantity. Verify synthetic answers with a program or a review
 ## 6. Side effects
 
 - **Catastrophic forgetting and lost generality.** Tuning on narrow data degrades tool use, formatting or reasoning the base had; a reasoning-only intermediate model did poorly on writing and translation until general data was mixed back in. Mix in general or conversational data, use small learning rates and LoRA, and run a general-capability regression set after every tuning step, next to the task eval.
+- **Memorisation (overfitting to the training rows).** Score the validation split during training and keep the checkpoint with the best validation metric (early stopping), not the last one. Training loss falling toward zero while validation loss rises from the first evaluation means the model is memorising its training rows. In one practice run (a 3B base, 58 training rows, LoRA rank 256, 10 epochs), training loss fell from about 2.1 to about 0.005 while validation loss rose from about 2.1 to about 3.5, lowest at the first evaluation. More training won't fix this. Add data, cut epochs, lower the adapter rank or raise dropout. With fewer than about 100 examples, expect this pattern; it is why section 5 and SKILL.md table E2 set data floors. Validation loss only screens a run. The decision is the held-out task eval against what the tuned model would replace (checklist in section 8).
 - **Specialisation versus the upstream release cycle.** A new base model can beat months of tuning on the old one. Make tuning a repeatable pipeline (data, scripts, hyperparameters, eval) registered with versions and rollback, not a one-off.
 - **Vendor lock-in.** A tuned closed model lives only in the vendor's environment and dies with its base model's deprecation.
 
@@ -125,10 +126,12 @@ Data quality beats quantity. Verify synthetic answers with a program or a review
 1. Failure is a behaviour gap, repeated across many logged cases, and cheaper rungs were tried and measured.
 2. Train, validation and held-out test splits fixed before any tuning; the test split was never used for prompt work.
 3. Examples verified by a person or a program; per-class counts known; "no tool" and tool-failure cases included.
-4. Base model chosen for knowledge and licence; LoRA unless there is a reason not to.
-5. General-capability regression set prepared.
-6. For RL: reward passes adversarial tests; tasks filtered to those solved sometimes but not always; independent held-out scorer (see `rl-and-reward-design.md`).
-7. Every comparison includes what the tuned model would replace, on the same held-out data: the untrained base for generative tuning, the best prompted candidate for an encoder classifier (an untrained classification head is meaningless).
-8. Calibration measured if thresholds depend on confidence.
-9. Data, scripts, hyperparameters, eval results and the resulting model versioned and registered with a rollback path.
-10. A re-run plan for the next base model and a fallback if hosted tuning is withdrawn.
+4. Validation split scored during training; the kept checkpoint is the one with the best validation metric, not the last one (section 6, memorisation).
+5. Base model chosen for knowledge and licence, pinned to an immutable revision (a commit hash, not a branch or "latest") and mirrored to your own storage; LoRA unless there is a reason not to.
+6. General-capability regression set prepared.
+7. For RL: reward passes adversarial tests; tasks filtered to those solved sometimes but not always; independent held-out scorer (see `rl-and-reward-design.md`).
+8. Every comparison includes what the tuned model would replace, on the same held-out data: the untrained base for generative tuning, the best prompted candidate for an encoder classifier (an untrained classification head is meaningless).
+9. Calibration measured if thresholds depend on confidence.
+10. Data, scripts, hyperparameters, eval results and the resulting model versioned and registered with a rollback path.
+11. Training and serving match. The prompt template, special tokens, tokenizer files, stop sequence and inference library versions are versioned with the adapter and used unchanged at serving, on the exact base revision it was trained on. A parity test renders a training example through the serving path and checks the token IDs and the stop behaviour. A mismatch can stop the adapter from loading, or let it load and misbehave.
+12. A re-run plan for the next base model and a fallback if hosted tuning is withdrawn.

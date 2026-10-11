@@ -44,6 +44,8 @@ Ask only what you can't find:
 
 If answers are missing, state your assumptions and design for the conservative case: multi-tenant, per-user permissions, a corpus that changes weekly, returning users.
 
+If the system runs on AWS, map each decision with [references/aws-implementation-notes.md](references/aws-implementation-notes.md).
+
 ## Procedure
 
 1. **Frame the job.** Decide whether this is a design or a review, and which layers are in scope: retrieval, memory, assembly. List every model call, and write one line per call saying what decision it makes and what it must know to make it.
@@ -60,19 +62,22 @@ If answers are missing, state your assumptions and design for the conservative c
    - retrieve wide (about 50), rerank, and pass 3-5;
    - set a relevance floor and a not-found path, and give every item a citable ID;
    - handle staleness: version metadata, or for undated documents a derived status, age limits and an owner review queue (§2.5);
+   - make indexing idempotent (stable chunk IDs, upsert) and check every ingest: per-source counts, a canary query, backfill for what the trigger missed (§2.5, §2.7);
+   - for governed numbers, use a metric catalog instead of text-to-SQL, and run every table query under the caller's row and column entitlements (§5);
    - with several indexes, rerank the pooled candidates together, cap each source, and order evidence by trust tier (§3.4).
 
    For agentic retrieval, add a mandatory-search rule, a first retrieval in code wherever grounding is required, budgets enforced in code with an abstain exit, and notes with source IDs carried between hops.
 
-5. **Decide whether long-term memory is warranted.** It pays only when users or tasks recur. If neither does, stop at thread state plus retrieval and say so. Otherwise, fill one memory-spec row per type kept, using [references/memory-design.md](references/memory-design.md) §3 to §7: store, key and scope, write trigger, decider, validation, update rule, expiry, deletion path, read path. Default write path: rules plus an optional cheap classifier on the hot path. LLM extraction runs only in batch (every N turns, at session end, or in a background worker) and only proposes candidates; code accepts, dedupes and supersedes them. This rule is for durable memory. Per-turn task state in chat (the current-task line and the attempt ledger) is thread state that code maintains every turn ([references/context-assembly.md](references/context-assembly.md) §4).
+5. **Decide whether long-term memory is warranted.** It pays only when users or tasks recur. If neither does, stop at thread state plus retrieval and say so. Otherwise, fill one memory-spec row per type kept, using [references/memory-design.md](references/memory-design.md) §3 to §7: store, key and scope, write trigger, decider, validation, update rule, expiry, deletion path, read path. Default write path: rules plus an optional cheap classifier on the hot path. LLM extraction runs only in batch (every N turns, at session end, or in a background worker) and only proposes candidates; code accepts, dedupes and supersedes them. This rule is for durable memory. Per-turn task state in chat (the current-task line and the attempt ledger) is thread state that code maintains every turn ([references/context-assembly.md](references/context-assembly.md) §4). Wherever more than one writer can touch a thread or record (a retry and a resume, replicas, concurrent turns), writes are conditional, and the thread store has a tested read order (memory-design.md §8).
 
-6. **Assemble each call.** Build a full budget table and layout for the main call(s) with [references/context-assembly.md](references/context-assembly.md) §2 to §6, and a one-line short form for auxiliary calls (router, compactor, extractor, judge). Reserve the output allowance, measure the static prefix, give each bucket a ceiling, an owner and an overflow rule, and set a target p95 total below the ceiling. Lay out shared static prefix → per-user stable block → append-only history → volatile tail (anything that changes every turn). Hard constraints go in the shared prefix and the original task statement in the per-user block. In chat, a current-task line in the tail follows task switches. Write the compaction spec (trigger, what stays verbatim, the must-survive list), the tool-result projection and clearing rules, and the sub-agent brief and return size. If the user has a cost target, estimate cost per call and per task with the formula in context-assembly.md §1. When the inputs are mostly guesses, give a low/high range, name the assumption that drives it, and list the measurements that will replace it.
+6. **Assemble each call.** Build a full budget table and layout for the main call(s) with [references/context-assembly.md](references/context-assembly.md) §2 to §6, and a one-line short form for auxiliary calls (router, compactor, extractor, judge). Reserve the output allowance, measure the static prefix, give each bucket a ceiling, an owner and an overflow rule, and set a target p95 total below the ceiling. Lay out shared static prefix → per-user stable block → append-only history → volatile tail (anything that changes every turn). When per-user data changes mid-session (another tab or device writes), keep the session-start snapshot in the per-user block, add the changes as a delta in the tail, and re-snapshot at compaction or the next session (context-assembly.md §3). Hard constraints go in the shared prefix and the original task statement in the per-user block. In chat, a current-task line in the tail follows task switches. Write the compaction spec (trigger, what stays verbatim, the must-survive list), the tool-result projection and clearing rules, and the sub-agent brief and return size. If the user has a cost target, estimate cost per call and per task with the formula in context-assembly.md §1. When the inputs are mostly guesses, give a low/high range, name the assumption that drives it, and list the measurements that will replace it.
 
 7. **Handle long runs** if a run outgrows one window or one session. Use the recipe in [references/context-assembly.md](references/context-assembly.md) §7: a progress record that is always injected, tested compaction, batched tool-result clearing, sub-agents for heavy reading, just-in-time loading by identifier, and checkpoints for resume.
 
 8. **Run the safety and privacy pass.** Check each of these:
-   - permissions are filtered before ranking, and every cache is keyed by permission scope and index version;
-   - user and tenant IDs come from the authenticated session;
+   - permissions are filtered before ranking, and every retrieval and answer cache is keyed by permission scope and ingest generation (a counter that every ingest passing its checks advances, incremental runs included; retrieval-pipeline.md §2.5, §6);
+   - user and tenant IDs come from the authenticated session, including in memory tools, where the server binds the scope keys and the author role (memory-design.md §10);
+   - table and metric queries run with the caller's row and column entitlements, not a shared service role (retrieval-pipeline.md §5);
    - tool, web and document text never becomes durable memory or instructions without a reviewed step;
    - deletion reaches every copy (the deletion map in [references/memory-design.md](references/memory-design.md) §6).
 
@@ -100,7 +105,8 @@ If answers are missing, state your assumptions and design for the conservative c
 | Private or changing corpus; most questions need it | Always-retrieve pipeline: hybrid + filters + rerank | Testable, cacheable, predictable | Route greetings and chit-chat around retrieval |
 | Proprietary, regulated or fast-changing knowledge | Always retrieve, instruct abstention | The model's confident priors are wrong here | Letting the model decide whether to look |
 | Several sources, or the next lookup depends on the last result | Retrieval as a tool in a bounded loop | Picks sources, takes second hops | One measurement: ~1.9x latency, ~3.5x cost; agents skip optional search; budgets in code |
-| Answer lives in tables | Text-to-SQL with retrieved schema hints | Retrieval means writing a query | Read-only role; fallback on failure |
+| Answer lives in tables | Text-to-SQL with retrieved schema hints | Retrieval means writing a query | Read-only role carrying the caller's row and column entitlements; fallback on failure |
+| Answer is a governed number (KPI, regulatory ratio, financial figure) | Metric catalog: match the metric by description above a floor, run its vetted parameterised query in code, answer from the returned value | One definition per number, auditable, no generated SQL | Catalog drift; a description that matches while the scope doesn't (check scope values in code) |
 | Questions walk relations or ask for corpus-wide themes | GraphRAG, after testing those question types | Chunk retrieval handles them badly | LLM extraction cost on every change; wrong edges are worse than none |
 | Repetitive task with a bank of solved examples | Retrieved few-shot examples | Cheap quality gain | Few or conflicting examples |
 
@@ -109,7 +115,11 @@ Check stages in order: indexed → in candidates → in reranked top k → in th
 
 | Symptom | Likely stage | Fix first |
 |---|---|---|
+| "Not found" for documents that should be there, right after an ingest that succeeded | Ingest | Per-source counts and a canary query after every run; backfill; re-index after pipeline changes (retrieval-pipeline.md §2.7) |
+| New documents answerable only hours after an ingest | Ingest timing or caching | Compare the job's finish time with the first query that finds them; look for caches keyed without the ingest generation, the index refresh interval, and missed files that only a late retry or reconcile picks up (retrieval-pipeline.md §2.5, §2.7) |
 | Right document never in the candidates | Parsing, chunking, query | Inspect parsed text; re-chunk with section context; add BM25; rewrite only for vocabulary mismatch |
+| Small tenant or narrow role gets few or no results | Filter applied after the approximate-search cut-off | Filtered or iterative approximate search, or a partition per scope; per-scope recall slice (§3.2) |
+| Graph lookup returns nothing for entities that should match | Missing links at ingest | Required-path checks after ingest; an empty traversal from an unlinked entity is an error state (§5) |
 | Error codes, SKUs, names missed | Dense-only search | Hybrid with rank fusion; identifier queries in the test set |
 | Right chunk at rank 15 | Ranking | Rerank the top ~50 and pass 3-5. Don't raise k into the prompt |
 | Answer misses a unit or scope ("figures in millions") | Chunk lost its document context | Prepend document and section context at index time |
@@ -124,7 +134,7 @@ Check stages in order: indexed → in candidates → in reranked top k → in th
 ### C. Memory: what to keep and where
 | State | Store and update rule | Read path | Watch out for |
 |---|---|---|---|
-| Current task: messages, tool results, plan | Checkpointed thread state, append; raw trajectory kept | Recent turns verbatim + summary | Trimming evicts the task statement |
+| Current task: messages, tool results, plan | Checkpointed thread state, append with collision-free IDs and conditional writes; raw trajectory kept | Recent turns verbatim + summary, in a tested order | Trimming evicts the task statement; concurrent appends overwrite each other |
 | Preferences, durable facts | Keyed records, upsert/supersede, dedupe at write | Small profile block every call | Contradictions accumulate; stale values |
 | Past tasks and outcomes | Append-only episodes with timestamps | By recency for "where we left off"; by similarity, above a floor, for "a case like this" | Pays only when users or tasks recur |
 | How to behave | Versioned, reviewed procedures | Stable prefix | Unreviewed self-edits |
@@ -191,10 +201,13 @@ Name the rule behind each non-obvious decision in one phrase. Leave out general 
 - [ ] Layout is shared prefix → per-user stable block → append-only → volatile tail. Nothing per-user or time-dependent sits inside or before the shared prefix, serialisation is deterministic, and anything that changes every turn sits in the tail.
 - [ ] Hard constraints sit in the never-compacted prefix and costly ones are also enforced in code. The original task statement survives compaction; in chat, a current-task line and an attempt ledger track task switches and tried steps.
 - [ ] Retrieval is hybrid, or a measurement shows one side adds nothing. It reranks before passing, passes few chunks, has a floor and a not-found path, and returns citable IDs.
-- [ ] Permission filtering happens inside the search, before ranking, and caches are keyed by permission scope.
+- [ ] Indexing is idempotent, and every ingest is checked (per-source counts, a canary query); a zero count fails the run.
+- [ ] Permission filtering happens inside the search, before ranking, and caches are keyed by permission scope and ingest generation.
 - [ ] Each memory type has a store, scope, trigger, decider, validation, update rule, expiry, deletion path and read path.
 - [ ] No per-turn LLM memory call without a measured gain.
-- [ ] Tool, web and document text never becomes durable memory without a reviewed step, and identity comes from the session.
+- [ ] Tool, web and document text never becomes durable memory without a reviewed step, and identity comes from the session (memory tools included: scope keys and author role are bound by the server).
+- [ ] State and memory with more than one possible writer use conditional writes or a single writer per thread; none is a blind overwrite.
+- [ ] Table and metric queries carry the caller's row and column entitlements; governed numbers come from a metric catalog.
 - [ ] Live system-of-record data is fetched, not memorised.
 - [ ] Agentic retrieval, if present, has a named reason, a mandatory-search rule, budgets in code and an abstain exit.
 - [ ] Evaluation scores retrieval and generation separately, covers unanswerable, identifier and per-scope cases, and includes memory update, abstention and deletion tests plus cache hit rate.
@@ -223,6 +236,11 @@ Name the rule behind each non-obvious decision in one phrase. Leave out general 
 | Indexing raw tickets or email threads into a shared corpus | Sanitised case cards with their own ACL and retention; the user's own records through a live tool |
 | Agreeing to "remember my devices / plan / open tickets" by copying them into memory | Say they will be fetched live every session, and why |
 | One cost number built on guesses | A low/high range, the assumption that drives it, what to measure first |
+| Next turn ID = last ID + 1, or an unconditional overwrite of state more than one writer can reach | Conditional create or versioned update, or a time-ordered unique ID; reload on conflict (memory-design.md §8) |
+| Memory tools that take `session_id`, `user_id` or `role` as model-filled parameters | The server binds scope and role from the authenticated request; test with another session's ID |
+| Treating a finished ingest as a populated index | Per-source counts and a canary query after every run; zero fails the run (retrieval-pipeline.md §2.7) |
+| Text-to-SQL for a governed number, or any table query under one shared read-only role | Metric catalog with vetted, parameterised queries; the caller's row and column entitlements at the data layer |
+| Writing the same item to two stores from the request path | One canonical store; other stores are projections built by an idempotent job (retrieval-pipeline.md §5.1) |
 
 ## Sources
 
@@ -239,6 +257,8 @@ Citation keys used in this skill and its references:
 - **MESH**: *Agentic Mesh*, ch1 (lost access rules), ch5 (context engineering, memory).
 - **MCP**: *AI Agents with MCP*, ch4 (tool-list context engineering).
 
+Practitioner lab notes (AWS AgentCore and data labs, 2026-10). They are the source of the guidance on concurrent writes, memory tool scope, ingest checks, metric catalogs, store choice, idempotent indexing, graph integrity, vector indexes and data-layer entitlements, and of [references/aws-implementation-notes.md](references/aws-implementation-notes.md).
+
 External (checked 2026-10; details in [references/provider-notes.md](references/provider-notes.md)):
 - https://www.anthropic.com/engineering/contextual-retrieval
 - https://www.anthropic.com/engineering/multi-agent-research-system
@@ -252,3 +272,7 @@ External (checked 2026-10; details in [references/provider-notes.md](references/
 - https://arxiv.org/abs/2411.06037 (Sufficient Context)
 - https://arxiv.org/abs/2410.10813 (LongMemEval)
 - https://www.elastic.co/docs/reference/elasticsearch/rest-apis/reciprocal-rank-fusion
+
+AWS documentation (checked 2026-10-11; used in [references/aws-implementation-notes.md](references/aws-implementation-notes.md)):
+- https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/specify-long-term-memory-organization.html
+- https://docs.aws.amazon.com/opensearch-service/latest/developerguide/serverless-genref.html

@@ -27,7 +27,7 @@ fooled model having little reach.
 | Question | Ask | Gap looks like |
 |---|---|---|
 | Reach | If the model were fully attacker-controlled at this step, which tools, data and destinations could it touch? | Broad tools, shared credentials, any-domain egress |
-| Gate | Which deterministic check stands between proposal and side effect, and can the model rewrite, truncate or argue past it? | Rule exists only in the system prompt; approval is the only barrier |
+| Gate | Which deterministic check stands between proposal and side effect, and can the model rewrite, truncate or argue past it? Who can switch it off? | Rule exists only in the system prompt; approval is the only barrier; backend callable without passing the gate; gate left in log-only mode |
 | Persistence | Can a bad step write itself into memory, logs reused as context, or another agent's inbox? | Unvalidated memory writes; "successful" runs saved as examples |
 | Recovery | Could you see what happened, revoke what it used and restore a known state? | No tool-call audit log; no per-agent kill switch; no memory backup |
 
@@ -42,7 +42,7 @@ Six layers, each with its typical mechanism. Use them to make sure the register 
 | Orchestration | Integrity, availability | Hijacked plan, unbounded loops, retries, fan-out, handoffs | Amplified errors, runaway cost, cascades |
 | Tool | Confidentiality, integrity, availability | Misuse within permissions, bad parameters, exfiltration via egress | Data leaves, records change, money moves |
 | Memory | Confidentiality, integrity | Poisoned or over-shared persistent state | Compromise outlives the session; cross-user leaks |
-| Infrastructure | All | Host code execution, secrets in env, exposed local servers, supply chain | Host or account compromise |
+| Infrastructure | All | Host code execution, secrets in env, exposed local servers, supply chain; control-plane changes (gate mode, policy detach, authorizer removal, config replaced on update) | Host or account compromise; controls silently off |
 
 For an inventory that also covers the build pipeline and the evaluation stack, the CSA MAESTRO framework uses seven
 layers from foundation model to agent ecosystem [BUILDAPPS ch12]. Use the six layers above to trace a path and MAESTRO to check you haven't missed a whole area.
@@ -136,20 +136,24 @@ single-use `state`.
 
 ### T9 Identity and privilege abuse between agents
 Agents impersonate each other, inherit a caller's broader rights, or share one service account so nothing can be
-attributed or revoked individually [MESH ch11], [MESH ch12]. **Control:** per-agent workload identity; scoped delegated
-tokens that never exceed the delegator's rights; authorisation per call in a policy engine.
+attributed or revoked individually [MESH ch11], [MESH ch12]. **Look for:** `user_id` or `for_user` parameters on token
+or invoke APIs (asserted identity); agent clients that also hold a client-credentials grant; claims decoded without
+verifying the signature; tokens forwarded instead of exchanged per hop; scope that widens along a chain; an agent split
+whose data boundary exists only in prompts. **Control:** per-agent workload identity; scoped delegated tokens that
+never exceed the delegator's rights; authorisation per call in a policy engine; verified user identity and the four
+delegation invariants ([controls-catalog.md](controls-catalog.md) §3).
 
 ### T10 Insecure inter-agent communication
 Messages between agents are unauthenticated, unencrypted or free text that the receiver treats as instructions.
-**Control:** mTLS, authenticated and schema-validated messages; the receiver treats content as data and applies its own
-gate.
+**Control:** mTLS, or audience-bound short-lived signed tokens per hop; authenticated and schema-validated messages; the
+receiver treats content as data and applies its own gate.
 
 ### T11 Memory and context poisoning
 Injected or wrong content is written to memory and biases later runs. In the travel-agent walkthrough the exfiltration
 run is stored as a successful task, so it becomes reference material for future plans [DEFGUIDE ch12]. A 2026 study cited in
 [ILLUSTRATED ch10] found that poisoning one part of a personal agent's persistent state raised attack success from
 about 25% to 64-74%. **Look for:** memory writes from runs that read untrusted content; shared memory across users;
-"learned procedures" saved without review. **Control:** validated writes, provenance, tenant isolation, purge path.
+"learned procedures" saved without review; memory tools whose session, user or author-role keys the model fills. **Control:** validated writes, provenance, tenant isolation, purge path.
 
 ### T12 Unexpected code execution
 Model-written code or commands run where they can reach the host, secrets or the network: `exec`/`eval` on model

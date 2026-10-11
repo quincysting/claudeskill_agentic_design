@@ -12,7 +12,7 @@ Main gaps: <unregistered agents, direct vendor API keys, no traces, no owners, .
 
 ## 2. Register
 
-- Agent registry: <tool/location>; schema = minimum fields (name@version, business + safety owner, purpose, non-responsibilities, policies, tier, allowed tools/collaborators/models, decision rights, certification record, config fingerprint, lifecycle state, cost ceiling, regulatory flags)
+- Agent registry: <tool/location>; schema = minimum fields (name@version, business + safety owner, purpose, non-responsibilities, policies, tier, allowed tools/collaborators/models, decision rights, certification record, config fingerprint incl. security config, lifecycle state, cost ceiling, regulatory flags)
 - Action catalog: <first shared actions to catalogue>
 - Model registry: <approved models, pinned versions>
 - Prompt/config registry: <where, tied to eval suites>
@@ -33,8 +33,10 @@ Certification evidence: <eval suite owner, red team, log sampling> · Certificat
 
 - Control plane / gateway: <what it checks on each call; who owns it>
 - Cost ceilings: <per agent / workflow / BU>
-- Audit trail: <fields, storage, retention (≥6 months for EU high-risk deployers), who may read traces>
+- Audit trail: <fields (who acted for whom, per hop, one trace ID), tamper-evident storage (write-once / hash chain / keyed MAC), retention (≥6 months for EU high-risk deployers), who may read traces>
 - Kill switch and suspension: <per agent / fleet; who can pull it>
+- Agent identities: <issued by which existing identity provider / privileged-access system; owner tag; operators limited to their team's identities>
+- Changes to the gate (mode, rules, authorizer): <role that holds the right; second approver; alarm; review cadence>
 
 ## 5. Accountability
 

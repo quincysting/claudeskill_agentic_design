@@ -51,12 +51,15 @@ don't model it into existence.
 | 3 | What private data can it read, and whose? | DB accounts, API scopes, retrieval filters |
 | 4 | Every source of text that reaches the context (user, web, email, files, RAG, tool results, tool descriptions, memory, other agents, screen) | Loaders, fetch tools, RAG pipeline, memory read path |
 | 5 | Every way data can leave (HTTP, email, chat, PRs/comments, webhooks, rendered markdown images/links, file shares, third-party APIs, log shipping) | Outbound clients, UI renderer, logging config |
-| 6 | How tools authenticate; whose identity; token scope and lifetime | `os.environ`, `api_key`, `token`, env passed to subprocesses or stdio servers, secrets in prompts |
+| 6 | How tools authenticate; whose identity; token scope and lifetime; every live entry point to the agent (endpoints, aliases, deployed versions) and the authenticator on each | `os.environ`, `api_key`, `token`, env passed to subprocesses or stdio servers, secrets in prompts; the live endpoint and version list and its authorizer config |
 | 7 | Does it write or run code, use a shell, or drive a browser? Where does that run? | `exec(`, `eval(`, `subprocess`, `shell=True`, Docker/E2B config, browser profile setup |
 | 8 | What persists across sessions, who can write it, is it shared across users? | Memory store, vector DB namespaces, "lessons learned" files |
 | 9 | What runs without a human today; how approvals work; how to stop it | Interrupt/approval code, Slack/Teams buttons, kill switch, feature flags |
-| 10 | Existing controls: gates, guardrails, budgets, rate limits, audit logs | Middleware, gateways, policy files |
+| 10 | Existing controls: gates, guardrails, budgets, rate limits, audit logs; who can change or switch them off | Middleware, gateways, policy files; the live gate mode and attached rules; roles allowed to update them |
 | 11 | Constraints: latency budget, data residency, regulation, worst outcome the owner cannot accept | Ask |
+
+If the system runs on AWS, map each decision with
+[references/aws-implementation-notes.md](references/aws-implementation-notes.md).
 
 ## Procedure
 
@@ -76,9 +79,12 @@ irreversible or high-value / egress / code execution / permission change), data 
 its output brings untrusted content, and the gate today. Input inventory: source → who controls it → trust (trusted:
 your code and config; semi: authenticated users; untrusted: everything else, including tool results, tool descriptions,
 retrieved documents, memory written by runs that read untrusted content, and other agents). Unknown → riskier class.
+Entry-point inventory: every endpoint, alias and deployed version that can invoke the agent, its authenticator, and who
+holds invoke rights. Authentication can be set per version, so an old version may have none.
 
 **Challenge the premise when it is the risk.** If the stated architecture is itself a finding (the agent runs on the
-user's own broad OAuth token, an admin key, a personal browser session or a shared service account), say so in the
+user's own broad OAuth token, an admin key, a personal browser session, a shared service account, or an "act as user
+X" API where the user is a string the caller asserts), say so in the
 summary, propose the alternative (a separate agent identity with narrowly scoped delegated tokens, or a proxy that holds
 the token and exposes only intent-level operations when the provider's scopes are too coarse; see
 [controls-catalog.md](references/controls-catalog.md) §3), and still model the system as specified so the owner sees
@@ -86,7 +92,8 @@ the consequence.
 
 **4. Draw trust boundaries.** A mermaid or text flow: inputs → context → model (untrusted side) → proposal →
 enforcement point → tools, sandbox, memory or human → results back as data. Mark where enforcement lives in code today.
-No single enforcement point between proposals and side effects is automatically finding #1.
+No single enforcement point between proposals and side effects is automatically finding #1, and so is a tool backend
+that can be called without passing through it ([controls-catalog.md](references/controls-catalog.md) §2).
 
 **5. Run the lethal trifecta check per flow.** For each flow ask: private data? untrusted content? external channel
 (including URLs, rendered images, created artefacts)? All three in one run means one injected instruction can exfiltrate.
@@ -117,7 +124,8 @@ Within a level, rank by worst outcome (Step 2), then exposure (public > authenti
 risk scores; if the organisation has a scoring scheme, map to it. Findings often share a root cause (usually: no single
 enforcement point). Keep them as separate findings so each can be tested, but group the fixes: one gate can close
 several. A P0 that depends on an unverified assumption is written `P0 (assumed)` and still blocks until the assumption
-is checked or the control exists. Verdict, in both modes: any open P0 → Block (design mode: don't build or launch until
+is checked or the control exists. If the check shows the assumption is false, re-rank or close the finding; if true,
+it becomes a plain P0 and blocks until its control exists. Verdict, in both modes: any open P0 → Block (design mode: don't build or launch until
 the P0 controls are in the plan); only P1s, each with an owner and date → Ship with conditions; P2/P3 only → Ship.
 
 **9. Choose controls, architecture before detection.** Work down this list and stop when the residual risk for each
@@ -125,16 +133,20 @@ P0/P1 path is bounded by something the model cannot bypass ([controls-catalog.md
 1. Remove or narrow the capability (intent-level tools, read-only accounts, scoped resources). Ask whether a step
    needs the model at all: a fixed report or lookup is safer as plain code.
 2. One deterministic policy gate on every side effect: default-deny allowlist, schema and semantic argument checks,
-   hard limits, budgets, taint and resource-scope rules, risk-tier routing, audit.
-3. Credentials and identity: broker injects secrets; per-agent identity; short-lived scoped tokens; no pass-through.
+   hard limits, budgets, taint and resource-scope rules, risk-tier routing, audit. Backends accept calls only from
+   the gate; state checks stay in the handlers; rules ship log-only, then enforced (controls-catalog §2).
+3. Credentials and identity: broker injects secrets; per-agent identity; user identity from a verified token, never
+   an asserted ID; short-lived scoped tokens, exchanged per hop; no pass-through (controls-catalog §3).
 4. Isolation for code and computer use: pick the tier from [sandboxing.md](references/sandboxing.md).
 5. Injection containment where no leg can be cut: plan-then-execute, dual LLM, map-reduce, action selector.
 6. Memory hygiene: validated writes, provenance, tenant isolation, purge path.
 7. Tiered guardrails: deterministic inline, small model on the uncertain band, async sampled evals.
 8. Human oversight (Step 10).
-9. Detection and recovery: audit log, behavioural baselines, per-agent kill switch, rotation, restore.
+9. Detection and recovery: audit log (credential issuance included), behavioural baselines, per-agent kill switch,
+   rotation, restore, and protection of the controls themselves (controls-catalog §10).
 
-For each control write what it stops, where it lives, whether the model can bypass it, and its cost. A prompt
+For each control write what it stops, where it lives, whether the model can bypass it, who can switch it off, and its
+cost. A prompt
 instruction never counts as the control for a P0 or P1 path. Give every control an ID (C-01, C-02...). Oversight
 mechanisms (approval gates, hard limits, the kill switch, the autonomy ladder) are controls too and get IDs here; the
 register, oversight table and tests refer to controls only by IDs defined in this plan.
@@ -163,7 +175,8 @@ new tool, new data source, new user population, model or prompt change, incident
 
 **Review mode:** run every step against the real code and config; Steps 9-11 become the Fix and Tests columns of the
 review. Every finding needs evidence (file:line, config key or observed behaviour), a concrete fix and where it goes,
-and an effort estimate (S/M/L). Say what you could not verify. Where a number you need is missing (refund volume,
+and an effort estimate (S/M/L). Read the live configuration, not only the infrastructure code: full-replace updates
+and setup wizards change security settings without a code change. Say what you could not verify. Where a number you need is missing (refund volume,
 reviewer headcount), show the arithmetic with a labelled assumption and ask for the real figure.
 
 ## Decision guide
@@ -177,7 +190,8 @@ reviewer headcount), show the arithmetic with a labelled assumption and ask for 
 | Tool needs a credential | Broker injects it at execution | The model never sees it, so it can't leak it | stdio servers inheriting the full environment |
 | Free-form SQL or shell is requested | Intent-level tools; if unavoidable, read-only replica, bound parameters, destructive-clause rejection, alerts | Every reasoning error becomes an outage otherwise | "Read-only" accounts that can still call functions with side effects |
 | Third-party MCP server | Pin version, namespace, show descriptions, re-consent on tool-list change, minimal env, gate its tools like your own | Descriptions and results are injection vectors | Treating MCP auth as an injection defence; it isn't one |
-| Several agents cooperate | Per-agent identity, mTLS, schema'd signed messages, receiver-side gate, hop limits | Attribution, revocation, no privilege laundering | Shared service account; delegation that widens rights |
+| Several agents cooperate | Per-agent identity, token exchange per hop (same subject, next-hop audience, scope never widens), mTLS or audience-bound tokens, schema'd signed messages, receiver-side gate, hop limits | Attribution, revocation, no privilege laundering | Shared service account; forwarding the received token; delegation that widens rights |
+| Gate is a policy engine in front of tools (managed gateway) | Backends callable only by the gate; state checks in handlers; every tool given an explicit allow; rules shipped log-only, then enforced; mode switch held by a separate role | A gateway sees identity and arguments, not the record's real state | Default deny breaking reads; a forbid on a missing field never firing; one permission that turns enforcement off |
 | Long-term or shared memory | Validated writes with provenance, tenant isolation, purge and restore | Poison outlives the session | Saving tainted runs as exemplars |
 | Guardrail latency budget is tight | Deterministic inline; small model only on the uncertain band; LLM judge async | Regex is microseconds, LLM checks hundreds of ms | Blocking whole answers where redaction would do |
 | Users can't judge commands | Least privilege and sandboxing, not per-command approval | Approval protects only experts | Approval prompts as a liability shield |
@@ -254,6 +268,9 @@ Before returning, check:
 - [ ] At least one propagation path is traced hop by hop, plus one no-attacker path.
 - [ ] Each P0/P1 has a control the model cannot bypass; none rely solely on prompt text, a classifier or a human click.
 - [ ] Credentials never pass through the context window, tool output or inherited environment.
+- [ ] User identity comes from a verified token; delegated or multi-agent flows state and test the four delegation
+      invariants; every entry point has a named authenticator.
+- [ ] Every tool backend is reachable only through the gate, and each P0 control names who can switch it off.
 - [ ] Code execution and computer use have a named sandbox tier with network and filesystem limits.
 - [ ] Every action has an oversight tier; irreversible actions have hard limits that hold after approval.
 - [ ] The approval gate covers deadline, silence, edits, idempotent execution and reviewer view order.
@@ -289,6 +306,10 @@ Before returning, check:
 | Accepting the stated architecture when it is the risk | Name it as a finding, propose the alternative, model it anyway |
 | Taint-gating every send in an inbox assistant and stopping there | Count the prompts; cut them with structured extraction and per-recipient-class autonomy |
 | Treating "reply" as safe whoever receives it | Identify the principal; replies to outsiders are external communication |
+| Accepting the user as a `user_id` string from a trusted caller | Take identity from a signed, validated token; remove "act as user X" permissions with an explicit deny |
+| Policy conditions on a value the model supplies (status, balance, owner) | Check state in the handler against the system of record; the gateway keeps coarse limits |
+| Approving a gate without asking how else the backend can be called, or who can turn the gate off | Restrict each backend to the gate's identity; put mode and rule changes behind a separate role with alarms |
+| Calling a hash stored next to each audit row "tamper-evident" | Write-once storage, hash chaining, or a keyed MAC the writers can't compute |
 
 ## Sources
 
@@ -311,3 +332,6 @@ External (dated list in [owasp-mapping.md](references/owasp-mapping.md)): OWASP 
 OWASP Top 10 for LLM Applications 2026; MCP Security Best Practices (spec 2026-07-28); Beurer-Kellner et al., Design
 Patterns for Securing LLM Agents against Prompt Injections (2025); Anthropic posts on Claude for Chrome, Claude Code
 sandboxing, computer use, and measuring agent autonomy; Xiong et al. (ICLR 2024); EU AI Act Article 14.
+
+Practitioner lab notes (AWS AgentCore and data labs, 2026-10). The AWS documentation pages confirmed against them are
+listed in [aws-implementation-notes.md](references/aws-implementation-notes.md) §Sources.

@@ -1,0 +1,54 @@
+# AWS implementation notes
+
+AWS mapping for this skill's principles. As of 2026-10; services change, verify before use.
+
+The principles live in the other reference files and stay vendor-neutral. This file says which AWS feature or setting implements each one and what tripped people up in hands-on labs. Status tags: **(lab)** seen in practitioner labs only; **(docs)** confirmed against AWS documentation on 2026-10-11; **(established)** long-standing documented behaviour that the labs did not exercise; **(unverified)** not confirmed, check before relying on it.
+
+## Mapping
+
+| Principle (where in this skill) | AWS feature or setting | Gotcha |
+|---|---|---|
+| Hybrid search in one store (retrieval-pipeline.md §3.2) | Aurora PostgreSQL with pgvector: an HNSW index on the vector column plus a full-text GIN index on the same table | The HNSW operator class must match the query's distance operator, or the planner scans the table (see "Distance operator mismatch") (lab) |
+| Dimension and metric fixed at creation (§2.4) | pgvector `vector(n)` column; Titan Text Embeddings V2 produced 1024-dimension vectors in the labs | Column dimension must equal the embedder's output size; a new embedder or dimension means a new column or index (lab) |
+| Filter inside approximate search (§3.2) | pgvector iterative index scans for filtered HNSW and IVFFlat queries; or one partition per selective scope | Approximate scans filter after the candidate list, so a selective filter returns fewer than k rows. Check which pgvector version your Aurora engine version ships before relying on iterative scans (unverified) |
+| Ingest checks (§2.7) | Bedrock Knowledge Bases on your own vector table: map the vector, text, metadata and primary-key fields; ingest with a database user that can write only that table; one data source per allowed prefix | A sync can finish as Complete with 0 documents scanned (lab). Read the scanned and indexed counts, or count rows, after every sync |
+| Idempotent indexing (§2.5) | OpenSearch Serverless vector collections with client-supplied document IDs | Custom document IDs are supported on NextGen vector collections (docs); a lab saw them ignored, most likely on a Classic collection. Refresh takes about 10 s on NextGen and 60 s on Classic (docs), so a canary query right after ingest can miss new documents |
+| Full rebuild behind an alias; ingest generation for increments (§2.5, §2.7) | OpenSearch Serverless index aliases | Aliases are supported, but `_reindex` is not in the supported-operations list, so an alias-swap rebuild re-bulks every document from source instead of copying the old index (docs). For nightly increments, upsert into the live index and advance the ingest generation; keep alias swaps for embedder or pipeline changes |
+| Rank fusion (§3.2) | OpenSearch: run the lexical and k-NN queries separately and fuse by rank, or use the engine's hybrid query with rank fusion where the collection supports it | One boolean query that mixes a match clause and a k-NN clause adds raw scores on different scales (lab). Check hybrid support per collection type (unverified) |
+| Backfill and reconcile (§2.7) | S3 event notifications or EventBridge rules that start ingest | They fire only for objects created after the rule exists; existing files need a one-off backfill (lab) |
+| Thread state and checkpoints (memory-design.md §8) | DynamoDB table with partition key = thread or session ID, sort key = turn or step; a TTL attribute for retention | The key schema can't change after creation, so a schema change means a new table. The LangGraph DynamoDB checkpoint saver expects its own key schema (lab) |
+| Read contract (memory-design.md §8) | DynamoDB Query: ascending sort-key order by default, `ScanIndexForward=false` for descending; `LastEvaluatedKey` for paging | Flipping the order silently returned the thread newest-first and broke the next-turn-ID logic (lab) |
+| Conditional writes (memory-design.md §8) | DynamoDB `ConditionExpression`: `attribute_not_exists(<partition key>)` for create-once, `version = :read_version` with an increment for updates; `TransactWriteItems` for multi-item changes | `ConditionalCheckFailedException` means reload and decide again, not retry the same write (established). The labs used unconditional puts and could lose concurrent turns and checkpoints (lab) |
+| Per-user isolation in a key/value store (memory-design.md §6, §10) | DynamoDB fine-grained access control: an IAM condition on `dynamodb:LeadingKeys` limits a principal to items whose partition key matches its user | Works only when each request runs with credentials that carry the user (session tags, or a token-vending step that issues per-user credentials). One tool role shared by every user can't be limited per user this way; the server must then bind the key from the authenticated request (established) |
+| Durable memory with batch extraction (memory-design.md §3, §4.2) | AgentCore Memory: short-term events per session (`CreateEvent`, `ListEvents`) for thread state; long-term records extracted and consolidated asynchronously by strategies (built-in semantic, user-preference and summary, or custom) for batch extraction; `RetrieveMemoryRecords` for similarity reads; namespaces and metadata filters for scope keys (docs) | Consolidation is model-driven. Keep the raw events as the source of truth and run the knowledge-update and deletion tests (evaluation.md §6) |
+| Memory tools take scope from the request (memory-design.md §10) | AgentCore Memory actor ID, session ID and custom namespace variables | Set both IDs from the authenticated request (the verified token's subject and the runtime session), never from model output or a client field. Namespace templates use the built-in `{actorId}`, `{sessionId}` and `{memoryStrategyId}`. A custom variable such as a tenant is declared in `namespaceKeys` (keys and values lowercase) and its value is supplied on every `CreateEvent` in `extractionConfig.namespaceVariables`; bind it server-side like the actor ID. If a referenced value is missing, the event is still stored but long-term extraction for that strategy is skipped, visible only as a `NamespaceResolutionFailure` metric (docs). Each strategy's namespace template must match exactly what the agent reads and writes (see "Memory namespaces and extraction delay") (lab) |
+| No sensitive data in metadata (memory-design.md §4.3) | AgentCore Memory event metadata | Event metadata is not encrypted with a customer-managed key; keep sensitive values out of it (docs) |
+| Graph store (retrieval-pipeline.md §5) | Neptune (openCypher, Gremlin, SPARQL) | For a database-enforced read-only boundary, grant only the `neptune-db:ReadDataViaQuery` action; the `neptune-db:QueryLanguage` condition key limits the query language (docs). A driver's read access mode is not that boundary; query-tool design goes to agent-tool-designer |
+| Entitlements at the data layer (retrieval-pipeline.md §5) | Lake Formation data cell filters (row expression plus column allow-list) and tag-based access control | A filter restricts nothing until it is granted to a principal; tag-based grants match on tag values (lab) |
+| Least-privilege database access (retrieval-pipeline.md §5) | RDS Data API with one Secrets Manager secret per privilege level; agent tools connect as the agent's read-only user | No plaintext credentials in environment variables (lab). A shared read-only user is still not per-caller entitlement; add row-level security or catalog filters |
+
+## Gotchas the labs hit
+
+### Knowledge base sync "Complete" with nothing indexed
+The data-source prefix was one folder level off. The sync reported Complete with zero documents scanned, and the agent answered "not found" until someone read the counts. Treat a zero scanned or indexed count as a failed ingest (retrieval-pipeline.md §2.7) and put a canary query per data source into the post-sync check. (lab)
+
+### Distance operator mismatch
+A search function ordered results with a different distance operator from the one the HNSW index was built for. pgvector couldn't use the index and scanned the table: results were correct, latency grew with the corpus. Pair the index operator class with the query operator (cosine ops with `<=>`, L2 ops with `<->`, inner-product ops with `<#>`) and confirm with `EXPLAIN` that the plan uses the index. Filter columns used beside the vector search needed their own composite index, equality column first. (lab)
+
+### Client document IDs ignored, duplicates on re-seed
+A serverless vector collection assigned its own IDs, so every re-seed indexed the same chunks again, and the lab compensated by deduplicating by chunk ID at fusion. Current docs say NextGen vector collections accept custom IDs; check the collection type before relying on upserts, and count duplicate chunk IDs as an index-health metric either way. (lab, docs)
+
+### Ingest jobs that re-read everything
+An ingest job read every export folder on each run, so each run reloaded old data and duplicated rows. The fix was to read only the run's own dated partition and upsert by business key, with a rollback to the last good table snapshot. (lab)
+
+### Event rules miss existing files
+An event rule on new objects never processed the files that were already in the bucket. Run a backfill once, and reconcile the bucket listing against the index on a schedule. (lab)
+
+### Memory namespaces and extraction delay
+Long-term memory records appeared a minute or more after the events were written, so a same-session check right after the write always failed. Test by stating a preference, waiting on a readiness check, and asking in a new session. A namespace template that didn't match what the agent's session manager read made records land where nothing looked. The memory resource's observability panel (events created, retrievals, records extracted) separates "not wired up" from "extraction still pending". (lab)
+
+### Unconditional puts in memory and checkpoint stores
+A memory tool computed the next turn ID by reading the session and adding one, then wrote with an unconditional put; two concurrent appends got the same ID and one was lost. A checkpoint store also used unconditional puts, so two processes resuming one run were last-writer-wins. Use the conditional writes in the mapping table. (lab)
+
+### Lake Formation filters that were never granted
+A data cell filter was defined but not granted to the role the agent used, so it restricted nothing. Test with two principals that must see different rows. (lab)

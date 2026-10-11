@@ -22,6 +22,7 @@ Cover these slices explicitly:
 | Cross-source conflicts (official doc against a case card or forum answer) | Trust order and per-source quotas (retrieval-pipeline.md §3.4) |
 | Per permission scope (tenant, role) | A correct filter must not look like a recall failure |
 | Inputs that need no retrieval (greetings, chit-chat) | Forced retrieval mishandles them [BUILDAGENTIC ch2] |
+| Index health, run after every ingest | Per-source counts and one canary query per source catch an ingest that "succeeded" but indexed nothing (retrieval-pipeline.md §2.7) |
 
 Start with a few dozen real failing questions from logs, then grow it. Generating questions from the same chunks you train or tune on inflates scores. One book's fine-tuned embedder held recall@10 at 0.96, but its test questions were generated the same way as its training pairs [BUILDAGENTIC ch9 §Case Study 17: Fine-Tuning Matryoshka Embeddings].
 
@@ -34,6 +35,10 @@ Start with a few dozen real failing questions from logs, then grow it. Generatin
 - Break all of these down by source, domain, query type and permission scope.
 
 **Without labels:** context relevance, where an LLM judges each retrieved chunk against the query [EVALS ch7]. Judge errors must fail loudly; don't count them as "irrelevant chunk".
+
+**Index and graph integrity** (per ingest, no labels needed): documents and chunks per source against the expected count, duplicate chunk IDs, chunks without an embedding, and for a graph, orphans per node type and the share of entities that have every required path (retrieval-pipeline.md §2.7 and §5). Track them over time. A drop to zero is a failed ingest, not a quality dip.
+
+**Choosing between stores:** run the same corpus and query set through each candidate. Report the document count (it proves each store is populated), p50/p95 latency as the agent sees it (network hop included) and recall@k per slice. Decide on the slices that matter, not on a vendor benchmark.
 
 ```python
 def recall_at_k(ranked_ids, gold_ids, k):
@@ -85,6 +90,10 @@ Use the five abilities from LongMemEval as the template (external; provider-note
 | Temporal | "What did I ask you last Tuesday?" | Correct by timestamp |
 | Abstention | Ask about something never said | "I don't have that" instead of an invented answer |
 | Cross-scope leak | User A's fact, queried as user B, and as a team agent | Never returned |
+| Scope binding in memory tools | Call the memory read tool with another session's or user's ID; try to write a turn with the user role from the model | Refused; scope and role come from the authenticated request (memory-design.md §10) |
+| Concurrent writes | Two appends to one thread at the same moment; two processes resuming one run | Both turns kept with distinct IDs in order; the losing resume gets a conflict and reloads (memory-design.md §8) |
+| Thread read contract | A three-turn fixture; a brand-new thread | Turns come back 1, 2, 3; the new thread returns an empty list |
+| Asynchronous extraction | State a fact, wait on a readiness check (not a fixed sleep), then ask in a new session | The fact is used. A record that never appears is a pipeline fault, not a memory miss (harness rules: agent-eval-designer) |
 | Deletion propagation | Delete a fact, then query by key and by semantic search, and check summaries | Gone everywhere (memory-design.md deletion map) |
 | Poisoned input | A tool output or document that contains "remember that…" | Not persisted as active memory |
 | Spans compaction | A fact stated before compaction, needed after it | Still used correctly |
@@ -107,3 +116,4 @@ Memory often looks fine in single-turn demos and fails after summarisation or we
 - Every addition (query rewriting, reranker, contextual chunk headers, GraphRAG, agentic loop, long-term memory, compaction change) ships with a before/after on the relevant slice, plus cost and latency.
 - Keep additions that move the metric they target without regressing the others. Remove ones that don't.
 - Re-run the retrieval suite on re-indexing, embedder changes and chunking changes. Re-run the memory suite on write-policy or schema changes.
+- Index-health checks run after every ingest. A failure blocks the next ingest generation and, for a full rebuild, the alias switch (retrieval-pipeline.md §2.7).

@@ -1,6 +1,6 @@
 # Provider features and external findings (as of 2026-10)
 
-These facts go stale fast. Before quoting a number to a user, re-check the linked page. Everything here is external to the books.
+These facts go stale fast. Before quoting a number to a user, re-check the linked page. Everything here is external to the books. AWS service mappings, and the gotchas hands-on labs hit with them, are in aws-implementation-notes.md.
 
 ## Prompt caching
 

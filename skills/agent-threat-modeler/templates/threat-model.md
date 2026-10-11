@@ -37,6 +37,9 @@ RT- tests. Every ID referenced anywhere must be defined in its table.
 |---|---|---|---|---|---|
 | <name> | read / reversible / external comms / irreversible / egress / code exec / permission change | <...> | <whose identity, scope, lifetime> | yes / no | <e.g. none; planned C-01> |
 
+Entry points: <every endpoint, alias and deployed version that can invoke the agent; the authenticator on each; who
+holds invoke rights>
+
 ### 3b. Inputs and trust levels
 
 | Source | Who controls it | Enters context as | Trust |
@@ -100,9 +103,9 @@ OWASP Agentic coverage: ASI01 <covered / gap / N/A: reason> · ASI02 <...> · ..
 
 ## 9. Controls plan
 
-| ID | Control | Status | Stops | Lives in | Model can bypass? | Cost | Priority |
-|---|---|---|---|---|---|---|---|
-| C-01 | <single policy gate with default-deny allowlist> | existing / planned | TH-01, TH-04 | <service/file> | no | <~ms per call> | P0 |
+| ID | Control | Status | Stops | Lives in | Model can bypass? | Who can switch it off? | Cost | Priority |
+|---|---|---|---|---|---|---|---|---|
+| C-01 | <single policy gate with default-deny allowlist> | existing / planned | TH-01, TH-04 | <service/file> | no | <role that can change gate mode or rules; alarm> | <~ms per call> | P0 |
 
 Group in this order: capability reduction · policy gate · credentials and identity · sandbox · injection containment ·
 memory · guardrails · oversight mechanisms (approval gate, hard limits, send queue, autonomy ladder, kill switch) ·
