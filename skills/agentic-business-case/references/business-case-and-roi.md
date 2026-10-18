@@ -11,6 +11,8 @@ Combine AGENTICAI's four-part case [AGENTICAI ch10] with ENTERPRISE's unit-of-va
 | Part | Content |
 |---|---|
 | Success metric first | Set the target before any design (AGENTICAI's newsletter project: creation time from 15 to 3 hours a week [AGENTICAI ch8]) |
+| SLA | The agent's measurable job description [PRODGUIDE ch4]: response time; success written as artifacts, not adjectives; failure handling (missing context gets a short question list and a pause, conflicting sources are shown rather than silently resolved, a failed tool call gets a conservative retry and escalates if a retry could duplicate the action); a report of what was and wasn't done, with assumptions labelled. Add the cost of a bad run and the design that bounds it. The eval suite tests against the SLA (agent-eval-designer), and the risk exit criterion counts breaches of it |
+| Data preflight | Result of the preflight (pilot-and-scale.md §3): pass, or the narrowed slice; clean-up and access costs as cost lines |
 | Quantitative benefits | Unit of value x volume, net of every cost line below |
 | Qualitative benefits | Consistency, traceability, employee and customer experience, resilience. Measure them; don't price them unless you can |
 | Costs | All seven lines in §3, including change management and the transition dip |
@@ -43,7 +45,7 @@ Baseline rules:
 | Wrong outcomes | Error rate x cost per error: refunds, rework, goodwill, regulatory exposure |
 | Running cost per item | Model, tools, infra. Get it from agent-ops-reviewer; usually the smallest line in support-style work |
 | Platform share | Allocated data, orchestration, governance, monitoring, on-call [ENTERPRISE ch4] |
-| Knowledge clean-up | Conflicting source documents: people resolve them, an agent silently picks one or blends both [AGENTICAI ch12]. Audit and fix before the pilot |
+| Knowledge clean-up and data access | Conflicting source documents: people resolve them, an agent silently picks one or blends both [AGENTICAI ch12]. Audit and fix before the pilot (pilot-and-scale.md §3). Add any fee a vendor charges for API access to your own data |
 
 ## 4. Capacity versus cash
 
@@ -133,10 +135,15 @@ Four criteria per layer: is it differentiating or available on the market; data 
 | Fine-tuned models on own data | Build if justified (see agent-model-selector) | Proprietary asset |
 | Evaluation assets | Own, whatever tool runs them | Must export: datasets, annotations, per-case results, scorer configs [EVALS ch12] |
 
+Three notes from Ng sharpen the four criteria:
+- **Exit includes your data.** Prefer software that lets you control your data and reach it by API at a known price; one SaaS vendor asked his team more than $20,000 for an API key to their own customer data [NG Tear Down Data Silos!, 2025-11-05]. Write export and API access into the contract and the exit plan.
+- **Staffing is part of the choice.** A vendor's forward-deployed engineers are there to integrate that vendor's product, and vendor-neutral ones are hard to find. While nobody can tell which service will be best in a year, the option to switch has value, so plan for your own engineers to own the build ([Forward Deployed Engineers and the Future of AI Engineering](https://www.deeplearning.ai/the-batch/forward-deployed-engineers-and-the-future-of-ai-engineering), Ng, external, 2026-05-29).
+- **Build where the domain is.** Ng sees the bigger opportunity in the application layer, where few teams combine AI with domain expertise [NG Where Are the Opportunities in AI? Here's Where to Look, 2023-09-13]. That is the layer the table says to build: domain agents, prompts, tool contracts.
+
 A well-built internal agent can be reused across units or sold; Siemens plans to sell industrial agents through a marketplace [ENTERPRISE ch4]. Count reuse only when a second consumer is committed.
 
 Before buying a product sold as an "agent", run a bake-off on your own eval set (agent-eval-designer). Many such products are rebadged chatbots.
 
 ## 9. When the agent is the product
 
-If the user sells agents rather than uses them, the economics differ: agent-as-a-service sells an outcome, not a tool [AGENTICAI ch9]. Map the customer's value chain (handoffs, decision nodes), pain points, capability fit and integration effort. Treat capability demos as capability evidence, not business-model evidence: AGENTICAI's eight-hour autonomous "start a business" run reports no sales [AGENTICAI ch9].
+If the user sells agents rather than uses them, the economics differ: agent-as-a-service sells an outcome, not a tool [AGENTICAI ch9]. Map the customer's value chain (handoffs, decision nodes), pain points, capability fit and integration effort. Treat capability demos as capability evidence, not business-model evidence: AGENTICAI's eight-hour autonomous "start a business" run reports no sales [AGENTICAI ch9]. For pricing against the labour replaced, and why a 30-day free pilot is a sales device rather than a measurement, see pilot-and-scale.md §10.

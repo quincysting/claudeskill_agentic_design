@@ -23,6 +23,9 @@ A baseline is a saved report: dataset version, agent version (prompt, model, too
 | Overall pass rate | Block if below a floor agreed for the release (e.g. "regression suite ≥ 98%"); see "Floors versus zero tolerance" | Catches slow erosion across PRs |
 | Error rate | Block if above about 5% | Systematic breakage [EVALS ch2] |
 | Cost and latency per task | Warn (or block) above a stated budget | A "better" version at twice the cost is a trade-off someone must accept explicitly [SYSTEMS ch14] |
+| Harness slice (resume, stops, budgets, cancel, kill switch) | Any failure blocks | Deterministic with a scripted model, so a failure is a runtime bug (datasets-and-harness.md, "Harness test slice") |
+| Exit status | A trial whose status differs from its expected exit is a hard failure | A capped or cancelled run must never count as a success (datasets-and-harness.md, "Run-record contract") |
+| Suite integrity | A hash mismatch on tests, data, scorers or judge prompts invalidates the run | See "The agent must not edit its own evals" |
 
 **Tolerance.** Run the unchanged system three times and set the tolerance just above the spread you observe [EVALS ch6]. A tolerance of 0% raises constant false alarms because judge scores vary; 15% lets real drops through. 5% is a common starting point, 2 to 3% at release [EVALS ch6], but only where the split can measure it. A tolerance smaller than the split's minimum detectable difference (statistics.md, "State the minimum detectable difference") can't be enforced: a real drop of that size passes the gate most of the time. Print the MDE beside the tolerance in every report, and read the gate as catching only drops larger than the bigger of the two. On a small held-out split the MDE dominates (35 tasks: at least 6/35, about 17 points), so rely there on the paired sign test on confirmed flips and on the hard-check floors, not on the tolerance.
 
@@ -48,10 +51,10 @@ For stochastic agents a critical check can fail in 1 of 5 trials. That trial fai
 
 | Tier | Runs | Content | Budget |
 |---|---|---|---|
-| Pre-merge (every relevant PR) | Minutes at most | Deterministic scorers on a tagged critical subset (about 30 to 50 tasks, mostly incident cases [EVALS ch2]), 1 trial, run concurrently, dev split | Scoring is free, but running the agent is not (see "Agent inference cost"). EVALS targets under about 30 s because slower pre-merge checks get bypassed [EVALS ch6]; with an agent in the loop, that is reachable only with a small concurrent subset. When only scorers or the dataset changed, re-score cached transcripts instead of rerunning the agent |
+| Pre-merge (every relevant PR) | Minutes at most | Deterministic scorers on a tagged critical subset (about 30 to 50 tasks, mostly incident cases [EVALS ch2]), 1 trial, run concurrently, dev split | Scoring is free, but running the agent is not (see "Agent inference cost"). EVALS targets under about 30 s because slower pre-merge checks get bypassed [EVALS ch6]; with an agent in the loop, that is reachable only with a small concurrent subset. When only scorers or the dataset changed, re-score cached transcripts instead of rerunning the agent. Add the harness slice (scripted model, seconds) when harness code changes |
 | PR judge run (a few relevant PRs a week) | Minutes | Full dev split with judges, 3 trials per task where outputs vary | Judge $1–5 per run at mid-2026 prices [EVALS ch11], plus agent inference |
 | Nightly (dozens of PRs a day) | Up to an hour | Same as the PR judge run, on the day's main branch | Same |
-| Release | Before shipping | Hard checks on dev + held-out; release rates and intervals from held-out only (statistics.md, "Which split"); consensus judging; a held-out evaluator scored beside the visible judges (llm-judges.md); 5+ trials on side-effecting tasks; tolerance 2–3% where the split's MDE allows it (see "Tolerance"); a person reads the five lowest-scoring passing cases [EVALS ch6] | Higher; accepted |
+| Release | Before shipping | Hard checks on dev + held-out; release rates and intervals from held-out only (statistics.md, "Which split"); consensus judging; a held-out evaluator scored beside the visible judges (llm-judges.md); 5+ trials on side-effecting tasks; tolerance 2–3% where the split's MDE allows it (see "Tolerance"); a person reads the five lowest-scoring passing cases [EVALS ch6]; the full harness slice passes | Higher; accepted |
 
 Judge on every PR or nightly? With a few prompt PRs a week, run the judge on every PR that touches prompts, models, tools or datasets so the author sees the effect before merging. With dozens of PRs a day, keep pre-merge deterministic and catch semantic regressions nightly, accepting a day's delay [EVALS ch6][EVALS ch15].
 
@@ -111,7 +114,18 @@ Reading it: 5 confirmed regressions and no improvements give p ≈ 0.03 and bloc
 - **Best of many experiments.** After twenty experiments on 30 tasks, the best pass rate is inflated by luck. Confirm the winner on the held-out split before saving it as the baseline [EVALS ch13].
 - **Automated prompt optimisers** (DSPy and similar) are proposal generators. Their output goes through the same gate, with a held-out set the optimiser never saw.
 
-## Cost
+## The agent must not edit its own evals
+
+Ng reports a coding agent that modified test code so the tests were easier to pass [NG Agentic Coding and Agentic Software Testing Go Together, 2025-09-17], and coding agents now iterate against a spec and evals for long stretches without a person [NG Three Key Loops for Building Great Software, 2026-06-26]. This skill derives the control below from those reports; Ng does not state it.
+
+- Tests, eval data, fixtures, scorers and judge prompts sit outside the agent's write scope: a separate repository or path, mounted read-only wherever the agent runs.
+- Changes to them go through human review, like a change to the gate itself.
+- Before scoring, the runner checks a hash of each (dataset checksum, scorer code, rubric version) against the baseline's. A mismatch invalidates the run; it is never scored.
+- Automated optimisers get the same treatment: they never see the held-out split or its scorers.
+
+It matters most for coding agents and for any agent with file or shell access in the environment where its evals run.
+
+## Cost and time: the eval budget line
 
 Mid-2026 figures from [EVALS ch11]; check current prices. The table covers scoring. Its "$0" for deterministic CI means the scorers cost nothing; running the agent to produce the transcripts is extra, and for multi-step agents it is usually the larger cost.
 
@@ -128,6 +142,15 @@ Mid-2026 figures from [EVALS ch11]; check current prices. The table covers scori
 - Batch APIs roughly halve judge cost for scheduled runs [EVALS ch11].
 - Trials multiply cost: 300 tasks × 3 trials × a $0.01 judge call is $9 per run before agent inference. Agent inference for multi-step tasks often costs more than judging; measure it per task.
 - Wall-clock time is a cost too: a 20-minute eval blocks developers [EVALS ch11]. Run trials concurrently.
+
+### The budget line
+
+Eval cost and wall-clock time are what suddenly grow once a team starts iterating. In Ng's example a $0.01 query becomes $200 a day when 20 ideas are each tried on 1,000 examples, and a run takes tens of minutes to hours [NG We Need Better Evals for LLM Applications, 2024-05-29]. Agent trials cost more than single calls (an agentic run can generate hundreds of thousands of tokens [NG Why We Need More Compute for Inference, 2024-04-24]), and pass^k multiplies by k. FASTGENAI finds such tests too slow and costly for every CI build [FASTGENAI ch11]. So write the eval budget into the plan at the Decide stage, beside the decision it serves, as two lines per tier:
+
+  cost per day ≈ ideas per day × tasks × trials × cost per trial (agent + judge + simulator)
+  wall time per run ≈ tasks × trials × median trial time ÷ concurrency
+
+Then tier it: the smoke suite and cached code checks on every change, the dev split with judges per PR or nightly, the held-out split with repeated trials per release. If the per-change tier takes longer than developers will wait, shrink that tier rather than skip it.
 
 ### Agent inference cost per run
 

@@ -1,5 +1,6 @@
 """Per-request cost and latency model for an agent: expected value, a likely high (about p95) request,
-the capped ceiling, per-step share, peak load per model tier and three or four what-ifs. Standard library only.
+the capped ceiling, cost per successful run, per-step share, peak load per model tier and three or four
+what-ifs. Standard library only.
 
   python cost_model.py               # example spec (self-check runs first)
   python cost_model.py spec.json     # your spec (self-check runs first)
@@ -19,7 +20,12 @@ latency_s (avg seconds per call), parallel (true: the step's calls run concurren
 stage (steps that share a stage value run concurrently; others run in sequence).
 Top level: requests_per_day, peak_requests_per_day (the busiest day's volume; default: requests_per_day;
 "monthly at peak" = expected $/request x this x 30), peak_hour_factor (busiest hour / average hour;
-default 3: all traffic in an 8-hour day gives 24/8), retry_rate, worst_retries, other_per_request.
+default 3: all traffic in an 8-hour day gives 24/8), retry_rate, worst_retries, other_per_request
+($ of non-model cost per request, tool APIs included).
+Cost per successful run (optional; printed when success_rate is set): success_rate (share of runs that met
+the SLA inside guardrails), review_minutes (human review plus cleanup minutes per run, on average),
+value_per_minute ($ per minute of that time). Result = (expected $/request + review_minutes x
+value_per_minute) / success_rate. A user spec never inherits these three from the example.
 Every number is a measurement from traces or an assumption to replace with one.
 """
 import json
@@ -42,6 +48,9 @@ EXAMPLE = {
     "retry_rate": 0.05,         # expected extra calls from retries and repairs, as a share
     "worst_retries": 2,         # retries per call the policy allows (ceiling)
     "other_per_request": 0.002, # $ for embeddings, vector queries, paid tools, eval sampling
+    "success_rate": 0.85,       # runs that met the SLA inside guardrails (from evals or the SLA report)
+    "review_minutes": 0.5,      # human review and cleanup per run, averaged over all runs
+    "value_per_minute": 0.6667, # $40 an hour; rough is fine if it stays consistent
     "steps": [
         {"name": "router", "model": "small", "p": 1.00, "calls": 1, "max_calls": 1,
          "tok_in": 3_000, "tok_out": 50, "cached": 0.8, "latency_s": 0.6},
@@ -61,8 +70,15 @@ EXAMPLE = {
 }
 
 
+SUCCESS_KEYS = ("success_rate", "review_minutes", "value_per_minute")
+
+
 def merge(base, user):
     spec = {**base, **{k: v for k, v in user.items() if k != "prices"}}
+    if user:  # never inherit the example's success rate or review time
+        for k in SUCCESS_KEYS:
+            if k not in user:
+                spec.pop(k, None)
     spec["prices"] = {t: dict(v) for t, v in base["prices"].items()}
     for tier, fields in user.get("prices", {}).items():
         spec["prices"][tier] = {**spec["prices"].get(tier, {}), **fields}
@@ -91,6 +107,14 @@ def step_cost(spec, s):
 def expected(spec, steps=None):
     model = sum(step_cost(spec, s) for s in (steps or spec["steps"]))
     return model * (1 + spec["retry_rate"]) + spec.get("other_per_request", 0.0)
+
+
+def per_success(spec, cost):
+    """Cost per successful run: (cost per run + review minutes x value per minute) / success rate."""
+    if not spec.get("success_rate"):
+        return None
+    review = spec.get("review_minutes", 0.0) * spec.get("value_per_minute", 0.0)
+    return (cost + review) / spec["success_rate"]
 
 
 def heavy_step(s):
@@ -180,6 +204,10 @@ def validate(spec):
     for tier, pr in spec["prices"].items():
         if any(k not in pr for k in ("in", "out", "cache_read", "cache_write")):
             sys.exit(f"prices.{tier}: need in, out, cache_read, cache_write")
+    if "success_rate" in spec and not 0 < spec["success_rate"] <= 1:
+        sys.exit("success_rate: need 0 < success_rate <= 1")
+    if spec.get("review_minutes", 0) < 0 or (spec.get("review_minutes") and "value_per_minute" not in spec):
+        sys.exit("review_minutes: need >= 0, with value_per_minute ($ per minute) set")
 
 
 def warnings(spec):
@@ -198,6 +226,10 @@ def warnings(spec):
     if spec.get("peak_requests_per_day", spec["requests_per_day"]) <= spec["requests_per_day"]:
         out.append("peak_requests_per_day not above requests_per_day: set the busiest day's volume, "
                    "or the peak figures equal the average")
+    if "success_rate" not in spec:
+        out.append("no success_rate: cost per successful run not computed; take it from evals or the SLA report")
+    elif "review_minutes" not in spec:
+        out.append("cost per successful run leaves out human review: set review_minutes and value_per_minute")
     uncapped = [s["name"] for s in spec["steps"] if s["max_calls"] is None]
     if uncapped:
         out.append(f"no cap on {', '.join(uncapped)}: ceiling is UNBOUNDED; rerun with proposed caps and report both")
@@ -216,8 +248,13 @@ def report(spec):
                                       f"${ceil:.4f} ({ceil / max(exp, 1e-12):.0f}x expected): every step at its cap, "
                                       "no cache, max retries; a bound, not a forecast"),
            f"per month (30 days)   ${exp * spec['requests_per_day'] * 30:,.0f} at {spec['requests_per_day']:,}/day; "
-           f"${exp * peak_day * 30:,.0f} at the peak-day run rate ({peak_day:,}/day)",
-           "share of expected cost:"]
+           f"${exp * peak_day * 30:,.0f} at the peak-day run rate ({peak_day:,}/day)"]
+    ps = per_success(spec, exp)
+    if ps is not None:
+        review = ps - exp / spec["success_rate"]
+        out.append(f"cost/successful run   ${ps:.4f} at {spec['success_rate']:.0%} success: model and tools "
+                   f"${exp / spec['success_rate']:.4f}, human review ${review:.4f} ({review / ps:.0%})")
+    out.append("share of expected cost:")
     for s in spec["steps"]:
         share = step_cost(spec, s) * (1 + spec["retry_rate"]) / exp
         out.append(f"  {s['name']:<16} {share:6.1%}   ({s['model']}, {exp_calls(s):.2f} calls)")
@@ -271,6 +308,12 @@ def selftest():
     assert merged["prices"]["mid"]["in"] == 3.0 and merged["prices"]["mid"]["out"] == 10.0 and "small" in merged["prices"]
     assert merged["prices_as_of"].startswith("UNDATED")
     assert merge(EXAMPLE, {"requests_per_day": 500})["peak_requests_per_day"] == 500
+    assert "success_rate" not in merge(EXAMPLE, {"requests_per_day": 500}) and "success_rate" in merge(EXAMPLE, {})
+    spec = json.loads(json.dumps(GUIDE_SPEC))
+    assert per_success(spec, expected(spec)) is None
+    spec.update(success_rate=0.85, review_minutes=0.5, value_per_minute=40 / 60)  # hand-checked: $0.4358
+    assert abs(per_success(spec, expected(spec)) - 0.43577) < 1e-4, per_success(spec, expected(spec))
+    assert abs(per_success({**spec, "review_minutes": 0.0}, expected(spec)) - 0.04361) < 1e-4
     a = {"name": "a", "p": 1.0, "calls": 4, "max_calls": 4, "latency_s": 2.0}
     assert latency([a, {**a, "name": "b"}], 0.0) == 16.0
     assert latency([{**a, "parallel": True}, {**a, "name": "b"}], 0.0) == 10.0

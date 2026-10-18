@@ -17,9 +17,9 @@ Definitions used: feasibility = <...>; effort = <...>; time-saved scale = absolu
 
 ## Fit gate
 
-| # | Task (workflow slice: input → output, success test) | Volume/month | Min/item | Error cost if uncaught | Checkable before effect? | Hard blocker? | Gate result |
-|---|---|---|---|---|---|---|---|
-| | | | | low / high | yes / no + how | none / which | automate · automate behind check · assist · keep with people · redesign first · not an agent |
+| # | Task as one sentence (owns X, for Y, under Z, produces artifacts) | Concrete enough to prototype? | Volume/month | Min/item | Error cost if uncaught | Checkable before effect? | Hard blocker? | Gate result |
+|---|---|---|---|---|---|---|---|---|
+| | | pass / rewrite | | | low / high | yes / no + how | none / which | automate · automate behind check · assist · keep with people · redesign first · not an agent |
 
 ## Scores (gate survivors only)
 
@@ -27,7 +27,13 @@ Definitions used: feasibility = <...>; effort = <...>; time-saved scale = absolu
 |---|---|---|---|---|---|---|---|---|---|---|
 | | | 0+0+0+0 | 0+0 | | | <amount>, measured / assumed | quick win · strategic · low priority · avoid · borderline (<two cells>) | | none / Art. 50 / Annex III? | pilot · next · later · drop |
 
-Ties and borderline tasks are decided on the fit result and money per month, not on more points or the quadrant label.
+Ties and borderline tasks are decided on the fit result and money per month, not on more points or the quadrant label. Weak-link check on the leaders: any factor at 1 (PRODGUIDE's impact, frequency, data availability, risk, or the five factors below) rules a candidate out as the first pilot, whatever its total.
+
+## Starting autonomy (pick and next in line)
+
+| Task | Volume | Variability | Risk | Judgment | Action scope | Total /15 | Level range | Factors at 1 (constraints) | Actions needing approval each time |
+|---|---|---|---|---|---|---|---|---|---|
+| | 1-3 | 1-3 | 1-3 | 1-3 | 1-3 | | | | |
 
 ## Recommendation
 
@@ -36,3 +42,4 @@ Ties and borderline tasks are decided on the fit result and money per month, not
 - Redesign before automating: <task>: what must change first
 - Rejected at the gate: <task>: reason
 - Assumptions to verify (each with how to measure it): <...>
+- Decide gate for the pilot: concreteness <pass/fail> · data preflight <pass / narrowed to ... / fail> · autonomy scored <total, level> · funding verdict <from the business case>

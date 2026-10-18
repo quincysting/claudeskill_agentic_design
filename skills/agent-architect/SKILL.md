@@ -1,14 +1,17 @@
 ---
 name: agent-architect
-description: Design or review an agentic AI system's architecture and return a design doc with decisions and rationale. Decides, per step, plain code vs model call vs workflow vs bounded agent loop, and its autonomy level; patterns (router, fan-out, orchestrator-workers, evaluator-optimizer, plan-and-execute, ReAct); the runtime and control loop (validation, budgets, stop conditions, exits, retries, checkpoints); planning and reasoning strategy; single vs multi-agent and coordination. Use for "design an agent for...", "should this be an agent or a workflow", "which agent pattern", "single agent or multi-agent", "review my agent architecture", "plan-and-execute vs ReAct", "orchestrator", "agent control loop". Not for tools/MCP/A2A (agent-tool-designer), RAG/memory/document ingestion (agent-context-designer), evals (agent-eval-designer), observability/cost (agent-ops-reviewer), security/oversight (agent-threat-modeler), model choice (agent-model-selector), ROI/governance/regulation (agentic-business-case).
+description: Start-here skill. Plans an AI agent end to end, from decision to production, with a lifecycle map (four stages, eight perspectives with one owner skill each, a gate per stage, which sibling skill to call when), and designs or reviews the architecture as a design doc with rationale. Decides per step code vs model call vs workflow vs bounded agent loop, and its authority; starting autonomy; patterns (router, fan-out, orchestrator-workers, evaluator-optimizer, plan-and-execute, ReAct); the loop contract and sizing; single vs multi-agent. Use for "plan an agent from decision to production", "which reviews happen when", "design an agent for...", "agent or workflow", "which agent pattern", "single or multi-agent", "review my agent architecture". Not for the runtime (agent-harness-designer), tools/MCP (agent-tool-designer), RAG/memory (agent-context-designer), evals (agent-eval-designer), ops/cost (agent-ops-reviewer), security (agent-threat-modeler), models (agent-model-selector), ROI (agentic-business-case).
 ---
 # Agent Architect
 
-Produces an architecture design doc for an agentic system. It covers which steps are code, model calls, workflows or bounded agent loops, how much authority each step carries, the orchestration pattern, the control loop with numbers, the planning strategy, and whether to use one agent or several, each decision with its rationale. The stance: use the least autonomy that handles the inputs, let the model propose while code decides, and put a number on every bound.
+The start-here skill. It holds the lifecycle map that takes an agent from the decision to build it through to production, and it produces the architecture design doc for the Design stage. The doc covers which steps are code, model calls, workflows or bounded agent loops, how much authority each step carries, the orchestration pattern, the loop contract with numbers, sizing, the planning strategy, and whether to use one agent or several, each decision with its rationale. The stance: use the least autonomy that handles the inputs, let the model propose while code decides, and put a number on every bound.
+
+**Lifecycle role.** Stages Decide and Design, returning at Run to raise authority. This skill owns none of the eight perspectives (API contracts, tool access, harness, guardrails, evals, security hardening, context and knowledge, cost and operations); each has one owner skill, named in [references/lifecycle-map.md](references/lifecycle-map.md) with the gate each stage must pass.
 
 ## When to use / when not to
 
 Use when:
+- Someone wants the whole path for an agent, from the decision to build it to production, or asks which reviews happen when and in what order.
 - Someone wants to build an "agent" or an "AI workflow" and the shape needs deciding before code is written.
 - Someone asks whether a task needs an agent at all, which pattern fits, whether to use ReAct or plan-and-execute, or whether to split into several agents.
 - Someone has an agent (code, framework config, diagram, traces) and wants its architecture reviewed: runaway loops, duplicated side effects, multi-agent sprawl, or cost and latency problems that come from structure.
@@ -20,10 +23,11 @@ Hand off by name; do not design these in depth here:
 | Tool contracts and descriptions, MCP servers, A2A wire protocol | agent-tool-designer |
 | Retrieval, RAG, long-term memory, context assembly and compaction; document ingestion (OCR, parsing, photo and form extraction pipelines) | agent-context-designer |
 | Eval sets, judges, trajectory metrics | agent-eval-designer |
-| Tracing, monitoring, production cost and latency tuning, serving | agent-ops-reviewer |
+| Tracing, monitoring, production cost and latency tuning | agent-ops-reviewer |
+| The runtime that carries the design: loop implementation, run record and state, checkpoints and resume, budget enforcement, cancellation, kill switch, replay, streaming and serving, deployment shape, framework vs own loop, harness tests | agent-harness-designer |
 | Prompt injection, permissions, sandboxing, approval UX, human oversight | agent-threat-modeler |
 | Which model per role, fine-tuning, distillation | agent-model-selector |
-| Whether the use case is worth doing, ROI, governance, regulatory and compliance requirements (adverse-decision rules, fairness, model risk) | agentic-business-case |
+| Whether the use case is worth doing (concreteness test, data readiness audit, five-factor starting level), ROI, governance, regulatory and compliance requirements (adverse-decision rules, fairness, model risk) | agentic-business-case |
 
 This skill still marks where each of those attaches in the architecture (for example "approval gate here; threat-model it").
 
@@ -48,7 +52,9 @@ If the system runs on AWS, map each decision with [references/aws-implementation
 
 ## Procedure
 
-Design mode runs steps 1 to 10. Review mode runs step R first, then steps 1 to 10 to produce the target architecture.
+Every request starts at step 0. Design mode then runs steps 1 to 10. Review mode runs step R, then steps 1 to 10 to produce the target architecture.
+
+**0. Place the work on the lifecycle map.** Read `references/lifecycle-map.md` first. Name the stage the work is in and which gate items already pass. If the user asked for the whole path or "which reviews when", fill the template's "Stage plan" section: stage, calendar weeks, the sibling skills in call order, what runs in parallel, the gate per stage, the people outside the team to book with their lead times (model risk, security, compliance, labellers), and one line naming the eight perspectives with their owner skills, so coverage is visible. For a new agent, check the Decide gate before designing (agentic-business-case supplies most of it): if the use case fails the concreteness test, or no data readiness audit or starting level exists, say so and list it under "Confirm first". When the user's own description already fails a gate item (half the records missing fields that decisions rely on fails the 90% rule), the gate fails now; it is not an open item. Plan the pilot on the slice that passes (newer records, complete fields) or put the data fix in Decide. An agent step may flag missing decision data; it does not replace the audit or the narrowing. Two Decide questions have no owner call at Decide, so raise them here and record the answers as constraints: the Rule of Two triage (tool access, agent-threat-modeler) and framework or own loop (harness, agent-harness-designer). For a review, run step R, then route by the symptom table in the map.
 
 **R. Review the as-is system.** Map what actually runs from the code and traces, not from the docs: the step map, the ownership table, the agent count. Run `references/review-checklist.md` and record each finding with its severity, evidence (file:line, config key, trace ID) and fix. For each reported incident (duplicate actions, runaway loops), name the structural cause and say how the user can confirm it from logs. If a framework is in use, apply the framework test in `references/pattern-catalog.md`. Keep what works; the target design marks each section keep, change or add.
 
@@ -56,21 +62,21 @@ Design mode runs steps 1 to 10. Review mode runs step R first, then steps 1 to 1
 
 2. **Decompose.** List the task's steps from the as-is process. For each step give its input, output, side effect and consumer. Split any step that mixes a read with a consequential write. Treat document ingestion (OCR, parsing, document-type classification, photo or form extraction) as its own step: record its shape, output schema and failure exit here, and hand the pipeline design to agent-context-designer. A per-document call is one step fanned out over N documents; estimates multiply by documents per case.
 
-3. **Choose each step's shape.** Climb the ladder per step and stop at the first rung that holds: plain code, then a single model call or RAG, then a workflow with model steps, then a bounded agent loop. For every agent step, write down the deciding fact: *what will this step discover at run time that decides its next action?* If there is no answer, the step is not an agent. If you are unsure between workflow and agent, mark the step "build both" and settle it in step 9. Flow, catalogue and worked example: `references/autonomy-and-shape.md`.
+3. **Choose each step's shape.** Climb the ladder per step and stop at the first rung that holds: plain code, then a single model call or RAG, then a workflow with model steps, then a bounded agent loop. For every agent step, write down the deciding fact: *what will this step discover at run time that decides its next action?* If there is no answer, the step is not an agent. When one call falls short and its output can be checked, try a fixed iterate-and-check loop (a workflow) before an agent loop or a bigger model. If you are unsure between workflow and agent, mark the step "build both" and settle it in step 9. Flow, the five-question workflow, agent or hybrid matrix, catalogue and worked example: `references/autonomy-and-shape.md`.
 
-4. **Set each step's authority, separately from its shape.** Options are act, act and notify, approve, or suggest. Choose from input variability crossed with the cost of a wrong action (table below). Irreversible or high-value actions get limits enforced in code plus a person, however confident the model is. Prefer not to give the agent such tools at all: the agent puts a proposal in its final output, and a code action path recomputes, checks and executes it. Mark these as approval gates for agent-threat-modeler.
+4. **Set each step's authority, separately from its shape.** Options are act, act and notify, approve, or suggest. Start from the five-factor score (volume, variability, risk, judgment, action scope), taken from agentic-business-case at Decide or scored here: it gives the workflow's starting level, and any factor scored 1 is a hard constraint the total cannot override. Then choose per step from input variability crossed with the cost of a wrong action (table below). Irreversible or high-value actions get limits enforced in code plus a person, however confident the model is. Prefer not to give the agent such tools at all: the agent puts a proposal in its final output, and a code action path recomputes, checks and executes it. Mark these as approval gates for agent-threat-modeler.
    - **Client approval rules are a floor on oversight, not an automation target.** Above the client's threshold a person always approves, enforced in code. Below it, still run the matrix: the band may start at suggest and graduate later. First pin what the threshold is measured on, and compute it in code from the system of record, aggregated so a payout cannot be split under it.
    - **Define "reversible" and "cheap" for the domain** before using the matrix. Reversible means the system can undo the action fully, at negligible cost, before harm lands (a draft, a hold, an internal note). Money sent, external messages, communicated denials and deletions count as irreversible. Cheap means the expected loss of one wrong action is below what the organisation already accepts without review today; if no such tolerance exists, treat it as costly.
    - **Regulated or adverse decisions** (denial, reduction, eligibility, pricing, fraud referral): a person decides in v1 unless policy and regulation explicitly allow automation. Every case gets a decision record: decision, reason codes from a fixed list, evidence references, rule and policy version, model and prompt versions, recommender and decider. Hand the regulatory requirements to agentic-business-case.
    Detail and examples: `references/autonomy-and-shape.md`.
 
-5. **Pick patterns.** Choose the skeleton pattern, then the pattern inside each agent step. The default for an agent step is deterministic prefetch plus a bounded planner: code fetches what is always needed, and the model picks one next action from an allowlist or says it is done. Pick another pattern only when its "use when" condition holds: `references/pattern-catalog.md`. Place a router where its inputs exist (after prefetch or extraction if it needs them), and route on rules over structured fields before calling a model for unstructured signals.
+5. **Pick patterns.** Choose the skeleton pattern, then the pattern inside each agent step. The default for an agent step is deterministic prefetch plus a bounded planner: code fetches what is always needed, and the model picks one next action from an allowlist or says it is done. Pick another pattern only when its "use when" condition holds: `references/pattern-catalog.md`, which also maps Ng's four patterns and his reliability order (reflection and tool use before planning and multi-agent collaboration). Place a router where its inputs exist (after prefetch or extraction if it needs them), and route on rules over structured fields before calling a model for unstructured signals. Where actions change systems of record, keep draft and execute as separate states enforced in code. For state-dependent tools, let results carry the valid next actions and check them against the allowlist (contracts: agent-tool-designer). For voice, choose between a cascaded pipeline, speech-to-speech, or foreground and background agents by how much the output must be checked before it is spoken.
 
-6. **Choose the planning and reasoning strategy per agent step.** Use ReAct with native tool calling when the next action depends on the last observation. Use plan-and-execute when the plan should be reviewed and its steps map to registered tools. Add replanning when observations often invalidate the plan. Spend extra compute (effort, sampling, reflection) only where a signal makes it pay, and write the dial values as numbers. See `references/reasoning-strategy.md`.
+6. **Choose the planning and reasoning strategy per agent step.** Use ReAct with native tool calling when the next action depends on the last observation. Use plan-and-execute when the plan should be reviewed, its steps map to registered tools, and the steps cannot be listed in advance; a fixed reflect-N or retry loop is a workflow, not planning. Add replanning when observations often invalidate the plan. Spend extra compute (effort, sampling, reflection) only where a signal makes it pay, and write the dial values as numbers. See `references/reasoning-strategy.md`.
 
 7. **Decide on one agent or several.** Default to one. Split only on a real boundary (data access, permissions, tool set, evaluation criteria, independent release), or for breadth-first parallel work that returns answers and has the token budget for it. Before splitting because of tool count or context size, try fixing it inside one agent. If you split, specify the topology, an orchestrator in code, typed messages and how they evolve across separate deploys, context slices, per-agent credentials with a denial test, a conflict rule and caps. See `references/multi-agent.md`.
 
-8. **Specify the runtime and control loop.** Fill the ownership table: decide, validate, authorise, execute, store, record and stop each get one named component, and "the model" may own only *decide*. Then write the decision contract, the validation gate, tool risk tiers, budgets with numbers, stop conditions, exit statuses, retries per failure class, idempotency for writes and for run triggers (a redelivered webhook or event must map to the same run), versioning for outputs that get regenerated, the state schema and checkpoints (typed, versioned, one writer per run), a durable sink for every non-completed exit, the execution mode (ordered-stream triggers need bounded retries and a tested failure sink), and where the loop lives. When a person or another system decides downstream on its own timeline, end the run with `handed_off` and start a new run on the decision event; keep `awaiting_approval` for short gates the run itself resumes. See `references/control-loop.md`.
+8. **State the loop contract; hand the runtime to agent-harness-designer.** The model proposes one structured next step and code decides. Decide, validate, authorise, execute, store, record and stop each get one named component, and the model owns only *decide*. Every proposal passes a validation gate (schema, allowlist, scope, risk tier, approval, repeat check) before a tool runs. Every budget has a number and is checked before every model and tool call; a fan-out step gets a per-document re-ask cap times the document count, a breadth cap, and a run-level call cap equal to the sum of the per-step caps. Every run ends in a named status (`completed`, `partial`, `awaiting_approval`, `handed_off`, `escalated`, `failed`, `cancelled`), a forced stop is never `completed`, and each non-completed status lands in a durable sink. Each write is keyed from run, action and target, or from a business key when more than one run can reach the same target, never from a step counter, so retries, resumes and redelivered triggers cannot repeat it. A run whose deliverable is a draft or a pack ends `completed` when it is delivered; it ends `handed_off` only when it leaves a pending action that a person or another system decides on its own timeline, and a new run starts on the decision event. Put the contract's numbers and choices in the design doc. The detail (gate order, failure classes, checkpoints, state, execution modes, loop skeleton) is in the agent-harness-designer skill's `control-loop.md` reference, and that skill designs the runtime that enforces the contract.
 
 9. **Estimate and plan validation.**
    - **Per path:** typical and worst-case model calls and tokens (per document where documents fan out), p50 and p95 latency against the target, cost per task against the ceiling.
@@ -79,9 +85,9 @@ Design mode runs steps 1 to 10. Review mode runs step R first, then steps 1 to 1
    - **Unknowns:** never invent prices. If prices, shares or the cost ceiling are unknown, give tokens and calls, state the missing figure as an assumption or open question, and say that a metered eval replay gives the real number.
    - **Reliability:** apply the chain arithmetic for direction only.
    - **Build both:** for each such step, fix these before the run: one case set and scorer for both designs, a primary metric tied to the error the consumer pays for, guardrail limits on the other metrics, and a minimum gain derived from error cost and larger than the measurement's noise. Score against adjudicated labels when the ground truth is past human decisions. Without that evidence keep the less autonomous design. Method: `references/autonomy-and-shape.md`; statistics and eval-set design: agent-eval-designer.
-   Sizing method: `references/control-loop.md`.
+   Sizing method and the reliability arithmetic: `references/sizing.md`.
 
-10. **Write and check.** Fill `templates/architecture-design-doc.md`, including the rollout and authority-graduation section. Put the 3 to 5 assumptions that most change the design in a "Confirm first" block right after the Summary. Run the red-flag table in `references/review-checklist.md` against your own draft, then the Quality bar below; fix any failures and re-run before returning.
+10. **Write and check.** Fill `templates/architecture-design-doc.md`, including the rollout and authority-graduation section with the move-up conditions per step. Put the 3 to 5 assumptions that most change the design in a "Confirm first" block right after the Summary, and the lifecycle line after it. List the handoffs in lifecycle order with the gate item each sibling skill supplies. Run the red-flag table in `references/review-checklist.md` against your own draft, then the Quality bar below; fix any failures and re-run before returning.
 
 ## Decision guide
 
@@ -96,6 +102,7 @@ Design mode runs steps 1 to 10. Review mode runs step R first, then steps 1 to 1
 | Most steps fixed, one needs judgment | Workflow skeleton + one agent step | The most common production answer | Defining where the agent's input comes from and how its output is checked |
 | Next step depends on what was found; inputs novel | Bounded agent loop | Adapts per case | Missing bounds, which are part of the definition |
 | Variable and costly or irreversible | Agent proposes, code checks limits, a person decides | Variability needs judgment; cost needs a person | Reviewers who rubber-stamp |
+| One call falls short; its output can be checked | Fixed iterate-and-check loop (a workflow) | Most of the gain from looping comes from iterating against a check, not from handing over the path | A reflect-N loop with no real check behind it |
 | Unsure between workflow and agent | Build both and compare | The one head-to-head measurement found a workflow matching agent accuracy at about a third of the cost and half the latency | Comparing with different scorers |
 
 ### Authority per step
@@ -119,6 +126,7 @@ Design mode runs steps 1 to 10. Review mode runs step R first, then steps 1 to 1
 | Reviewable plan over registered tools | Plan, then deterministic execution | Stale plans; add replanning triggers |
 | Several modes share policies | Hierarchical state machine | Over-engineering a three-node flow |
 | Long runs, human waits, must survive crashes | Durable workflow engine | Model calls inside replayed code; they belong in activities |
+| Actions change systems of record; approvals arrive later | Draft and execute as separate states | Draft-only enforced by a prompt instead of code |
 
 ### Planning and reasoning
 
@@ -161,18 +169,18 @@ At design time no eval exists. Set each budget provisionally from the path a cor
 
 Return one markdown document following `templates/architecture-design-doc.md`, in this order:
 
-0. Summary (4 to 6 sentences), then a "Confirm first" block with the 3 to 5 assumptions that most change the design.
+0. Summary (4 to 6 sentences), then a "Confirm first" block with the 3 to 5 assumptions that most change the design, then a lifecycle line: the stage this doc closes, the Decide gate items passed or open, and the starting level.
 1. Responsibility, success criteria, non-goals, assumptions.
 2. Step map table: step, shape, authority, owner component, and the run-time discovery for each agent step.
 3. Architecture: a diagram (mermaid or text), the ownership table, the chosen patterns, where the loop lives.
-4. Control loop: decision contract, validation gate, tool risk tiers, budgets table with numbers, stop conditions, exits, failure handling, idempotency, state and checkpoints, execution mode.
+4. Loop contract summary: decision contract, validation gate order, tool risk tiers, budgets table with numbers, stop conditions, exit statuses, failure handling, idempotency scheme, the state the runtime must keep, execution mode. The runtime that enforces it (run record and state store, checkpoints and resume, cancellation, kill switch and draft-only mode, streaming, serving, deployment shape) is handed to agent-harness-designer by name.
 5. Planning and reasoning per agent step.
 6. Agent topology, with the split-test answers.
 7. Human oversight points, and decision records for regulated or adverse decisions.
 8. Estimates: calls and tokens per path, latency, cost per task and per day, peak throughput and rate limits, comparison with the incumbent.
 9. Validation plan.
 10. Decision log: decision, alternatives, rationale, revisit-when.
-11. Handoffs to sibling skills.
+11. Handoffs to sibling skills, in lifecycle order, each with the gate item it supplies.
 12. Risks and open questions.
 13. Rollout and authority graduation: shadow, suggest, approve, act and notify, with entry criteria and a rollback trigger per step.
 
@@ -190,7 +198,9 @@ Check every item before returning; fix and re-check any that fail. An item that 
 - [ ] The ownership table names a component for decide, validate, authorise, execute, store, record and stop, and the model owns only decide.
 - [ ] Every budget has a number and a basis; there is a no-progress rule.
 - [ ] Every exit status is defined, downstream decisions use `handed_off` plus a new run, no failure, cap-hit or invalid-output path can be presented as success or mapped to a real answer, and every non-completed exit lands in a durable sink.
-- [ ] Every write has an idempotency scheme, run triggers are deduplicated, and high-impact writes check current state first; retries are split by failure class; a failed required check stops the run; run state has one writer or conditional writes, and checkpoints are typed and versioned.
+- [ ] Every write has an idempotency scheme, run triggers are deduplicated, and high-impact writes check current state first; retries are split by failure class; a failed required check stops the run.
+- [ ] The loop contract summary gives the numbers and choices the runtime must enforce, and the runtime itself (state store and writer rule, checkpoints and resume, cancellation, kill switch, serving) is handed to agent-harness-designer rather than designed here.
+- [ ] The doc names the lifecycle stage it closes, the Design gate items it supplies, and the sibling skills that supply the rest, in call order (references/lifecycle-map.md).
 - [ ] Each reasoning dial (effort, samples, reflection) names the signal that justifies it, or is set to its minimum.
 - [ ] A multi-agent design names its single-agent baseline and the boundary that justifies each split, and that boundary exists in each agent's credentials.
 - [ ] Each "build both" step has a comparison with a primary metric, guardrails and a minimum gain set in advance.
@@ -213,7 +223,7 @@ Check every item before returning; fix and re-check any that fail. An item that 
 | Reasoning effort high everywhere; an "are you sure?" pass on every step | Set effort per task family from a sweep; reflect only on evidence |
 | Model calls for deterministic steps (fetch, format, compute) | Prefetch and compute in code |
 | Giving the agent the payment, refund or delete tool | The agent outputs a proposal; a code action path recomputes, checks and executes it |
-| Retrying refunds, payments or posts with no idempotency key | Key every write by run, step and action; deduplicate triggers; check current state before money moves |
+| Retrying refunds, payments or posts with no idempotency key | Key every write from run, action and target (or a business key), never a step counter; deduplicate triggers; check current state before money moves |
 | Treating 0.98^n reliability arithmetic as a prediction | Use it for direction; the gain comes from validation at boundaries |
 | Designing a fleet with an event bus for a request/response feature | Use the transport the load needs; in-process calls are fine at small scale |
 | Quoting framework parameters or model features from memory as current | Mark them "verify against current docs" |
@@ -225,26 +235,45 @@ Check every item before returning; fix and re-check any that fail. An item that 
 | Holding a run open for days while someone decides in another system | End with `handed_off`; the decision event starts a new run that re-reads current state |
 | Asking a dozen questions before producing anything | Ask at most three blocking questions; otherwise assume, label and proceed |
 | Designing tool schemas, RAG or eval suites in depth | Mark the attachment point and hand off to the sibling skill |
+| A model-written plan where the steps could be listed, or a fixed reflect-N loop called planning | Fixed steps in code; a model-written plan only where the decomposition depends on the input |
+| Threat-modelling after the tools and harness are built | Threat model at Design, before contracts and runtime; red-team pass at Prove (lifecycle-map.md) |
+| Raising autonomy for the whole agent after one good month | Per step, on written move-up conditions with a minimum case count and a recovery plan |
 
 ## Sources
 
 Distilled from the following books. In `references/`, a citation such as [SYSTEMS ch8] names one of these books and a chapter; each reference file restates the point it relies on, so the books are not needed to use the skill.
 - SYSTEMS: *Systems Thinking for Agentic AI*, ch3, 6, 8, 10, 13, 16, 17, 18.
 - DEFGUIDE: *AI Agents: The Definitive Guide*, ch1, 2, 3, 4, 5, 10, 11.
-- BUILDAPPS: *Building Applications with AI Agents*, ch1, 5, 7, 8, 12.
-- BUILDAGENTIC: *Building Agentic AI*, ch1, 2, 4, 5, 7.
+- BUILDAPPS: *Building Applications with AI Agents*, ch1, 3, 5, 7, 8, 12.
+- BUILDAGENTIC: *Building Agentic AI*, ch1, 4, 5, 7, 9.
 - ILLUSTRATED: *An Illustrated Guide to AI Agents*, ch1, 3, 6, 8.
 - MESH: *Agentic Mesh*, ch1, 3, 4, 5, 6, 7, 10, 14.
 - DLLMA: *Designing Large Language Model Applications*, ch8, 10, 13.
 - ENTERPRISE: *The Agentic Enterprise*, ch1, 5, 6, 7.
 - AGENTICAI: *Agentic Artificial Intelligence*, ch2, 3, 6, 8.
+- PLAYBOOK: *Agentic AI Playbook*, ch2 (five-factor scoring, move-up conditions), ch3 (data readiness), ch4 (earned-autonomy stages).
+- PRODGUIDE: *Agentic AI Systems: The Complete Guide for Building Production AI Agents*, ch10 (workflow, agent or hybrid; judgment and execution as separate layers), ch16 (draft and execute as separate states, the readiness gate).
+- RESTCOOK: *RESTful Web API Patterns and Practices Cookbook*, ch3 (actions in responses, typed transitions).
 
-Practitioner lab notes (AWS AgentCore and data labs, 2026-10). They are the source of the guidance on one writer per run, typed and versioned checkpoints, invalid closed-vocabulary output, durable exit sinks, ordered-stream failures, inter-agent schema evolution, discovery and addresses, direct peer calls, partitioning, per-agent credentials and pinned peer versions, and of [references/aws-implementation-notes.md](references/aws-implementation-notes.md).
+Andrew Ng, The Batch letters (cited in `references/` as NG with title and date):
+- Agentic Design Patterns Part 1 (2024-03-20): https://www.deeplearning.ai/the-batch/how-agents-can-improve-llm-performance
+- Agentic Design Patterns Part 4, Planning (2024-04-10): https://www.deeplearning.ai/the-batch/agentic-design-patterns-part-4-planning
+- Agentic Design Patterns Part 5, Multi-Agent Collaboration (2024-04-17): https://www.deeplearning.ai/the-batch/agentic-design-patterns-part-5-multi-agent-collaboration
+- Blenders Versus Bombs, or Why California's Proposed AI Law is Bad for Everyone (2024-06-05): https://www.deeplearning.ai/the-batch/blenders-versus-bombs-or-why-californias-proposed-ai-law-is-bad-for-everyone
+- Welcoming Diverse Approaches Keeps Machine Learning Strong (2024-06-12): https://www.deeplearning.ai/the-batch/welcoming-diverse-approaches-keeps-machine-learning-strong
+- Concrete Ideas Make Strong AI Startups (2024-07-24): https://www.deeplearning.ai/the-batch/concrete-ideas-make-strong-ai-startups
+- What I've Learned Building Voice Applications (2025-02-26): https://www.deeplearning.ai/the-batch/what-ive-learned-building-voice-applications
+- Agents Running in Parallel Get There Faster (2025-08-27): https://www.deeplearning.ai/the-batch/agents-running-in-parallel-get-there-faster
+- Improve Agentic Performance with Evals and Error Analysis, Part 2 (2025-10-22): https://www.deeplearning.ai/the-batch/improve-agentic-performance-with-evals-and-error-analysis-part-2
+- Build an Autonomous Agent Using This Simple Recipe! (2025-12-10): https://www.deeplearning.ai/the-batch/build-an-autonomous-agent-using-this-simple-recipe
+- Building Voice-Enabled Apps is Easier Than You May Think (2026-04-03): https://www.deeplearning.ai/the-batch/building-voice-enabled-apps-is-easier-than-you-may-think
+- Agents on the Desktop (2026-06-12): https://www.deeplearning.ai/the-batch/agents-on-the-desktop
+
+Practitioner lab notes (AWS AgentCore and data labs, 2026-10). Here they are the source of the guidance on inter-agent schema evolution, discovery and addresses, direct peer calls, partitioning, per-agent credentials and pinned peer versions (multi-agent.md), and of [references/aws-implementation-notes.md](references/aws-implementation-notes.md). The runtime lessons from the same labs (one writer per run, typed and versioned checkpoints, invalid closed-vocabulary output, durable exit sinks, ordered-stream failures) moved with the control loop to the agent-harness-designer skill; this skill keeps the review-checklist rows and common mistakes that point there.
 
 External (checked 2026-10):
 - Anthropic, Building effective agents (2024-12): https://www.anthropic.com/engineering/building-effective-agents
 - Anthropic, How we built our multi-agent research system (2025-06): https://www.anthropic.com/engineering/multi-agent-research-system
-- Anthropic, Effective harnesses for long-running agents (2025-11): https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 - Anthropic, The "think" tool (2025-03): https://www.anthropic.com/engineering/claude-think-tool
 - Anthropic extended thinking docs: https://platform.claude.com/docs/en/build-with-claude/extended-thinking
 - OpenAI, A practical guide to building agents (2025-04): https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf

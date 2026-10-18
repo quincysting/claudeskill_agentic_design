@@ -12,9 +12,9 @@ Model and API: <provider, model, strict mode yes/no, forced tool_choice yes/no>.
 
 ## Inventory
 
-| Tool | Agent story | Kind (read / write / send / spend / destructive) | Permission or scope | Idempotency | Approval | Visible when |
-|---|---|---|---|---|---|---|
-| `svc_verb_object` | "The agent wants to …" | read | `orders:read` | n/a | no | always |
+| Tool | Agent story | Kind (read / write / send / spend / destructive) | Tier (read-only / draft-only / approval / auto) | Scope | Idempotency | Reversible | Visible when |
+|---|---|---|---|---|---|---|---|
+| `svc_verb_object` | "The agent wants to …" | read | read-only | `orders:read` | n/a | n/a | always |
 
 ## Tool specs
 
@@ -25,6 +25,7 @@ Definition (what the model sees). Use the target's key: `inputSchema` for MCP, `
 ```json
 {
   "name": "svc_verb_object",
+  "title": "<Verb object, for people>",
   "description": "<what it does>. Use when <…>. Do not use for <…>; use <sibling> instead. <inputs, units, formats>. <preconditions>. Returns <shape>. <side effects, limits>. <failure behaviour>.",
   "inputSchema": {
     "type": "object",
@@ -41,14 +42,15 @@ Definition (what the model sees). Use the target's key: `inputSchema` for MCP, `
 - **Injected by runtime (not in schema):** <caller identity, tenant, approval, idempotency key>
 - **Validation:** schema, then business rules: <list>
 - **Authorization:** <rule, decided from caller identity>
-- **Result:** <fields; size bound; pagination or link for large data>
+- **Contract:** owner <team>, version <x.y.z>; operational constraints <when the tool may not be used>
+- **Result:** <envelope fields; receipt for writes (ID, link, applied fields, status, key, contract version); size bound; cursor or link for large data; next actions if state-dependent>
 - **Errors:**
 
-  | Condition | Route | Message |
-  |---|---|---|
+  | Condition | Category | Route | Message |
+  |---|---|---|---|
 
-- **Side effects:** <what changes; idempotency key = hash(task_id, tool, args), or a business-object key when there is no task ID; state check that blocks a repeat; backend honours the key: yes/no>
-- **Timeout and retries:** <timeout>; <retries with backoff for transient faults>; timeout message: "<may have completed; check with …>"
+- **Side effects:** <what changes; update as a guarded replacement, or idempotency key = run_id + action + target (+ plan step), recorded before the first attempt, or a business-object key when there is no run ID; state check that blocks a repeat; backend honours the key: yes/no; reversible: yes (revert action) / no>
+- **Timeout and retries:** <timeout>; <retries with backoff for transient faults>; on a write timeout, verify with <lookup by key or read> before retrying with the same key; timeout message: "<may have completed; check with …>"
 - **Approval:** <none | runtime gate | elicitation>, threshold <…> (basis: <human policy limit / accepted loss>); fallback when the client cannot ask: <propose-only tool>
 - **Fallback if unavailable:** <backup or escalation> (critical tools only)
 
@@ -72,7 +74,12 @@ Definition (what the model sees). Use the target's key: `inputSchema` for MCP, `
 - Runs: <k> per case, tool order shuffled; production model and prompt.
 - Report: accuracy, per-tool precision and recall, confusion matrix, argument validity, calls and tokens per task.
 - Ship bar: <e.g. no tool below 0.9 recall; zero wrong-tool calls on destructive tools>.
-- Re-run on: tool, description, schema, server, model or prompt change.
+- Re-run on: tool, description, schema, server, model or prompt change. Load definitions from the running server, not a hand-copied list.
+
+## Change and catalogue (tools other teams or agents call)
+- Catalogue entry: owner, namespace, lifecycle stage, calling agents.
+- Change rule: additive changes only; a break ships as `<tool>_v2` beside the old tool; deprecation date and replacement.
+- CI: schema diff (proved with a planted break), one contract test per tool and failure category through the real client.
 
 ## Assumptions and open questions
 - <assumption> (**blocking** if a recommendation flips when it is wrong; how to check)

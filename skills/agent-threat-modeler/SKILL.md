@@ -1,6 +1,6 @@
 ---
 name: agent-threat-modeler
-description: Threat-model an AI agent and design its defences, or review an existing agent's security and oversight with prioritised fixes. Covers trust boundaries, the lethal trifecta, direct and indirect prompt injection, tool poisoning, tool governance (default deny, policy gate, credential brokering, per-agent identity), sandboxing for code execution and computer use, tiered guardrails, memory poisoning, OWASP Agentic Top 10 and LLM Top 10 (2026) mapping, and oversight design (action risk tiers, approval gates, escalation, earned autonomy). Use for "threat model my agent", "prompt injection", "is it safe to give my agent access to X", "sandbox code execution", "guardrails", "human in the loop", "approval flow", "agent security review", "OWASP agentic", MCP server security. Not for writing attack payloads or exploits, pentesting apps with no LLM, tool interface design (agent-tool-designer), building eval or red-team datasets (agent-eval-designer), or regulation and governance programmes (agentic-business-case).
+description: Threat-model an AI agent and design its defences, or review an existing agent's security and oversight with prioritised fixes; also the red-team pass at the Prove stage. Owns tool access, guardrails and security hardening. Covers Rule of Two triage, STRIDE per element, prompt injection, permission tiers and scope-entitlement checks per action, policy gate, credentials and token exchange, MCP hardening (definition pinning, supply chain, OAuth, consent), guardrail layers, sandboxing, OWASP Agentic Top 10 and MAESTRO mapping, and oversight (approvals bound to the exact action, escalation, earned autonomy). Use for "threat model my agent", "prompt injection", "is it safe to give my agent access to X", "guardrails", "sandbox code execution", "approval flow", "harden my MCP server", "red-team plan", "agent security review". Not for exploits or payloads, tool interface design (agent-tool-designer), harness runtime (agent-harness-designer), eval datasets (agent-eval-designer) or governance (agentic-business-case).
 ---
 
 # Agent Threat Modeler
@@ -10,6 +10,15 @@ existing agent with prioritised fixes. The stance: **the model proposes, code di
 steer it, bound what a steered model can do with deterministic controls outside the model, then layer detection,
 human oversight and recovery on top. Defensive only: name attack classes and the property a test checks; never write
 working payloads.
+
+**Perspectives owned:** tool access, guardrails and security hardening. Each perspective has one owning skill; the
+end-to-end lifecycle map (stages, perspectives, stage gates) is lifecycle-map.md in the agent-architect skill's
+references. **Stage:** this skill starts at Design, where the threat model, access rules and guardrail design are
+decided before tool contracts and the harness are built, and returns at Prove as the red-team pass against the built
+system ([red-team-test-plan.md](references/red-team-test-plan.md)). Gate items it supplies:
+- *Design:* a threat model with the Rule of Two triage and a permission tier for every action (Steps 1 to 10);
+- *Prove:* the red-team pass is done and its Critical findings are fixed (Step 11);
+- *Run:* each widening of autonomy is judged per action class (Step 10, earned autonomy).
 
 ## When to use / when not to
 
@@ -26,7 +35,10 @@ Don't use, or hand off:
   [owasp-mapping.md](references/owasp-mapping.md) only.
 - Requests for jailbreaks, injection strings or exploit code: decline that part; offer technique classes and the
   harness tools in [red-team-test-plan.md](references/red-team-test-plan.md).
-- Tool schemas and ergonomics → agent-tool-designer (this skill still decides which tools need gates).
+- Tool schemas, contracts and catalogue governance → agent-tool-designer (this skill still decides which tools need
+  gates and which permission tier each action gets).
+- The agent's runtime (loop, state, checkpoints, budgets, streaming, kill-switch mechanics, safe-mode replay) →
+  agent-harness-designer. This skill says which stops and gates must exist and tests them.
 - Context, retrieval and memory architecture → agent-context-designer.
 - Red-team datasets, graders and eval harness → agent-eval-designer (hand over the test plan from Step 11).
 - Live-fleet monitoring, incidents, cost → agent-ops-reviewer.
@@ -47,7 +59,7 @@ don't model it into existence.
 | # | Question | Where to look in code |
 |---|---|---|
 | 1 | What does the agent do, for whom? Public, internal, multi-tenant? Who approves actions and can they judge them? | README, system prompt, auth middleware |
-| 2 | Every tool or action and its side effect; which MCP servers, first- or third-party, pinned? | Tool registries, `@tool` decorators, function schemas, `.mcp.json` / client MCP config |
+| 2 | Every tool or action and its side effect; which MCP servers, first- or third-party, pinned? Do you also run or publish an MCP server? | Tool registries, `@tool` decorators, function schemas, `.mcp.json` / client MCP config, server deployment manifest |
 | 3 | What private data can it read, and whose? | DB accounts, API scopes, retrieval filters |
 | 4 | Every source of text that reaches the context (user, web, email, files, RAG, tool results, tool descriptions, memory, other agents, screen) | Loaders, fetch tools, RAG pipeline, memory read path |
 | 5 | Every way data can leave (HTTP, email, chat, PRs/comments, webhooks, rendered markdown images/links, file shares, third-party APIs, log shipping) | Outbound clients, UI renderer, logging config |
@@ -55,7 +67,7 @@ don't model it into existence.
 | 7 | Does it write or run code, use a shell, or drive a browser? Where does that run? | `exec(`, `eval(`, `subprocess`, `shell=True`, Docker/E2B config, browser profile setup |
 | 8 | What persists across sessions, who can write it, is it shared across users? | Memory store, vector DB namespaces, "lessons learned" files |
 | 9 | What runs without a human today; how approvals work; how to stop it | Interrupt/approval code, Slack/Teams buttons, kill switch, feature flags |
-| 10 | Existing controls: gates, guardrails, budgets, rate limits, audit logs; who can change or switch them off | Middleware, gateways, policy files; the live gate mode and attached rules; roles allowed to update them |
+| 10 | Existing controls: gates, guardrails (and whether each fails open or closed), budgets, rate limits, audit logs; who can change or switch them off | Middleware, gateways, policy files; the live gate mode and attached rules; roles allowed to update them |
 | 11 | Constraints: latency budget, data residency, regulation, worst outcome the owner cannot accept | Ask |
 
 If the system runs on AWS, map each decision with
@@ -69,6 +81,12 @@ numbers match the steps below. Existing code you can read → fill
 partly built, use the threat-model template and mark every control *existing* or *planned*. For "is it safe to give my
 agent access to X", use the short form in Output. Model one agent or flow at a time; for multi-agent systems, model
 each agent, then the links between them.
+
+**Rule of Two triage**, before the inventories: does the job need private data, untrusted content and the ability to
+act externally at the same time? If no run ever holds all three, name the leg that is absent by design and keep it
+absent in code. If the job needs all three, every such flow needs a leg cut per request, or human oversight backed by
+controls that hold without the reviewer ([controls-catalog.md](references/controls-catalog.md) §4). Record the answer
+in the scope table; Step 5 repeats the check per flow.
 
 **2. Write the worst outcomes.** Three to seven concrete "must never happen" statements tied to assets: "customer PII
 reaches a third party", "refund over the cap without a person", "production rows deleted", "agent acts as another
@@ -92,6 +110,8 @@ the consequence.
 
 **4. Draw trust boundaries.** A mermaid or text flow: inputs → context → model (untrusted side) → proposal →
 enforcement point → tools, sandbox, memory or human → results back as data. Mark where enforcement lives in code today.
+Draw it as a data-flow diagram and apply STRIDE to every process and flow
+([threat-catalog.md](references/threat-catalog.md) §STRIDE per element).
 No single enforcement point between proposals and side effects is automatically finding #1, and so is a tool backend
 that can be called without passing through it ([controls-catalog.md](references/controls-catalog.md) §2).
 
@@ -107,21 +127,24 @@ approvals per day it would cause.
 ([threat-catalog.md](references/threat-catalog.md)). Trace at least one path with no attacker (destructive shortcut,
 double execution, safety instruction lost to compression, cost runaway). Record each gap.
 
-**7. Fill the threat register and map to OWASP.** Use the T1-T19 entries in
+**7. Fill the threat register and map to OWASP.** Use the T1-T21 entries in
 [threat-catalog.md](references/threat-catalog.md). Map each threat to ASI and LLM IDs with
-[owasp-mapping.md](references/owasp-mapping.md). Every ASI01-ASI10 item ends as covered, gap, or N/A with a reason.
+[owasp-mapping.md](references/owasp-mapping.md). Every ASI01-ASI10 item ends as covered (built), covered (planned), gap,
+or N/A with a reason; a design-mode register never reads as built coverage.
+Then cross-check coverage against the MAESTRO layers and the CoSAI risk map in the same file.
 
 **8. Prioritise.** Apply the first rule that matches:
 
 | Priority | Rule |
 |---|---|
-| P0 (block launch / fix now) | A path from untrusted input to an irreversible, egress, code-execution or cross-tenant effect with no deterministic control; secrets reachable by the model; model code on the host; no way to stop the agent |
-| P1 (before launch) | Control exists only in the prompt, or only as human approval without hard limits; shared or broad credentials; unvalidated persistent memory; no audit of tool calls |
+| P0 (block launch / fix now) | A path from untrusted input to an irreversible, egress, code-execution or cross-tenant effect with no deterministic control; secrets reachable by the model; model code on the host; no way to stop the agent; a network-reachable bind (0.0.0.0 or a public interface) whose authentication is unknown, written `P0 (assumed)` |
+| P1 (before launch) | Control exists only in the prompt, or only as human approval without hard limits; shared or broad credentials; unvalidated persistent memory; no audit of tool calls; controls that the role running the agent can switch off; an audit log or kill switch that is missing or unverified (with no way at all to stop the agent, P0) |
 | P2 (next iteration) | Defence-in-depth gaps: no scanner on tool output, missing budgets on low-impact tools, no red-team regression, weak monitoring |
 | P3 (hygiene) | Documentation, naming, log retention, minor hardening |
 
 Within a level, rank by worst outcome (Step 2), then exposure (public > authenticated > internal). Don't invent numeric
-risk scores; if the organisation has a scoring scheme, map to it. Findings often share a root cause (usually: no single
+risk scores; if the organisation has a scoring scheme (DREAD, for example), use it to order findings within a level,
+never to move one across levels. Findings often share a root cause (usually: no single
 enforcement point). Keep them as separate findings so each can be tested, but group the fixes: one gate can close
 several. A P0 that depends on an unverified assumption is written `P0 (assumed)` and still blocks until the assumption
 is checked or the control exists. If the check shows the assumption is false, re-rank or close the finding; if true,
@@ -135,15 +158,28 @@ P0/P1 path is bounded by something the model cannot bypass ([controls-catalog.md
 2. One deterministic policy gate on every side effect: default-deny allowlist, schema and semantic argument checks,
    hard limits, budgets, taint and resource-scope rules, risk-tier routing, audit. Backends accept calls only from
    the gate; state checks stay in the handlers; rules ship log-only, then enforced (controls-catalog §2).
-3. Credentials and identity: broker injects secrets; per-agent identity; user identity from a verified token, never
+3. Access rules per action, enforced by the gate: a permission tier per action (read-only, draft-only, execute with
+   approval, auto-execute), every call authorised as granted scope ∩ user entitlements per object and function,
+   separate identities to recommend, prepare and execute, and a scope gate with a circuit breaker on outbound and
+   state-changing steps (controls-catalog §2 Access rules).
+4. Credentials and identity: broker injects secrets; per-agent identity; user identity from a verified token, never
    an asserted ID; short-lived scoped tokens, exchanged per hop; no pass-through (controls-catalog §3).
-4. Isolation for code and computer use: pick the tier from [sandboxing.md](references/sandboxing.md).
-5. Injection containment where no leg can be cut: plan-then-execute, dual LLM, map-reduce, action selector.
-6. Memory hygiene: validated writes, provenance, tenant isolation, purge path.
-7. Tiered guardrails: deterministic inline, small model on the uncertain band, async sampled evals.
-8. Human oversight (Step 10).
-9. Detection and recovery: audit log (credential issuance included), behavioural baselines, per-agent kill switch,
-   rotation, restore, and protection of the controls themselves (controls-catalog §10).
+5. MCP hosts and servers, when in scope: tools resolved as `server::name`, definitions pinned per session, supply
+   chain, the server's front door, token acceptance and exchange, consent, sampling, elicitation and roots, runtime
+   defaults ([mcp-hardening.md](references/mcp-hardening.md)).
+6. Isolation for code and computer use, and for parsers of untrusted files (attachments) and third-party MCP
+   servers: pick the tier from the quick-pick table in [sandboxing.md](references/sandboxing.md); call it a sandbox only
+   if it bounds files, network, time and memory.
+7. Injection containment where no leg can be cut: plan-then-execute, dual LLM, map-reduce, action selector.
+8. Memory hygiene: validated writes, provenance, tenant isolation, purge path; notes agents leave for other agents
+   count as memory.
+9. Guardrails in three layers (prompt, screening, hard limits), the prompt never the control: input, tool-output and
+   output checks; provenance gate and egress allowlist; nothing released before its verdicts; fail open or fail
+   closed declared per check ([guardrails.md](references/guardrails.md)).
+10. Human oversight (Step 10).
+11. Detection and recovery: audit log (credential issuance included), behavioural baselines, per-agent kill switch,
+    rotation, restore, and protection of the controls themselves, tests and policy files included (controls-catalog
+    §10). The kill switch's runtime mechanics are designed in agent-harness-designer.
 
 For each control write what it stops, where it lives, whether the model can bypass it, who can switch it off, and its
 cost. A prompt
@@ -153,22 +189,32 @@ register, oversight table and tests refer to controls only by IDs defined in thi
 
 **10. Design oversight** ([human-oversight.md](references/human-oversight.md)):
 - Give every action a tier: refuse / act and log / act and notify with undo / ask. Irreversible, financial,
-  external-communication and permission-changing actions always ask, behind hard limits that hold after a yes.
+  external-communication and permission-changing actions always ask, behind hard limits that hold after a yes. Pair
+  each with its permission tier, and pick the workflow's starting rung from the five-factor score
+  ([human-oversight.md](references/human-oversight.md) §1).
 - Identify the principal (the authenticated person the agent acts for). Messages to anyone else, including calendar
   invites with attendees, shares and notifications, are external communication. For sends that can't be undone, say
   whether you use draft-first, a delayed-send window with cancel, or approval
   ([human-oversight.md](references/human-oversight.md) §3).
 - Specify the approval gate: states, deadline, silence means no, edits re-run the limits, side effect in a separate
-  step, execution keyed by approval ID, reviewer view that leads with the exact action.
+  step, execution keyed by the write's idempotency key from durable run state (the approval ID is stored with the
+  intent and marked used in the same write), reviewer view that leads with the exact action. The approval binds a digest of
+  the exact action and arguments, an expiry and a nonce, and the executor refuses a changed, expired or reused one.
+  Irreversible actions get a payload preview and a confirm question naming action and target; an agent unsure of the
+  target asks instead of offering to act.
 - Escalation triggers: deterministic first; uncertainty only once calibrated. Route to a qualified reviewer and
   compute approvals per day against reviewer time (method in §4 of the same file).
 - Earned autonomy per action class: current rung, promotion metric and threshold, automatic demotion, re-certification
-  on change. Use the default thresholds in §5 unless the owner sets their own.
+  on change. Use the default thresholds in §5 unless the owner sets their own. The books' move-up figures are a spread
+  (80 to 90% approval over 30 to 60 days), not one rule; keep their preconditions: written rules for the new actions and
+  a rehearsed recovery plan.
 - A stop control that is server-side, remote and drilled, with a defined safe mode.
 
 **11. Plan verification.** Write one test per P0/P1 path plus ASI coverage using the schema in
 [red-team-test-plan.md](references/red-team-test-plan.md): technique class, injection point, expected trace property.
-Add drills for the kill switch, secret rotation and memory restore. Hand the table to agent-eval-designer.
+Include the ASI seed suite, the authorization tests (the same call under two identities), the harness-level abuse tests
+(agree them with agent-harness-designer) and, when MCP is in scope, the deploy probes. Add drills for the kill switch,
+secret rotation and memory restore. Hand the table to agent-eval-designer. At Prove, this plan is the red-team pass.
 
 **12. State residual risk and owners.** What remains after controls, who accepts it, and what triggers a re-review:
 new tool, new data source, new user population, model or prompt change, incident.
@@ -189,13 +235,16 @@ reviewer headcount), show the arithmetic with a labelled assumption and ask for 
 | Agent must act on what untrusted content says | Plan-then-execute or dual LLM | Untrusted text can change values, not which tools run | Utility loss; test that the quarantined model has no tools |
 | Tool needs a credential | Broker injects it at execution | The model never sees it, so it can't leak it | stdio servers inheriting the full environment |
 | Free-form SQL or shell is requested | Intent-level tools; if unavoidable, read-only replica, bound parameters, destructive-clause rejection, alerts | Every reasoning error becomes an outage otherwise | "Read-only" accounts that can still call functions with side effects |
-| Third-party MCP server | Pin version, namespace, show descriptions, re-consent on tool-list change, minimal env, gate its tools like your own | Descriptions and results are injection vectors | Treating MCP auth as an injection defence; it isn't one |
+| Third-party MCP server | Resolve as `server::name`, pin its version and every approved definition (recheck each session, halt on drift), show descriptions, re-consent on tool-list change, minimal env, gate its tools like your own | Descriptions and results are injection vectors, and an approved server can change later | Treating MCP auth as an injection defence; it isn't one |
+| Running or publishing an MCP server | Auth middleware on every request including `tools/list`, scope per tool, the four-check token pipeline then exchange, loopback bind, Host check, signed releases, an anonymous probe on every deploy | Most of the risk sits in defaults | A manifest that declares auth while the handler never checks it |
+| Agent acts on records for a user | Permission tier per action; authorise as granted scope ∩ user entitlements per object and function; separate execute identity | Checking only the agent's scope reproduces broken object- and function-level authorization | An agent service account that can read everything |
+| A guardrail runs in parallel with generation, or output streams | Release nothing until every verdict is in; buffer or check in windows; the guard returns a blocking decision | Otherwise whichever finishes first decides what the user sees | Pipelines that return the output together with a failed result |
 | Several agents cooperate | Per-agent identity, token exchange per hop (same subject, next-hop audience, scope never widens), mTLS or audience-bound tokens, schema'd signed messages, receiver-side gate, hop limits | Attribution, revocation, no privilege laundering | Shared service account; forwarding the received token; delegation that widens rights |
 | Gate is a policy engine in front of tools (managed gateway) | Backends callable only by the gate; state checks in handlers; every tool given an explicit allow; rules shipped log-only, then enforced; mode switch held by a separate role | A gateway sees identity and arguments, not the record's real state | Default deny breaking reads; a forbid on a missing field never firing; one permission that turns enforcement off |
 | Long-term or shared memory | Validated writes with provenance, tenant isolation, purge and restore | Poison outlives the session | Saving tainted runs as exemplars |
 | Guardrail latency budget is tight | Deterministic inline; small model only on the uncertain band; LLM judge async | Regex is microseconds, LLM checks hundreds of ms | Blocking whole answers where redaction would do |
 | Users can't judge commands | Least privilege and sandboxing, not per-command approval | Approval protects only experts | Approval prompts as a liability shield |
-| Approval is the only barrier on a high-value action | Add hard caps that hold after yes, action-first reviewer view | The agent can talk the reviewer into it | Persuasive agent narratives shown first |
+| Approval is the only barrier on a high-value action | Add hard caps that hold after yes, action-first reviewer view, approval bound to a digest of the exact arguments | The agent can talk the reviewer into it | Persuasive agent narratives shown first; executing whatever call is on the thread |
 | The product's purpose needs all three legs (inbox, browser assistant) | Keep the egress cut; reduce prompts with structured extraction or a quarantined summariser, per-recipient-class autonomy, batched drafts | Taint-gating alone makes nearly every send ask | Rubber-stamping; summaries of untrusted text are still untrusted |
 | Agent opens links found in untrusted content | Reader service: links referenced by ID, no model-built URLs, every redirect hop re-checked, no credentials, one-click links to a human, egress proxy | Opening a link is a send and can perform an action | Unsubscribe, confirm, magic-login and tracking links |
 | Stated architecture is the risk (agent on the user's broad token) | Name it as a finding; scoped delegated token or a token-holding proxy | Every other control sits on top of that token's reach | Provider scopes too coarse to separate read from send |
@@ -219,8 +268,13 @@ reviewer headcount), show the arithmetic with a labelled assumption and ask for 
 | Reversible write | Ask, then act and notify with undo once earned | Per-action and per-day caps | Yes, per action class, measured |
 | Reply to the principal (recipient taken by code from the authenticated session or a verified record, never from inbound content; only the principal's own data) | Draft then send; act and notify once earned | Fixed recipient, per-thread cap | Yes, per action class |
 | Message to anyone else: replies to inbound senders, new recipients, calendar invites with attendees, shares, notifications | Draft first, or delayed send with a cancel window | Recipient-class allowlist, rate cap, content limited to the current thread | Per recipient class, measured; never for new external recipients while tainted |
-| Any egress after untrusted content entered the run | Ask, or deny | Recipient/domain allowlist | No while tainted; reduce prompts with [controls-catalog.md](references/controls-catalog.md) §4 |
+| Any egress after untrusted content entered the run, except a reply in the tainting thread (below) | Ask, or deny | Recipient/domain allowlist | No while tainted; reduce prompts with [controls-catalog.md](references/controls-catalog.md) §4 |
 | Irreversible, financial, deletion, permission change | Ask every time | Amount, volume, scope caps | Only low-value sub-classes inside caps |
+
+Which row wins after taint: a reply to the existing participants of the thread whose content tainted the run, carrying
+only that thread's content (no links, attachments or data from elsewhere), follows the message row and can earn
+autonomy per recipient class. Any other destination after taint (new recipients, forwards, shares, invites) follows
+the taint row: ask or deny, never promoted.
 
 Who is the principal? For an email assistant it is the mailbox owner, so a reply to an inbound sender goes to an
 outsider: "message to anyone else", not "reply to the principal". For a support agent the customer is the principal
@@ -264,7 +318,12 @@ Tests to run first: <2-3 technique classes with trace properties>
 
 Before returning, check:
 - [ ] Every tool and every untrusted source from the inventories appears in the analysis; nothing generic like "the API".
-- [ ] The trifecta is checked per flow, with the cut named and enforced in code.
+- [ ] The Rule of Two triage is recorded for the job, and the trifecta is checked per flow, with the cut named and
+      enforced in code.
+- [ ] Every action has a permission tier and is authorised as granted scope ∩ user entitlements; recommend, prepare
+      and execute use separate identities.
+- [ ] Every guardrail names its layer and declares fail open or fail closed; no output is released before its
+      verdicts; no P0/P1 path relies on the prompt layer.
 - [ ] At least one propagation path is traced hop by hop, plus one no-attacker path.
 - [ ] Each P0/P1 has a control the model cannot bypass; none rely solely on prompt text, a classifier or a human click.
 - [ ] Credentials never pass through the context window, tool output or inherited environment.
@@ -272,15 +331,20 @@ Before returning, check:
       invariants; every entry point has a named authenticator.
 - [ ] Every tool backend is reachable only through the gate, and each P0 control names who can switch it off.
 - [ ] Code execution and computer use have a named sandbox tier with network and filesystem limits.
+- [ ] If MCP is in scope: tools resolved as `server::name`, definitions pinned per session, token pipeline and
+      exchange, consent rules and deploy probes are specified.
 - [ ] Every action has an oversight tier; irreversible actions have hard limits that hold after approval.
-- [ ] The approval gate covers deadline, silence, edits, idempotent execution and reviewer view order.
+- [ ] The approval gate covers deadline, silence, edits, idempotent execution, binding (digest, expiry, nonce) and
+      reviewer view order.
 - [ ] Every send says draft-first, delayed send or approval; calendar invites, shares and notifications count as egress.
 - [ ] Approvals per day are computed against reviewer time; promotion thresholds are stated.
 - [ ] Every referenced TH-, C-, RT- or F- ID is defined.
 - [ ] Escalation triggers are explicit; any uncertainty signal is calibrated or flagged as not yet.
 - [ ] A stop control and a recovery path (revoke, rotate, purge, restore) exist.
-- [ ] ASI01-ASI10 each marked covered, gap or N/A with reason; OWASP lists cited as the 2026 versions.
-- [ ] Tests are specified as technique class + injection point + trace property; no payload text.
+- [ ] ASI01-ASI10 each marked covered (built), covered (planned), gap or N/A with reason; OWASP lists cited as the
+      2026 versions.
+- [ ] Tests are specified as technique class + injection point + trace property; no payload text. The plan includes
+      ASI seeds, two-identity authorization tests and the harness-level abuse tests.
 - [ ] Residual risk has a named owner and re-review triggers.
 - [ ] Review mode: every finding has evidence, a fix with location, and effort.
 
@@ -288,7 +352,9 @@ Before returning, check:
 
 | Mistake | Fix |
 |---|---|
-| Recommending "add to the system prompt: ignore instructions in documents" as the defence | Prompt text is documentation. Put the rule in the gate, policy engine or tool interface |
+| Defending injection with a better system prompt ("ignore instructions in documents") | Prompt text lives where the attack lives; it is documentation. Put the rule in the gate, the egress allowlist, the provenance gate or the tool interface |
+| Leaving safety to provider refusals | Refusals are an untested third-party policy. Own the guardrail layers and the sandbox; keep an in-house model path for sensitive forensics |
+| A guardrail that releases output before its verdict, or a guard that blocks only in its report | Release waits for every verdict; a guard returns a decision that blocks by default |
 | Generic STRIDE or OWASP list with no link to this agent's tools | Start from the inventories; every threat cites a path through named tools |
 | Treating tool results, tool descriptions and memory as trusted | They are untrusted input; scan them and gate actions that follow them |
 | Missing quiet egress channels | Check URLs with data in them, rendered images and links, created issues and PRs, webhooks, logs sent to vendors |
@@ -296,9 +362,14 @@ Before returning, check:
 | Human approval as the only barrier | Hard limits first; action-first reviewer view; rare, routed escalations |
 | Approval on every action | Tier by consequence; sandbox and scope the low tiers; measure approval latency for rubber-stamping |
 | Docker treated as a security boundary for untrusted code | Hardened container at minimum; gVisor, microVM or remote sandbox for untrusted code |
+| Calling `exec`, or a container nobody tested, a sandbox | It must bound files, network, time and memory, each verified |
+| Trusting a tool definition because it was approved once | Hash it per `server::name` and recheck every session; halt on drift |
+| Authorising on the agent's scope alone | Granted scope ∩ user entitlements, per object and function; test the same call under two identities |
+| Approving the thread, not the action | Bind a digest of the exact arguments, an expiry and a nonce; the executor recomputes the digest |
+| Quoting one autonomy threshold as the books' rule | State the spread; gate promotion on case counts as well as rates |
 | Confusing jailbreak with injection | Jailbreak attacks the vendor's policy; injection attacks your tools' authority. Different controls |
 | Routing escalations on the model's stated confidence | Deterministic consequence triggers first; calibrated uncertainty second |
-| Side effect placed before the interrupt, or no idempotency key | Propose, pause, execute in separate steps; key execution by approval ID |
+| Side effect placed before the interrupt, or execution keyed by approval ID | Propose, pause, execute in separate steps; key the write from durable run state, so a re-approval after a timeout cannot send twice |
 | Forgetting recovery | Per-agent kill switch, rotation, memory purge and restore, audit log |
 | Citing the OWASP LLM 2025 list | Use the 2026 lists (agentic 2025-12, LLM 2026-08) in [owasp-mapping.md](references/owasp-mapping.md) |
 | Writing example attack strings in the test plan | Name the technique class and the trace property; payloads live in the harness |
@@ -327,9 +398,39 @@ Distilled from these books (chapter numbers), cited in the reference files by ke
 - DLLMA: *Designing Large Language Model Applications*, ch. 10 (guardrails and verifiers).
 - AGENTICAI: *Agentic Artificial Intelligence*, ch. 5, 10 (trust dial).
 - ENTERPRISE: *The Agentic Enterprise*, ch. 6, 7 (calibrated trust, inbox-deletion incident).
+- HARDMCP: *Hardening MCP Servers*, ch. 1 to 10 (scan data, sinks, supply chain, rug pulls, authentication, prompt-layer
+  controls, tokens, consent, agent-layer boundaries, operational defaults).
+- PLAYBOOK: *Agentic AI Playbook*, ch. 2 (five-factor scoring, move-up conditions), 4 (earned-autonomy stages,
+  reversibility test), 9 (Rule of Two, three guardrail layers).
+- PRODGUIDE: *Agentic AI Systems: The Complete Guide for Building Production AI Agents*, ch. 12 (permission tiers per
+  action, confirmation gates).
+- AISEC: *Agentic AI for Cybersecurity*, ch. 7 (separate identities per phase), 10 (OWASP agentic controls and tests,
+  MAESTRO, CoSAI Risk Map).
+- APIARCH: *Mastering API Architecture*, ch. 6 (STRIDE per element, DREAD, fail open or closed), 7 (object- and
+  function-level authorization, scopes versus entitlements).
+- FASTGENAI: *Building Generative AI Services with FastAPI*, ch. 6 (streaming), 9 (input and output guardrails).
+
+Andrew Ng, The Batch letters (deeplearning.ai):
+- Blenders Versus Bombs, or Why California's Proposed AI Law is Bad for Everyone (2024-06-05),
+  https://www.deeplearning.ai/the-batch/blenders-versus-bombs-or-why-californias-proposed-ai-law-is-bad-for-everyone
+- Agentic Coding and Agentic Software Testing Go Together (2025-09-17),
+  https://www.deeplearning.ai/the-batch/agentic-coding-and-agentic-software-testing-go-together
+- Context for Coding Agents (2026-03-09), https://www.deeplearning.ai/the-batch/crowdsourced-context-for-coding-agents
+- Let's Help Agents Share Their Work (2026-03-16), https://www.deeplearning.ai/the-batch/lets-help-agents-share-their-work
+- When Guardrails Go Wrong (2026-07-24), https://www.deeplearning.ai/the-batch/when-guardrails-go-wrong
+- Open Models, Open Harnesses, Open Security (2026-07-31),
+  https://www.deeplearning.ai/the-batch/open-models-open-harnesses-open-security
+- Who's Responsible for Irresponsible AI? (2026-09-18), https://www.deeplearning.ai/the-batch/whos-responsible-for-irresponsible-ai
+
+Code read for patterns and gaps (read 2026-10-18, not run): github.com/Nicolepcx/ai-agents-the-definitive-guide,
+github.com/kylestratis/ai_agents_mcp_examples, github.com/PacktPublishing/AI-Evals-in-Practice,
+github.com/HandsOnLLM/An-Illustrated-Guide-To-AI-Agents, github.com/sinanuozdemir/building-agentic-ai,
+github.com/santosomar/AI-agents-for-cybersecurity, github.com/Ali-Parandeh/building-generative-ai-services,
+github.com/andrewyng/aisuite, github.com/humanlayer/12-factor-agents, github.com/cosai-oasis/secure-ai-tooling.
 
 External (dated list in [owasp-mapping.md](references/owasp-mapping.md)): OWASP Top 10 for Agentic Applications 2026;
-OWASP Top 10 for LLM Applications 2026; MCP Security Best Practices (spec 2026-07-28); Beurer-Kellner et al., Design
+OWASP Top 10 for LLM Applications 2026; CoSAI Risk Map; Google Workspace and Microsoft Graph scope documentation
+(provider notes in controls-catalog.md §3, 2026-10-19); MCP Security Best Practices and elicitation (spec 2026-07-28); Beurer-Kellner et al., Design
 Patterns for Securing LLM Agents against Prompt Injections (2025); Anthropic posts on Claude for Chrome, Claude Code
 sandboxing, computer use, and measuring agent autonomy; Xiong et al. (ICLR 2024); EU AI Act Article 14.
 

@@ -36,6 +36,8 @@ Keep one agent when: the work is sequential and tightly coupled (most coding, si
 
 **Answer or artifact?** Subagents that search and report answers parallelise well. Parallel workers building pieces of one artifact make conflicting implicit decisions they cannot see (Cognition, 2025-06). Shared artifacts need one writer or a sequential pipeline with an explicit decisions record.
 
+**Parallel for wall time.** Ng's case for parallel agents is speed: they spend more tokens without making the user wait longer, as research agents that read many pages at once do, and the hard part is decomposing the task [NG Agents Running in Parallel Get There Faster, 2025-08-27]. His simplest form, mixture-of-agents (several models answer, one aggregates), is test-time compute on one question, like self-consistency, not a decomposition of the workflow. The same letter describes a long-running worker paired with a light agent that keeps the user informed and routes their feedback; that is a serving shape (agent-harness-designer), and the answer-or-artifact test above still applies to the workers.
+
 ## Fix inside one agent first
 
 | Symptom | Fix before splitting |
@@ -85,7 +87,7 @@ Words mean different things in different sources; say which you mean.
 
 - **Default: orchestrator-mediated, typed messages.** Every message passes the orchestrator, which validates it, updates state and picks the next step: one place for schemas, permissions, retries, stop rules and logging [SYSTEMS ch13]. No free-form agent chat.
 - **Event bus is a transport, not a contract.** Queues and pub/sub (Kafka, NATS JetStream, Redis Streams, RabbitMQ) decouple senders and give replay [MESH ch10] [BUILDAPPS ch8]; they carry the typed messages. Small messages with new information only; fetch history by conversation ID [MESH ch10]. Replay and audit work only as long as the log keeps the events: a compacted topic keeps the latest value per key, which suits a state snapshot and not a history.
-- **Partitioning.** Partition by the entity whose events must stay in order: case, session or run ID. That spreads load, keeps each case's events ordered and gives each case a single consumer, which removes most concurrent-writer problems (control-loop.md, "One writer per run"). A low-cardinality key (region, team, tenant) creates hot partitions. Poison events: control-loop.md, "Ordered streams".
+- **Partitioning.** Partition by the entity whose events must stay in order: case, session or run ID. That spreads load, keeps each case's events ordered and gives each case a single consumer, which removes most concurrent-writer problems (agent-harness-designer: references/control-loop.md, "One writer per run"). A low-cardinality key (region, team, tenant) creates hot partitions. Poison events: agent-harness-designer: references/control-loop.md, "Ordered streams".
 - **Transport ladder:** in-process calls → message broker → actor framework (pays off beyond roughly 10 to 20 agents or under tight latency) → durable workflow engine for long runs [BUILDAPPS ch8].
 - **Task lifecycle:** every task gets an ID and explicit states (e.g. ready, working, pending, error, complete), so a stalled task waits visibly [MESH ch10].
 - **Shared state** (blackboard, workspace): append-only, attributed writes; record which version each step consumed [SYSTEMS ch13].
@@ -98,7 +100,7 @@ Independent release is one of the reasons to split, so plan for agents that ship
 - **Deploy readers before writers:** the agent that must accept a new field ships first.
 - **Discovery.** With a handful of fixed agents, static configuration is enough; don't build a registry for four agents. A registry earns its place when agents are versioned or released independently. Then resolve by capability and minimum version, fail loudly when nothing matches (no silent fallback to another agent), and confirm the address before first use by fetching the agent's own self-description (for A2A, its agent card; protocol details with agent-tool-designer).
 - **Addresses are configuration.** Keep the invocable address with the registry entry or in deploy-time configuration. An address compiled into another agent's package couples their releases and forces a rebuild whenever the peer moves.
-- **Pin peer versions per run** (control-loop.md, "State and checkpoints").
+- **Pin peer versions per run** (agent-harness-designer: references/control-loop.md, "State and checkpoints").
 
 ### Direct calls between agents: the documented exception
 

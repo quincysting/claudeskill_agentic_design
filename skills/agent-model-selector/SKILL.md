@@ -1,11 +1,13 @@
 ---
 name: agent-model-selector
-description: Chooses a model and reasoning-effort setting for each role in an agent system (router, classifier, tool caller, planner, verifier, synthesiser) and decides how to adapt roles that fall short, climbing prompt, then examples and retrieval, then a stronger model, then fine-tuning (SFT, DPO, LoRA), then RL (GRPO) with entry criteria for each step. Produces a per-role model plan with justification and a bake-off protocol run on the user's own eval set. Covers small versus frontier, open versus closed weights, calibration, and reward design including reward hacking. Use for "which model should my agent use", "should I fine-tune", "fine-tune vs RAG", "what reasoning effort", "small language model for agents", "RL for agents", "model bake-off", or when one expensive model runs every step. Not for building the eval set (agent-eval-designer), serving cost or router infrastructure (agent-ops-reviewer), architecture (agent-architect), retrieval and memory (agent-context-designer) or tool schemas (agent-tool-designer).
+description: Chooses a model and reasoning effort per role in an agent system (router, classifier, tool caller, planner, verifier, synthesiser) and adapts roles that fall short by climbing prompt, examples and retrieval, a stronger model, fine-tuning (SFT, DPO, LoRA), then RL (GRPO), with entry criteria per rung. Produces a per-role model plan and a bake-off protocol on the user's eval set, comparing model-and-loop configurations, harness held fixed. Covers small versus frontier (including a small model in a loop), open versus closed, calibration, and reward design and reward hacking. Use for "which model should my agent use", "should I fine-tune", "fine-tune vs RAG", "what reasoning effort", "small language model for agents", "RL for agents", "model bake-off", or when one costly model runs every step. Not for eval sets (agent-eval-designer), serving cost (agent-ops-reviewer), architecture (agent-architect), the harness (agent-harness-designer), retrieval (agent-context-designer) or tool schemas (agent-tool-designer).
 ---
 
 # Agent Model Selector
 
 This skill produces a model plan for an agent system: which model class and reasoning effort each role uses, what to do about roles that miss their targets, and a bake-off protocol that proves the choices on the user's own tasks. The stance: measure every role against a strong reference (the incumbent, or the provider's recommended general model), then step down only where a paired eval shows the target still holds. Treat reasoning effort as a per-role setting you measure. Change weights last, for behaviour and never for facts. Model names and prices go stale within months, so the plan names roles and classes first and dated examples second.
+
+**Perspectives owned:** none of the eight on its own. It supplies the Design gate's "model per role" item and feeds two perspectives owned elsewhere: cost and operations (cost and tokens per solved task; agent-ops-reviewer) and harness (a harness bake-off holds the model fixed; agent-harness-designer). **Stage:** Design, returning whenever a model, a price or the harness changes. The end-to-end map of stages, perspectives, owners and gates is agent-architect's lifecycle map (lifecycle-map.md in that skill); start there when the work spans more than model choice.
 
 ## When to use / when not to
 
@@ -20,7 +22,8 @@ Use when someone:
 Hand off instead:
 - **agent-eval-designer** builds the task set, judges and statistics machinery. This skill states what the bake-off needs from it.
 - **agent-ops-reviewer** covers serving cost, caching, batching, quantisation, runtime routing infrastructure, shadow and canary rollout, and monitoring.
-- **agent-architect** covers workflow versus agent, number of agents and orchestration shape.
+- **agent-architect** covers workflow versus agent, number of agents and orchestration shape, and holds the lifecycle map.
+- **agent-harness-designer** covers the runtime around the model: framework or own loop, budgets, stop rules, and the harness bake-off with the model held fixed. When the harness is the variable, it plans the comparison and this skill supplies the statistics.
 - **agent-context-designer** covers retrieval, memory and context layout. Knowledge gaps go there.
 - **agent-tool-designer** covers tool names, descriptions and schemas. Wrong-tool errors often start there, not in the model.
 - **agent-threat-modeler** covers data leaving the boundary, poisoned training data and the safety of tuned models.
@@ -32,7 +35,7 @@ Ask for these, or find them in the code: model IDs in config, prompt files, eval
 
 1. **Roles.** Every distinct model call: what it does, its input, its output form (label, JSON, tool call, prose), who consumes it, and whether it triggers side effects.
 2. **Targets per role.** Quality metric and threshold, p95 latency budget, cost budget per task, calls per day, and the consequence of an error (reversible? user-facing? money, legal or safety?). If only an end-to-end latency target exists, split it across the calls on the critical path (sequential calls add up; parallel ones do not) and say so as an assumption.
-3. **Current state.** Models and versions, effort or thinking settings, prompts, current scores, cost per task and p95 latency.
+3. **Current state.** Models and versions, effort or thinking settings, prompts, current scores, cost and tokens per task, p95 latency, and the harness (framework or own loop) and provider layer each call goes through, with versions.
 4. **Eval assets.** Labelled cases per role and end to end: how many, how the labels were made, whether a held-out split exists. Note which roles have labels and which do not.
 5. **Failure evidence.** Which failures occur, how often, with examples.
 6. **Adaptation data.** Logged traces, labelled examples with per-class counts, and success signals a program can check.
@@ -57,16 +60,16 @@ The reference is the configuration every step down must stay close to. Choose it
 - If nothing runs yet, the reference is the provider's recommended general-purpose model (the "start here" model on its model page) at its recommended effort, not the most expensive tier.
 - Use the top capability tier only as a probe, on roles that miss their target with the reference, to learn whether capability is the limit. If the probe also misses, no model swap will fix that role; it goes to step 7.
 
-Record per role: quality, p50 and p95 latency, cost per successful task and a labelled failure list; record end-to-end success too. If reference numbers are not available yet, the summary states the expected direction (cheaper, faster) and what will be measured, without invented percentages.
+Record per role: quality, p50 and p95 latency, cost per solved task (defined in `references/role-model-mapping.md` §7) and a labelled failure list; record end-to-end success too. If reference numbers are not available yet, the summary states the expected direction (cheaper, faster) and what will be measured, without invented percentages.
 
 ### 4. Shortlist candidates per role
-Pick 2 to 4 candidates per role using decision guide table A: one tier below the reference, the smallest class that could plausibly cope, and an open-weight option when the constraints call for one. For a fixed-label classification role whose labels meet table E1, a fine-tuned encoder or small classifier is a candidate from the start: training one is cheap and the result is a measurement, so it enters the bake-off instead of waiting for a later rung. If the current vendor's cheapest tier is only a small step down, add another vendor's small tier or a self-hosted open-weight model where the constraints allow (`references/model-landscape-2026-10.md`). Use public leaderboards only to shortlist. Take model names from `references/model-landscape-2026-10.md` after refreshing them as that file describes, and date every name and price you write down.
+Pick 2 to 4 candidates per role using decision guide table A: one tier below the reference, the smallest class that could plausibly cope, and an open-weight option when the constraints call for one. Where a program can check the role's output, add the smaller candidate inside an iterate-and-check loop as its own configuration before reaching for a bigger model; it is judged on cost and latency per solved task, because the loop multiplies calls (`references/bakeoff-protocol.md` §3). For a fixed-label classification role whose labels meet table E1, a fine-tuned encoder or small classifier is a candidate from the start: training one is cheap and the result is a measurement, so it enters the bake-off instead of waiting for a later rung. If the current vendor's cheapest tier is only a small step down, add another vendor's small tier or a self-hosted open-weight model where the constraints allow (`references/model-landscape-2026-10.md`). Use public leaderboards only to shortlist. Take model names from `references/model-landscape-2026-10.md` after refreshing them as that file describes, and date every name and price you write down.
 
 ### 5. Run the bake-off
-Follow `references/bakeoff-protocol.md`. Pre-register the metric, target, non-inferiority margin and budgets. Use the same tasks for every candidate, with an equal prompt-adaptation budget for each. Run at production settings, with repeated trials, an effort sweep for reasoning-capable models, and cost per successful task. Compare paired results with intervals. Set each non-inferiority margin no smaller than what the task count can detect (table F); if the business needs a tighter margin, label more tasks or mark the choice provisional.
+Follow `references/bakeoff-protocol.md`. Pre-register the metric, target, non-inferiority margin and budgets. Use the same tasks for every candidate, with an equal prompt-adaptation budget for each. Hold the harness, tools, budgets and provider layer fixed across candidates, and log the effective request parameters and the provider's own stop reason, because a swap layer can change defaults (§4). If the harness is the question, hold the model fixed instead and plan the comparison with agent-harness-designer. Run at production settings, with repeated trials, an effort sweep for reasoning-capable models, and cost and tokens per solved task. Compare paired results with intervals. Set each non-inferiority margin no smaller than what the task count can detect (table F); if the business needs a tighter margin, label more tasks or mark the choice provisional.
 
 ### 6. Choose per role and set effort
-For each role, take the cheapest configuration by cost per successful task that meets the target, is non-inferior to the reference within the margin, fits the latency budget, and passes the veto metrics. Within the chosen model, use the lowest effort level that is non-inferior to its best level. Defaults before measurement are in table B. Then run the assembled mixed-model pipeline end to end against the all-reference pipeline, because a weaker router's errors cascade downstream. Give each stepped-down role a fallback, such as a retry on the stronger model when validation fails or calibrated confidence is low.
+For each role, take the cheapest configuration by cost per solved task that meets the target, is non-inferior to the reference within the margin, fits the latency budget, and passes the veto metrics. Within the chosen model, use the lowest effort level that is non-inferior to its best level. Defaults before measurement are in table B. Then run the assembled mixed-model pipeline end to end against the all-reference pipeline, because a weaker router's errors cascade downstream. Give each stepped-down role a fallback, such as a retry on the stronger model when validation fails or calibrated confidence is low.
 
 ### 7. Adapt the roles that still miss
 Label 20 to 50 failures per role as a knowledge gap or a behaviour gap (`references/adaptation-ladder.md` §2). Knowledge gaps go to retrieval or a lookup tool (agent-context-designer), never to fine-tuning. Behaviour gaps climb the ladder in table C and stop at the first rung that meets the target. Check table E2 before recommending any rung that changes a generative model's weights (fixed-label classifiers were handled in step 4 under E1). "Not yet, because…" is a valid and common answer.
@@ -75,7 +78,7 @@ Label 20 to 50 failures per role as a knowledge gap or a behaviour gap (`referen
 Choose the method from table D. Specify the base model (chosen for knowledge and licence), LoRA by default, verified data with splits, a general-capability regression set, and a comparison on the same held-out tasks against what the tuned model would replace: the untrained base for generative tuning, the best prompted candidate for an encoder classifier. For RL, design the reward with `references/rl-and-reward-design.md`: gate before partial credit, adversarial reward tests before training, an independent held-out scorer, and filtering to tasks the model solves sometimes but not always. Keep the checkpoint with the best validation metric, not the last one, and add a parity test showing that serving uses the training template, special tokens, tokenizer and library versions (`references/adaptation-ladder.md` §6 and §8). Name a fallback in case vendor-hosted tuning is withdrawn.
 
 ### 9. Plan the lifecycle
-Pin model versions. Record retirement dates. For a tuned open-weight model, pin the base by an immutable revision (a commit hash, not a branch or "latest") and mirror it to your own storage. The adapter is valid only on that exact base revision, and an endpoint that downloads the base from a public hub at startup depends on that hub. Measure cold start with the base load included (`references/adaptation-ladder.md` §8). Keep the bake-off harness, splits and configs versioned so a re-run is one command. List the re-run triggers (`references/bakeoff-protocol.md` §10). Keep all labelled data and tuning scripts so tuning can be repeated on the next base model.
+Pin model versions. Record retirement dates. For a tuned open-weight model, pin the base by an immutable revision (a commit hash, not a branch or "latest") and mirror it to your own storage. The adapter is valid only on that exact base revision, and an endpoint that downloads the base from a public hub at startup depends on that hub. Measure cold start with the base load included (`references/adaptation-ladder.md` §8). Keep the bake-off harness, splits and configs versioned so a re-run is one command. Keep model calls behind a thin provider layer so the next swap is a configuration change; framework lock-in is stickier than model choice, so the framework decision goes to agent-harness-designer (`references/role-model-mapping.md` §6). List the re-run triggers (`references/bakeoff-protocol.md` §10). Keep all labelled data and tuning scripts so tuning can be repeated on the next base model.
 
 ### 10. Write the output
 Use `templates/model-plan.md`. Check it against the quality bar before returning it.
@@ -94,6 +97,8 @@ Use `templates/model-plan.md`. Check it against the quality bar before returning
 | Verifier or critic | Code if the check is codable; else a strong model from another family | False passes are the costly error | A same-family verifier shares the generator's blind spots |
 | User-facing synthesis | Strong model, effort low or medium | Accuracy and clarity are visible | Long noisy context hurts more than a smaller model does |
 | Eval judge | Different family from the graded models, calibrated on human labels | Self-preference and position bias | Using it before measuring agreement |
+
+For any role whose output a program can check (tests, a validator, a schema), put the smaller model inside an iterate-and-check loop into the grid next to the bigger model in one shot.
 
 **B. Reasoning effort before measurement**
 
@@ -162,13 +167,13 @@ Margin = the larger of the business tolerance and the table value. Never pre-reg
 ## Output
 
 Return a filled `templates/model-plan.md` with these sections:
-1. **Summary**: what changes, expected effect on cost per success and p95 (direction only if reference numbers are unknown), what must be measured first, biggest risk.
+1. **Summary**: what changes, expected effect on cost per solved task and p95 (direction only if reference numbers are unknown), what must be measured first, biggest risk.
 2. **Inputs and assumptions**: each with its source (user, code, assumed).
 3. **Role table**: role, risk, pre-registered target, latency budget, recommended class with a dated example model, fallback, a one-line reason, and status per role (measured, measurable now, provisional).
 4. **Effort plan**: starting level, sweep levels and decision rule per role.
 5. **Adaptation decisions**: failure, gap type, rung, entry criteria met or not, next rung. Include a clear fine-tuning verdict.
 6. **Training plan**: only if a weight-changing rung is chosen.
-7. **Bake-off protocol**: tasks and strata, splits, pre-registered metric, margin and budgets, candidate grid, trials, scoring, analysis, decision rule, end-to-end check, rollout hand-off.
+7. **Bake-off protocol**: tasks and strata, splits, pre-registered metric, margin and budgets, candidate grid (model, effort, loop) with the harness and provider layer held fixed, trials, scoring, analysis, decision rule, end-to-end check, rollout hand-off.
 8. **Re-evaluation triggers**, including known retirement dates.
 9. **Hand-offs** to sibling skills, each with a specific question.
 
@@ -182,7 +187,10 @@ Before returning, check that:
 - [ ] No role's choice rests on leaderboards alone; each is marked measured or to measure.
 - [ ] The reference is the incumbent or the provider's recommended general model, the top tier appears only as a probe, and every step down has a fallback and a margin no smaller than table F allows at its n.
 - [ ] Reasoning effort is set per role, with tool calling and classification defaulting to off or low unless measured otherwise.
-- [ ] Costs are compared per successful task, including retries and reasoning tokens.
+- [ ] Costs are compared per solved task, including retries, reasoning tokens and every round of a loop, and tokens per solved task are recorded; variants that differ in human review time are compared on agent-ops-reviewer's cost per successful run.
+- [ ] Where a role's output is program-checkable, the grid includes a smaller model in a loop next to the bigger one-shot model.
+- [ ] Model comparisons hold the harness, tools, budgets and provider layer fixed (harness comparisons hold the model fixed), and no plan quotes a fixed points gap for harness versus model.
+- [ ] Output limits are set explicitly per candidate, and effective request parameters and provider-native stop reasons are logged.
 - [ ] Every failure is labelled knowledge or behaviour, and knowledge gaps never go to fine-tuning.
 - [ ] The fine-tuning verdict lists which entry criteria (E1 or E2) are met and which are not, and every tuned model is compared with what it would replace.
 - [ ] Any RL plan has a gated reward, adversarial reward tests, an independent held-out scorer, a base-model comparison and a regression set.
@@ -198,15 +206,18 @@ Before returning, check that:
 |---|---|
 | Naming models and prices from memory as if current | Use classes plus dated examples; refresh from provider pages; date every number |
 | Pre-registering a 2-point margin on 150 tasks | Read table F; label more tasks or widen the margin, and say which |
-| Assuming one vendor's tiers deliver the savings | In the 2026-10 Anthropic lineup, Haiku 4.5 is the only small tier (active, but with no successor listed); without it the cheapest tier (Sonnet 5.5) is half the list price of Opus 5.5; add effort cuts, batch pricing, another vendor's small tier or an open-weight model where constraints allow |
+| Reading a small tier's headline price as the saving | Measure cost per solved task on real prompt lengths. As of 2026-10-19 Anthropic's Haiku 5.5 lists $0.10 / $0.50 per MTok only for prompts up to 100,000 tokens (five times that above), and its tokenizer counts about 30% more tokens than Haiku 4.5's. Where constraints rule a small tier out, add effort cuts, batch pricing, another vendor's small tier or an open-weight model |
 | Choosing by leaderboard or by brand | Shortlist from leaderboards, decide on the user's tasks; gaps between top models on public benchmarks are usually marginal |
+| Reaching for the biggest model before trying a smaller one in a loop | Where a program can check the output, bake off the smaller model with a few check-and-revise rounds against the bigger one in one shot, on cost and latency per solved task |
+| Comparing models that run under different harnesses, or quoting a points gap for harness versus model | Hold the harness, tools, budgets and provider layer fixed when the model is the variable, and the model fixed when the harness is. The harness can matter as much as a model upgrade on some tasks, or not at all, and it reliably moves cost |
+| Trusting a swap layer's defaults | Set output limits explicitly; log the effective request parameters and the provider's own stop reason (one layer injects a default output cap and turns unknown stop reasons, refusals included, into a normal stop); rerun the full suite after any layer change |
 | Declaring a winner from 20 to 30 cases | Show intervals; count discordant tasks; say "not distinguishable at n = …" when that is the truth |
 | Comparing the incumbent's tuned prompt against untuned candidates | Equal adaptation budget per candidate on the dev split, scored on the test split |
 | Turning reasoning up everywhere, or assuming it helps tool selection | Sweep per role; default off or low for tools, labels and extraction |
 | Recommending fine-tuning to teach facts or policies | Retrieval or a lookup tool; tune only how the model uses them |
 | Fine-tuning on a product FAQ so the model answers product questions, then judging it by loss curves and one spot check | That is a knowledge gap, so the rung is retrieval over the FAQ; tuning only shapes answer style. Judge any tuned model on the held-out task eval against the base. Validation loss rising while training loss falls means memorisation |
 | Recommending fine-tuning before trying prompt, exemplars and a stronger model | Climb the ladder; record what each rung scored |
-| Comparing price per token or per call | Cost per successful task, including retries, repairs and escalations |
+| Comparing price per token or per call | Cost per solved task, including retries, repairs and escalations; when variants differ in review time, agent-ops-reviewer's cost per successful run; in agent loops the tokens per task drive cost, so record them per role |
 | Routing or escalating on the model's stated confidence | Token probabilities or a classifier head; measure ECE on the user's labels |
 | An RL reward with substring matching or credit before a gate | Exact or normalised matching, gate first, adversarial tests before training |
 | Reporting a trained model without the untrained base on the same tasks | Always include the base; report how many groups actually trained |
@@ -216,7 +227,7 @@ Before returning, check that:
 
 ## Sources
 
-Distilled from a cross-book study guide on agent design (chapters on model selection and adaptation, reasoning and planning, and LLM fundamentals). Book chapters used:
+Distilled from a cross-book study guide on agent design (chapters on model selection and adaptation, reasoning and planning, LLM fundamentals, and the agent harness). Book chapters used:
 - *Building Applications with AI Agents*: ch1 and ch2 (model selection), ch7 (learning without weights, when to fine-tune, SFT for function calling, DPO, RLVR), ch11 (continuous learning), and its companion fine-tuning and reflexion code.
 - *Designing Large Language Model Applications*: ch5 (choosing an LLM, open versus proprietary, model flavours), ch6 (the need for fine-tuning, recipe, datasets), ch7 (continual pre-training, PEFT, merging), ch8 (RLHF, hallucination after fine-tuning, reasoning data), ch11 (fine-tuning embedding models).
 - *AI Agents: The Definitive Guide*: ch3 (GRPO, GSPO, RULER, ART), ch4 (models as team members, thinking modes and budgets, open versus closed, LoRA), and its companion notebooks.
@@ -226,11 +237,25 @@ Distilled from a cross-book study guide on agent design (chapters on model selec
 - *The Agentic Enterprise*: ch5 (log, label, fine-tune, distil), ch8 (portability).
 - *Agentic Mesh*: ch15 (model registry and versioned tuning pipelines).
 - *AI Evals in Practice*: ch6 (minimum flips for a real difference).
+- *Building AI Agents with LLMs, RAG, and Knowledge Graphs*: ch5 (retrieval against fine-tuning, and doing both), ch8 (how RL and LLMs interact; the LLM as reward designer).
+
+Andrew Ng, The Batch letters (deeplearning.ai):
+- "Agentic Design Patterns Part 1" (2024-03-20): https://www.deeplearning.ai/the-batch/how-agents-can-improve-llm-performance
+- "Why We Need More Compute for Inference" (2024-04-24): https://www.deeplearning.ai/the-batch/why-we-need-more-compute-for-inference
+- "The Falling Cost of Building AI Applications" (2024-12-04): https://www.deeplearning.ai/the-batch/the-falling-cost-of-building-ai-applications
+- "Build an Autonomous Agent Using This Simple Recipe!" (2025-12-10): https://www.deeplearning.ai/the-batch/build-an-autonomous-agent-using-this-simple-recipe
+- "What Comes After Tokenmaxxing?" (2026-08-07): https://www.deeplearning.ai/the-batch/what-comes-after-tokenmaxxing-how-to-avoid-getting-locked-in-to-just-one-ai-provider
+
+Repositories:
+- aisuite, version 0.2.0 (released 2026-09-18, read 2026-10-18): https://github.com/andrewyng/aisuite
 
 Practitioner lab notes (AWS AgentCore and data labs, 2026-10).
 
 External (checked 2026-10):
 - Anthropic, Models overview and Effort documentation (fetched 2026-10-06): https://platform.claude.com/docs/en/about-claude/models/overview and https://platform.claude.com/docs/en/build-with-claude/effort
+- Anthropic, Models overview, Pricing, Model deprecations and the Claude Haiku 5.5 page (re-checked 2026-10-19): https://platform.claude.com/docs/en/about-claude/pricing, https://platform.claude.com/docs/en/about-claude/model-deprecations and https://platform.claude.com/docs/en/models/haiku-5-5/overview
+- M. Arjmandi, "Harness or Model? Isolating the Harness Effect in Agentic Coding with a Contamination-Controlled Private Suite" (2026-09, fetched 2026-10-19): https://arxiv.org/abs/2609.11987
+- AWS, Amazon Bedrock Converse API reference (read 2026-10-19): https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
 - OpenAI, API pricing page, including the fine-tuning wind-down notice (fetched 2026-10-06): https://developers.openai.com/api/docs/pricing
 - L. Weng, "Reward Hacking in Reinforcement Learning" (2024-11): https://lilianweng.github.io/posts/2024-11-28-reward-hacking/
 - Anthropic, research post on natural emergent misalignment from reward hacking (2025-11): https://www.anthropic.com/research/emergent-misalignment-reward-hacking

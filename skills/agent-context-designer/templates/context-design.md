@@ -18,7 +18,9 @@ Include a section marked *(optional)* only when its condition holds. Otherwise w
 |---|---|---|---|---|
 
 ## 3. Retrieval
+- **Source readiness:** audit result per source: top questions answered, retired or conflicting content archived, owner and review schedule, structured decision fields at least 90% complete; volatile data moved behind live tools; what must be fixed before indexing.
 - **Mode:** <none / cached corpus / always-retrieve / gate / agentic / GraphRAG / text-to-SQL / metric catalog> because <named reason>.
+- **Store by query type** *(optional: only if a graph or a router is proposed)*: query types and the store each goes to; the measured hybrid failure that justifies the graph; graph build (validated triplets, quality checks, update cadence); query path (read-only, caller-scoped, templates or allowlist, limits); routing rule and its accuracy target.
 - **Sources and indexes:** one line per index: content, trust tier (official / derived / community), ACL, owner. Mixed records (tickets, email, chat): what goes into a sanitised index and what stays a live lookup.
 - **Index time:** parsing checks per format; chunking rule; chunk context prepended; metadata schema incl. `tenant_id`, `acl_groups`, `version` or derived `status` and `last_modified`; re-index and deletion triggers; idempotent upsert key; post-ingest checks (per-source counts, canary query, backfill or reconcile).
 - **Staleness:** version source, or for undated documents the detection signals, age limits per document type, and the owner review queue.
@@ -32,6 +34,7 @@ Long-term memory warranted? <yes/no + the recurrence evidence>
 | Type | Store | Key / scope | Write trigger | Decider | Validation | Update rule | Expiry / forgetting | Deletion path | Read path (floor, cap) |
 |---|---|---|---|---|---|---|---|---|---|
 
+- **Governed entries:** fields kept (category, source, confidence, last verified, TTL, sensitivity); categories that need a person's approval; what is stored as a reference instead of a raw value; expiry and correction flow.
 - **Thread state:** checkpointer, retention, where the raw transcript is kept; concurrency control (conditional writes or a single writer) and read order; current-task line and attempt ledger (chat) or progress record (long runs): who writes them, cap, what happens at session end.
 - **Replay/fork policy** *(optional: only if threads are replayed or forked)*: is long-term memory versioned or rolled back?
 - **Multi-agent topology** *(optional: only with sub-agents or several agents)*: shared vs local memory, sub-agent persistence mode.
@@ -71,12 +74,13 @@ volatile tail:    …   rebuilt every turn (current-task line, ledger, evidence,
 
 **Compaction:** trigger (starting value and how it will be tuned); kept verbatim; must-survive checklist; summary cap; raw transcript location; survival test.
 **Tool results / definitions:** projection rules; clearing policy (batch size); toolset fixed per run?
+**Source labels:** fence format (origin, trust, ID, date) per source; where recalled memory and agent-written notes render.
 **Sub-agents** *(optional)*: brief contents; return size; persistence mode.
 **Long runs** *(optional: runs beyond one window or session)*: progress record; checkpoints; just-in-time loading.
 **Cost** *(when there is a target)*: estimate or low/high range, the assumption that drives it, and the measurements that will replace it.
 
 ## 6. Safety and privacy
-- Permission enforcement points; identity source (memory tools bind scope keys and author role server-side); cache scoping; row and column entitlements for table and metric queries.
+- Permission enforcement points; identity source (memory tools bind scope keys and author role server-side); cache scoping; row and column entitlements for table and metric queries; generated graph or SQL queries (role, scope, templates or allowlist, limits).
 - Untrusted-content rule for memory writes and for instructions.
 - Deletion map (every copy, including sanitised cards derived from deleted records).
 - Hand-offs: <what goes to agent-threat-modeler>

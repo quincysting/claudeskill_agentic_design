@@ -49,11 +49,11 @@
 <body>
   <div class="frame">
     <p class="eyebrow">Architecture · claudeskill_agentic_design</p>
-    <h1>Eight skills, one folder each</h1>
+    <h1>Nine skills, one folder each</h1>
 
     <svg viewBox="0 0 960 528" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="skill-map-title skill-map-desc">
-      <title id="skill-map-title">Skill map: eight skill folders by stage</title>
-      <desc id="skill-map-desc">The repository's skills folder holds eight skills grouped by when you use them: decide (business case), design (architecture, model choice), build (tools, context) and prove and run (evals, operations, security), with agent-architect as the place to start; each skill folder contains SKILL.md, references, templates and, in two skills, scripts.</desc>
+      <title id="skill-map-title">Skill map: nine skill folders by stage</title>
+      <desc id="skill-map-desc">The repository's skills folder holds nine skills grouped by when you use them: decide (business case), design (architecture and lifecycle map, model choice, threat model), build (harness, tool contracts, context) and prove and run (evals, operations, plus the threat model's red-team pass), with agent-architect as the place to start; each skill folder contains SKILL.md, references, templates and, in two skills, scripts.</desc>
       <defs>
         <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
         <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
@@ -82,50 +82,53 @@
       <rect x="60" y="204" width="180" height="64" rx="6" fill="#f5f5f5"/>
       <rect x="60" y="204" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
       <text x="150" y="233" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agentic-business-case</text>
-      <text x="150" y="250" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">ROI · pilot · governance</text>
+      <text x="150" y="250" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">ROI · data preflight · pilot</text>
 
       <!-- 02 Design -->
-      <rect x="280" y="160" width="180" height="64" rx="6" fill="#f5f5f5"/>
-      <rect x="280" y="160" width="180" height="64" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
-      <rect x="392" y="166" width="60" height="12" rx="2" fill="transparent" stroke="rgba(235,108,54,0.40)" stroke-width="0.8"/>
-      <text x="422" y="175" fill="#eb6c36" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">START HERE</text>
-      <text x="370" y="193" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-architect</text>
-      <text x="370" y="210" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">workflow vs agent · loop</text>
-
-      <rect x="280" y="248" width="180" height="64" rx="6" fill="#f5f5f5"/>
-      <rect x="280" y="248" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <text x="370" y="277" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-model-selector</text>
-      <text x="370" y="294" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">model per role · tuning</text>
+      <rect x="280" y="116" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="280" y="116" width="180" height="64" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <rect x="392" y="122" width="60" height="12" rx="2" fill="transparent" stroke="rgba(235,108,54,0.40)" stroke-width="0.8"/>
+      <text x="422" y="131" fill="#eb6c36" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">START HERE</text>
+      <text x="370" y="149" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-architect</text>
+      <text x="370" y="166" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">lifecycle map · shape</text>
+      <rect x="280" y="204" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="280" y="204" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="370" y="233" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-model-selector</text>
+      <text x="370" y="250" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">model per role · bake-off</text>
+      <rect x="280" y="292" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="280" y="292" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="370" y="321" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-threat-modeler</text>
+      <text x="370" y="338" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">threats · guardrails · access</text>
 
       <!-- 03 Build -->
-      <rect x="500" y="160" width="180" height="64" rx="6" fill="#f5f5f5"/>
-      <rect x="500" y="160" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <text x="590" y="189" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-tool-designer</text>
-      <text x="590" y="206" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">tools · MCP · A2A</text>
-
-      <rect x="500" y="248" width="180" height="64" rx="6" fill="#f5f5f5"/>
-      <rect x="500" y="248" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <text x="590" y="277" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-context-designer</text>
-      <text x="590" y="294" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">RAG · memory · context</text>
+      <rect x="500" y="116" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="500" y="116" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="612" y="122" width="60" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="642" y="131" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">NEW</text>
+      <text x="590" y="149" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-harness-designer</text>
+      <text x="590" y="166" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">loop · state · serving</text>
+      <rect x="500" y="204" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="500" y="204" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="590" y="233" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-tool-designer</text>
+      <text x="590" y="250" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">contracts · MCP · catalogue</text>
+      <rect x="500" y="292" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="500" y="292" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="590" y="321" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-context-designer</text>
+      <text x="590" y="338" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">RAG · graph · memory</text>
 
       <!-- 04 Prove and run -->
-      <rect x="720" y="116" width="180" height="64" rx="6" fill="#f5f5f5"/>
-      <rect x="720" y="116" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <text x="810" y="145" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-eval-designer</text>
-      <text x="810" y="162" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">eval plan · judges · CI</text>
-
-      <rect x="720" y="204" width="180" height="64" rx="6" fill="#f5f5f5"/>
-      <rect x="720" y="204" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <text x="810" y="233" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-ops-reviewer</text>
-      <text x="810" y="250" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">tracing · cost · readiness</text>
-
-      <rect x="720" y="292" width="180" height="64" rx="6" fill="#f5f5f5"/>
-      <rect x="720" y="292" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <text x="810" y="321" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-threat-modeler</text>
-      <text x="810" y="338" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">threats · approval gates</text>
+      <rect x="720" y="160" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="720" y="160" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="810" y="189" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-eval-designer</text>
+      <text x="810" y="206" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">eval plan · judges · CI</text>
+      <rect x="720" y="248" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="720" y="248" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="810" y="277" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent-ops-reviewer</text>
+      <text x="810" y="294" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">readiness · cost · tracing</text>
+      <text x="810" y="338" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">+ threat-modeler red-team pass</text>
 
       <!-- Editorial aside -->
-      <text x="60" y="348" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', serif">Each skill hands related questions to the sibling that owns them.</text>
+      <text x="60" y="374" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', serif">Each skill hands related questions to the sibling that owns them.</text>
 
       <!-- Strip: inside each skill folder -->
       <line x1="40" y1="404" x2="920" y2="404" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>

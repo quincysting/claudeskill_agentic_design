@@ -5,7 +5,7 @@ Status per role is in section 3 (measured, measurable now, provisional).
 
 ## 1. Summary
 
-<3 to 5 lines: what changes, expected effect on cost per successful task and p95 latency (direction only if reference numbers are unknown), what must be measured before switching, and the single biggest risk.>
+<3 to 5 lines: what changes, expected effect on cost per solved task and p95 latency (direction only if reference numbers are unknown), what must be measured before switching, and the single biggest risk.>
 
 ## 2. Inputs and assumptions
 
@@ -13,6 +13,7 @@ Status per role is in section 3 (measured, measurable now, provisional).
 |---|---|---|
 | Volume | <calls or tasks per day> | |
 | Current setup | <model@version, effort, per role> | |
+| Harness and provider layer | <framework or own loop @version; swap layer @version> | |
 | Current cost and p95 | <$/task, s> | |
 | Eval assets | <tasks per role, labels, splits> | |
 | Labelled data | <counts, per class> | |
@@ -56,7 +57,8 @@ Fine-tuning verdict: <not now / yes for role X> because <criteria>.
 
 - Tasks per role and strata: <…>; splits: <dev/test>
 - Pre-registered metric, target, non-inferiority margin (not below the smallest detectable at this n), budgets: <…>
-- Candidate grid: <models × effort levels × prompt version>
+- Candidate grid: <models × effort levels × loop (one shot, or k check-and-revise rounds) × prompt version>
+- Held fixed across candidates: <harness, tools, budgets, provider layer @version>; effective request parameters and native stop reasons logged
 - Fair prompting budget: <…>
 - Trials per task: <k>; production settings: <…>
 - Scoring: <program checks; judge (family, calibration)>

@@ -14,6 +14,9 @@ How to build the task set (golden dataset) and the harness that runs it. Citatio
 | Golden dataset | Curated, versioned tasks with verified expectations | regression suite, benchmark |
 | Capability suite | Tasks the agent still fails; low pass rate expected | — |
 | Regression suite | Tasks it passes; should stay near 100% | critical set |
+| Smoke suite | Small fixed-mix suite rerun on every change; catches large regressions only | first suite |
+| Golden run | One known-good run kept whole (inputs, outputs, approvals, receipts, citations) as the reference for "good" | reference run |
+| Run record | What the harness writes per trial and the scorers read (see "Run-record contract") | trace |
 
 Keep capability and regression results apart: one number mixing both hides movement in each (Anthropic, external, 2026-01).
 
@@ -37,6 +40,7 @@ One JSON object per line (JSONL), one file per dataset version.
                  "must_precede": [["lookup_order", "refund_item"]]},
   "expected_tools": ["lookup_order", "refund_item"],
   "expect_no_tool": false,
+  "expected_exit": "completed",
   "reference_answer": null,
   "tags": {"type": "refund", "tool": "refund_item", "difficulty": "medium",
            "source": "incident-2026-09-14", "risk": "money", "split": "dev"}
@@ -50,6 +54,7 @@ Rules:
 - Key cases by `id`, never by input text. Two prompts that share a long preamble will otherwise collide.
 - Variants of one base scenario (rephrasings, personas, stress variants, fixture changes) share a `scenario_id`. Statistics count scenarios, not variants, where outcomes are correlated (statistics.md, "Correlated tasks").
 - `clock` fixes "now" for the trial (see "Time-dependent data" below).
+- `expected_exit` holds the status the trial should end with, optionally with a stop reason as `status:stop_reason` (`partial:max_steps`): usually `completed`; `escalated`, `awaiting_approval` or `handed_off` for must-escalate and approval cases. Scorers compare it with the record's `status`, and with `stop_reason` when the case names one. A trial that ends any other way fails (see "Run-record contract").
 - A policy rule becomes a hard check only after its owner has signed it off (SKILL.md step 2). Until then, score it as report-only.
 
 ## Where tasks come from
@@ -121,6 +126,17 @@ For multi-part requests, list the subtasks and score the fraction completed, but
 
 Coverage beats volume: 100 cases that cover the real distribution beat 1,000 random ones [EVALS ch3]. Tasks generated from one document or one template are correlated and count for less than their number.
 
+## First suite: a smoke suite, not a release gate
+
+PRODGUIDE's first suite is a fixed mix of 30 cases: ten normal, ten edge (vague, contradictory, multi-topic) and ten adversarial (injected instructions, forbidden actions, requests for secrets, claimed new permissions) [PRODGUIDE ch13]. PLAYBOOK adds failure cases, where a tool fails or data is missing and the question is whether the agent fails clearly [PLAYBOOK ch4 §Build It, Test It, Fix It]. Keep the mix, and keep the protocol around it:
+
+- **Binary success against the SLA.** A case passes when the service level was met (the triaged list has owners, the refund amount is right), not when an answer appeared [PRODGUIDE ch13]. Write it as `success` predicates and hard rules in the task schema.
+- **Baseline before the first change.** PRODGUIDE's baseline records prompt and tool versions, allowlist and denylist state, memory rules and the suite results [PRODGUIDE ch13]. Add the dataset and judge versions and per-task results keyed by ID (ci-gates.md, "Baseline").
+- **Golden run.** Keep one representative, high-quality run whole: inputs, outputs, approvals, receipts and citations. Teams point to it when they argue about quality, and check that the system can still reproduce it [PRODGUIDE ch13]. One reproduction proves little about a stochastic agent, so check the golden run's hard properties (the artifacts exist, receipts and approvals match, no extra writes) rather than its wording, and keep it as a regression task.
+- **Change one thing per iteration.** A prompt, a tool contract or a memory rule, not all three at once. Rerun the suite, compare with the baseline paired by task, and keep the change only if success rose without a cost increase that buys nothing [PRODGUIDE ch13].
+
+What 30 cases support (statistics.md, "What a 30-case first suite can and cannot show"): at 27 of 30 the 95% interval is about 74 to 97%; a paired comparison needs about six one-way flips, so only changes of about 20 points show up; ten clean adversarial cases still allow an attack success rate near one in four. Run it on every change as a smoke suite that catches large regressions and any hard-check failure, and seed the pre-merge critical subset from it (ci-gates.md, "Tiers"). The change-one-thing loop tunes against the same 30 cases by design, so release numbers come from a held-out split sized for the claim (statistics.md, "Which split the numbers come from").
+
 ## Splits, versions, maintenance
 
 - **Splits.** `dev` (iterate freely) and `test` (held out, 20 to 30%, scored only for release decisions). Tuning prompts against all 30 cases until they pass overfits them [EVALS ch14].
@@ -131,9 +147,9 @@ Coverage beats volume: 100 cases that cover the real distribution beat 1,000 ran
 ## Harness requirements
 
 1. **Fresh environment per trial.** Shared state produces correlated failures and inflated scores (Anthropic, external, 2026-01). Build the sandbox, database fixture or mock API from `initial_state` each time.
-2. **Write tools are stubbed or sandboxed.** Payment, email, booking and delete calls go to a sandbox or a recorder that returns realistic results, including failures. Record every *attempted* and *executed* call. Then a scorer can tell an agent that never tried a forbidden action from one that was blocked [DEFGUIDE ch8].
+2. **Write tools are stubbed or sandboxed.** Payment, email, booking and delete calls go to a sandbox or a recorder that returns realistic results, including failures. Record every *attempted* and *executed* call (the run record's `mode` field). Then a scorer can tell an agent that never tried a forbidden action from one that was blocked [DEFGUIDE ch8].
 3. **Mocks must be able to fail.** Inject timeouts, empty results, declines and malformed responses in some tasks; a mock that always succeeds tests nothing about recovery.
-4. **Record two things per trial:** the transcript (each tool call with arguments, result, latency, error; tokens; cost; stop reason) and the final state.
+4. **Record two things per trial:** the transcript (each tool call with arguments, result, latency, error; tokens; cost; stop reason) and the final state. Field names and exit statuses follow the run-record contract below.
 5. **Errors are failures.** Crashes, timeouts and unparseable outputs count as failed trials, and the error rate is reported. If more than about 5% of trials error, something systematic is broken [EVALS ch2]. Faults in the eval's own machinery (simulator breaking character, recorder bug, unmatched recording) are different: rerun those trials rather than scoring them, and report the harness fault rate separately.
 6. **Production settings.** Same model version, temperature, prompt version, tool list and step limit as production. Do not lower the agent's temperature to make results stable; evaluate what users get (Miller, external). Record the prompt and config version actually used on every trial, read back from the trace or the agent's response rather than from what you meant to deploy. Before scoring, assert that a run contains exactly one version per component; a mixed run is a harness error and is rerun. If the agent reads its prompt or config from a store at runtime, point it at a pinned version (name plus version number or label), never "latest", and don't edit the store while a run is still sending.
 7. **Oracle isolation.** Expected answers, routes and handoffs are passed to scorers only. A replay helper that puts them in the candidate's prompt produces perfect routing scores that mean nothing [DEFGUIDE ch9].
@@ -149,6 +165,9 @@ Coverage beats volume: 100 cases that cover the real distribution beat 1,000 ran
     - Sample eval sessions at 100%. A sampler that drops spans drops trials.
     - A trial whose trace never arrives is a harness fault: rerun it and report the fault rate (requirement 5). It is not an agent failure, and it is never silently dropped. A trial still missing at scoring time counts as failed in the headline (review-checklist.md, "Platform average over a shrinking denominator").
     - Log the pipeline state before traffic and again on timeout, so a failed run can be diagnosed.
+14. **Run-record contract.** Scorers read only fields the harness writes, and fail when one is missing. See "Run-record contract".
+15. **The suite is outside the agent's reach.** The agent under test cannot write to tests, eval data, fixtures, scorers or judge prompts, and the runner checks the suite's hashes before scoring (ci-gates.md, "The agent must not edit its own evals").
+16. **Harness slice.** The runtime's own controls (resume, stops, budgets, cancel, kill switch) get their own deterministic tests. See "Harness test slice".
 
 ## Time-dependent data
 
@@ -179,7 +198,7 @@ The most expensive money failure is a duplicate write. The tool committed the ch
 | Restart mid-task | Kill the agent after the write, resume from its checkpoint | No second write after resume |
 | Partial multi-step write | Hold succeeds, payment fails | Hold released or reported; no orphaned charge |
 
-If a write tool has no idempotency key or status lookup, the agent cannot pass these tasks safely. That is a tool-design finding for agent-tool-designer, not a prompt problem.
+If a write tool has no idempotency key or status lookup, the agent cannot pass these tasks safely. That is a tool-design finding for agent-tool-designer, not a prompt problem. "Restart mid-task" here runs the real agent; the harness slice below checks the same restart with a scripted model.
 
 ```python
 class AckLostRecorder:
@@ -198,6 +217,55 @@ class AckLostRecorder:
 def one_charge(ledger, booking_id):
     return sum(e["booking"] == booking_id for e in ledger) == 1
 ```
+
+## Run-record contract (shared with agent-harness-designer)
+
+Scorers must read only fields the harness writes. Without an agreed contract they read fields nothing fills. One eval kit's trajectory scorers take tools, iterations and tool errors from case metadata that nothing in its repository produces, so efficiency scores 0 and the coherence judge passes on "No trajectory" [EVALS repo: project/cap08/evalkit/scorers/agent.py]. Its cost-capped runner estimates cost from latency instead of reading usage, and once over budget averages the cases it reached with only a printed warning [EVALS repo: project/cap11/evalkit/runners/cost_aware.py].
+
+agent-harness-designer owns how the runtime writes the record (harness-tests.md in that skill). This skill owns what the scorers read and what they do when a field is missing. Per trial, the eval side depends on:
+
+| Field | What the scorers use it for |
+|---|---|
+| `run_id`: the run's ID, also on every trace span | Joins the record to its task and its trace spans |
+| `versions`: agent, prompt, policy, model, tool-schema and dataset versions | One version per component per run (requirement 6); baseline validity |
+| `tool_calls[]`: tool, arguments, `mode` (`rejected` by the gate, `preview` only, or `executed`), result, error category (agent-fixable or infrastructure), idempotency key, receipt | Trajectory scores, forbidden-action checks (every mode counts as an attempt), exactly-one-write checks (`executed` only), agent versus infrastructure error counts |
+| `approvals[]`: approval ID, requested action, digest, decision, approver, requested and decided times, `expires_at`, `used` | Confirmation before irreversible actions; approval expiry and single use |
+| `usage`: model calls, tool calls, steps, tokens, cost, active time, wall time | Budgets, cost per task, efficiency |
+| `status`: one of `completed`, `partial`, `awaiting_approval`, `handed_off`, `escalated`, `failed`, `cancelled` | Compared with the task's `expected_exit` |
+| `stop_reason`: from the fixed list in agent-harness-designer's harness-tests.md §4; empty for `completed` and `awaiting_approval` | Compared when `expected_exit` names a reason; capped and partial runs flagged |
+| `final`: the output, or what was not done for a non-completed status | Outcome scoring |
+
+The field contents match harness-tests.md §4 in agent-harness-designer. Status and stop-reason names come from the one list there, each reason tied to its status; this file does not restate them. Short names in reports (`budget_exhausted`, `killed`) are display labels only: the record has no `exit` field, and no scorer reads one. Rules for the eval side:
+
+1. **A missing field fails loudly.** A scorer that needs a field the record lacks returns "unscorable", which counts against the suite. It never defaults to 0, 1 or pass. Validate every record against the contract as the first scoring step.
+2. **Exit status is a hard check.** A trial whose `status` differs from the status in the task's `expected_exit`, or whose `stop_reason` differs from a reason the case names, fails, whatever the reply says. This is what catches a truncated run that reads like an answer.
+3. **Truncated, capped and partial runs are flagged, never averaged away.** If the eval run itself hits its cost cap, stop and report how many tasks ran; don't average the subset.
+4. **Cost comes from recorded usage**, not from a fixed per-case estimate.
+5. **Every field has a writer and a test.** For each field a scorer reads, name the harness code that writes it, and keep a test that fails when that writer is removed.
+
+## Harness test slice (shared with agent-harness-designer)
+
+The harness (checkpoints, stops, budgets, cancellation, approval pauses, kill switch) fails in its own ways, and no book tests resume, stop, budget or cancel behaviour. These tests target the runtime, not the model. agent-harness-designer owns the harness side: how each control works, how to force each condition, and the full list (approval digest and expiry, duplicate delivery, disconnect, safe-mode replay) in its harness-tests.md. This skill puts the slice in the eval plan, scores each test as a hard check and gates on it. The minimum slice:
+
+| Test | Force it by | Passes when (read from the run record and the backend) |
+|---|---|---|
+| Resume after crash | Killing the worker between the intent save and the receipt save, then resuming the run ID in a fresh process | The run continues from the checkpoint; exactly one write reaches the backend; one receipt per key |
+| Stop rules | Hitting each one: step cap, no progress, fatal tool error | Status `partial` (or `failed` for the fatal error) with the stop reason that names the rule, never `completed`; partial output says what was not done |
+| Budget exhaustion | A budget below what the task needs, including one call left on a turn that wants several | Stops before the call that would exceed it; spend recorded; counters survive a restart |
+| Cancel mid-run | Cancelling during a long tool call | Status `cancelled`, reason `caller_cancel`; no call starts after the signal; the tool cleaned up or the outcome is marked unknown |
+| Kill switch | Flipping draft-only mid-run, then abort | Draft-only: previews, no writes. Abort: no further calls, status `cancelled` with reason `kill_switch`, no redeploy needed [PRODGUIDE ch16] |
+| Kill while paused, then resume | Stopping the process during an approval wait, restarting it, approving | The run reloads; the approved action runs once, with exactly the approved arguments |
+| Faults at the edge | 50% HTTP 500s, then a fixed delay, injected at the network layer | Retries stay within budget, the timeout fires, failures carry their category, no duplicate write |
+
+The edge faults need no change to tool code: the APIARCH companion repository injects 500s on half the calls, or a fixed delay, with service-mesh rules [APIARCH repo: operations/istio/half-broken-gateway.yaml] [APIARCH repo: operations/istio/delayed-gateway.yaml]. A local proxy does the same on a laptop.
+
+How the slice runs inside the suite:
+- **Script the model.** Canned proposals make each test deterministic and nearly free, so one trial per test is enough and pass^k doesn't apply. Keep the store out of process and resume in a fresh process; a same-process resume passes even with an in-memory checkpointer.
+- **Assert on effects.** Count backend writes and receipts per key, and read status and stop reason from the record, never the reply text.
+- **Make each test able to fail.** Remove the control it covers once (the lookup, the guard, the digest check) and confirm the test goes red.
+- **Tag and gate.** Tag the tests `slice: harness` and report them apart from agent quality. Run them pre-merge whenever harness code changes, and in full at release. Any failure blocks; they are part of the Prove gate.
+
+Public examples of the bugs this slice catches are in review-checklist.md, "Exits and resumes nobody tested".
 
 ## Multi-turn simulator: sizing and validation
 
@@ -218,9 +286,13 @@ def run_suite(agent, tasks, k=3):
             env = t["make_env"]()                      # fresh sandbox per trial
             rec = {"passed": False, "why": None, "error": None}
             try:
-                calls = agent(t["prompt"], env)        # list of {"tool":..., "args":..., "executed": bool}
+                run = agent(t["prompt"], env)          # run record (see "Run-record contract")
+                calls = run["tool_calls"]              # a missing field raises: errored, not passed
                 names = [c["tool"] for c in calls]
-                if t.get("expect_no_tool") and names:
+                status, _, reason = t.get("expected_exit", "completed").partition(":")
+                if run["status"] != status or (reason and run["stop_reason"] != reason):
+                    rec["why"] = f"exit {run['status']} ({run['stop_reason']})"
+                elif t.get("expect_no_tool") and names:
                     rec["why"] = "tool called on no-tool task"
                 elif set(names) & set(t.get("forbidden_tools", ())):
                     rec["why"] = "forbidden tool attempted"

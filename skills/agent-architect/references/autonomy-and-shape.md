@@ -8,6 +8,8 @@ Use this to place every step of a task on the spectrum and to set its authority.
 
 An agent is a system in which a model, inside a loop that code owns, chooses at least some of the next actions (which tool, with what arguments, whether to continue) from what earlier actions returned, until a stop condition fires.
 
+Andrew Ng puts the same idea as a degree: rather than argue whether a system "is an agent", call it agentic to some degree, from a single prompt up to a system that plans, uses tools and iterates [NG Welcoming Diverse Approaches Keeps Machine Learning Strong, 2024-06-12]. The spectrum below measures that degree by how much of the control flow the model's output decides.
+
 Consequences:
 - A router is a workflow with one model decision.
 - An LLM step inside a fixed pipeline is not an agent, even if the stage has a role name.
@@ -37,6 +39,22 @@ Most production systems sit at 3 to 5. Agentic systems run "orchestrated autonom
 A bounded agent loop can run with every write held for approval; a fixed workflow can post payments unattended. A more capable model does not by itself justify more of either dial. Capability gains are a reason to re-run the per-step decision, not an authority grant (METR's note on its own time-horizon metric says a 50% horizon of X hours does not mean tasks under X hours can be delegated; some tasks need 98%+ success to be worth automating).
 
 When someone cites a "level 3" or "level 4" agent, ask which axis: technology stack (AGENTICAI's levels 0 to 5 [AGENTICAI ch2]), control flow (the spectrum above), or human role (operator, collaborator, consultant, approver, observer, from Feng et al.). Numbers from different schemes do not translate. AGENTICAI calls its levels a catalogue to choose from, not a maturity ladder [AGENTICAI ch2].
+
+## Starting level: the five-factor score
+
+At the Decide stage, before the steps are mapped, PLAYBOOK's scoring test gives a starting point [PLAYBOOK ch2]. agentic-business-case scores it for the Decide gate; this skill turns the score into authority per step, and scores it itself when no one has. Score the workflow from 1 to 3 on each factor; a 1 argues for less autonomy.
+
+| Factor | 1 | 2 | 3 | Where it lands in this skill |
+|---|---|---|---|---|
+| Volume | Monthly or rarer | Weekly | Daily or more | Whether it is worth building at all (agentic-business-case) |
+| Variability | Every case differs | A pattern with exceptions | Predictable | The input-variability axis of the authority matrix; shape per step |
+| Risk | Money, compliance, trust or legal standing at stake | Annoying; needs manual correction | Easy to catch and fix | The cost-of-a-wrong-action axis |
+| Judgment required | Every case needs interpretation | Clear logic, occasional judgment | The action follows from the input | Shape: workflow, agent step, or a person decides |
+| Action scope | The agent recommends; a person acts | The agent drafts; a person approves | The agent executes | Starting authority: suggest, approve, act |
+
+Totals of 5 to 7 suggest PLAYBOOK's level 1 or 2, 8 to 10 level 3, 11 to 13 level 4, and 14 to 15 level 4 or 5 when processes and data are strong. **Any factor at 1 is a hard constraint that the total cannot override** [PLAYBOOK ch2]: a 1 on risk or judgment keeps a person deciding, however high the total.
+
+PLAYBOOK's levels mix this skill's two dials, so map them before using them. L1 (prompt assistance) and L3 (an agent with tool access, a person reviewing before anything external happens) correspond to `suggest` and `approve`. L4 (supervised autonomy) is `act and notify` for routine cases and `approve` for higher-risk ones. L2 (a fixed workflow) is a shape on the spectrum, not an authority, and L5 (coordinated agents) is a topology decision (multi-agent.md), not more authority. The score rates the whole workflow, while this skill sets authority per step. Use it to pick the starting point and to answer a sponsor who wants level 5 on day one, then place each step in the authority matrix below: one refund inside a well-scoring support flow still gets `approve`.
 
 ## Per-step decision flow
 
@@ -75,17 +93,34 @@ The ordering follows the ladder in [BUILDAPPS ch1] (simple code, deterministic w
 
 If an agent has been constrained until it has no autonomy left, replace it with a software module [ENTERPRISE ch1].
 
+### Workflow, agent or hybrid: five questions
+
+PRODGUIDE's matrix adds two questions the flow above leaves implicit, volume and how clearly success can be checked [PRODGUIDE ch10]:
+
+| Question | Favours a workflow | Favours an agent | Favours a hybrid |
+|---|---|---|---|
+| Input quality | Structured and complete | Messy, ambiguous or inconsistent | Mixed |
+| Path stability | Steps known, rarely change | Steps vary, exceptions common | The decision varies; execution is fixed |
+| Risk of a wrong action | Deviation is costly or irreversible | A draft can be reviewed safely | High-risk actions exist but can be gated |
+| Volume and cost | High volume that needs predictable cost | Lower volume where judgment is valuable | High volume with occasional ambiguity |
+| Evaluation clarity | Success is binary and checkable | Success needs interpretation | The decision needs judgment; execution is checkable |
+
+Its hybrid splits **judgment from execution**: interpretation, prioritisation and decision go to the agent; execution, orchestration and bookkeeping go to the workflow, so either side can change without the other [PRODGUIDE ch10]. The split runs both ways: an agent turns a messy request into structured intent that a workflow executes, or a workflow handles everything and hands only incomplete, conflicting or risky items to an agent. The last row has a corollary: if success cannot be defined clearly, the step cannot be automated safely, so tighten the task and keep it draft-first [PRODGUIDE ch10].
+
 ### Signals to move a step up or down
 
 Up (workflow → agent step):
 - The step's branch count keeps growing; each unforeseen input gets a patch [MESH ch3].
 - Early misreadings cascade through the fixed chain.
 - Inputs range widely (a support inbox spanning a swelling battery to a disputed bill would "shatter" a rule-based workflow [BUILDAPPS ch1]).
+- Error analysis shows each step scoring well while the sequence as a whole trails what a person does. The fixed path is too rigid; let the model decide more of it [NG Improve Agentic Performance with Evals and Error Analysis, Part 2, 2025-10-22].
 
 Down (agent → workflow or code):
 - Traces show the agent takes the same path almost every time.
 - The baseline comparison (below) shows no gain beyond the threshold.
 - The step needs full accuracy (financial calculation, compliance check) [AGENTICAI ch8].
+
+Scaffolding is still what makes most agents reliable. Ng calls a frontier model given tools and a turn cap "highly autonomous, moderately capable, and highly unreliable" [NG Build an Autonomous Agent Using This Simple Recipe!, 2025-12-10], and outside coding most practical workflows still follow developer-specified paths [NG Agents on the Desktop, 2026-06-12]. At each model upgrade, re-run the existing eval set before removing scaffolding, and remove it only where the result shows a gain. Removing scaffolding moves the agency dial; it does not grant authority.
 
 Change one step, not the whole system.
 
@@ -142,6 +177,8 @@ Authority is raised per step, on evidence, never because a model got better. A m
 
 Each stage also needs a rollback trigger (metric drop below a floor, any Critical incident) that reverts automatically to the previous stage, and a named person who signs off promotion. Above-threshold actions and adverse decisions stop at `approve` unless governance decides otherwise.
 
+**Move-up conditions.** PLAYBOOK names three [PLAYBOOK ch2]: proven reliability at the current stage; written rules for the new actions (what the step may do without approval, its limits, when it stops or escalates); and a recovery plan (how a failure is detected, fixed and reversed). Its reliability bar varies across chapters: about 80% of outputs approved without changes over 30 to 60 days in ch2, and 85% over 30 days, then 90% over 60, in ch4's earned-autonomy stages [PLAYBOOK ch4]. Treat the spread as judgment, not measurement. Set the target per step, require a minimum case count as well as a period (30 days at five cases a week is about 20 cases, too few to tell 80% from 65%), and keep auditing after promotion. PLAYBOOK rates the whole agent; promote per step.
+
 ## Evidence for "least autonomy that works"
 
 The one head-to-head measurement in the source library [BUILDAGENTIC ch4]: text-to-SQL on BIRD, same model, fixed workflow versus a ReAct agent with three tools.
@@ -153,6 +190,8 @@ The one head-to-head measurement in the source library [BUILDAGENTIC ch4]: text-
 | Median cost per question | $0.00002 | $0.00007 (3.5×) |
 
 The two accuracies were scored by different methods, so the 3-point gap is inside the noise. The agent fetched the schema in only about 80% of runs. It needed far less code. Conclusion adopted here: when the path is known, a workflow matches accuracy at lower cost and latency, and the way to know is to build both and test on one dataset.
+
+Ng's 2024 comparison sits further left on the spectrum. On HumanEval, GPT-3.5 zero-shot solved 48.1% and GPT-4 zero-shot 67.0%, while GPT-3.5 inside an iterative agent loop reached up to 95.1% [NG Agentic Design Patterns Part 1, 2024-03-20]. The figures are dated: 2024 models, one coding benchmark, the best of several published methods, no cost or latency. The two measurements move different steps with the model fixed. Ng's goes from a single call to a loop that iterates against feedback and gains a lot; BUILDAGENTIC's goes from a fixed path to an agent choosing its own and gains little. The accuracy came mostly from iterating against a check, not from handing over the path. So when one call falls short and its output can be checked, try a fixed iterate-and-check loop (a workflow) before an open agent loop or a bigger model; model choice is agent-model-selector's.
 
 Agents can improve in use only if you build the mechanism: the same chapter's agent climbed from 37.7% to 67.2% only on a variant where questions recurred, with a purpose-built note-writing tool and a long warm-up [BUILDAGENTIC ch4]. Any claim that "the agent will learn" must name the mechanism, the eval showing the gain, and who maintains it.
 

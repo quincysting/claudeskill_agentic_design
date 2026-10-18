@@ -1,10 +1,12 @@
 # Use-case discovery, fit gates and scoring
 
-Load this for steps 1-5 of Mode A: framing the unit, inventorying tasks, the pass/fail fit gate, the 35-point scorecard and the readiness check.
+Load this for steps 1-5 of Mode A: framing the unit and the concreteness test, inventorying tasks, the pass/fail fit gate, the 35-point scorecard with its weak-link rule, the five-factor starting autonomy score and the readiness check. The data preflight for the pick is in pilot-and-scale.md §3.
 
 ## 1. The unit you evaluate
 
 Evaluate tasks or workflow slices, never job roles or technologies. A role is a bundle of linked tasks that no agent takes over whole [AGENTICAI ch8]. Start from workflows rather than the org chart, because the same people act in different processes with different colleagues [ENTERPRISE ch5].
+
+**Jobs into tasks.** Ng's recipe for finding where AI fits: break each job into its tasks, judge each task for assistance (augmentation) or automation, then assess the value of doing it [NG Which AI Applications Should You Build? Here's How to Decide, 2023-09-20]. Look past the task the job is known for. O*NET lists 30 tasks for a radiologist, and taking patient histories may be easier to automate than reading images. Generic task lists are a starting point; the organisation's own tasks, captured in the inventory (§2), give better results. Ng names the recipe's blind spot: it finds human work to automate rather than work nobody does yet. Note new-work ideas separately and give them a case of their own.
 
 A use case is a bounded slice with defined inputs, defined outputs or actions, and a success test. Scope check [BUILDAPPS ch2]:
 
@@ -13,6 +15,8 @@ A use case is a bounded slice with defined inputs, defined outputs or actions, a
 | Too narrow | "only cancellations" | Include the neighbouring high-volume requests that share data and actions |
 | Too broad | "automate every support inquiry" | Cut to the 3-5 request types that make up most of the volume |
 | Too vague | "improve customer satisfaction" | Name the KPI and the threshold that counts as success |
+
+**One sentence, then the concreteness test (Decide gate item).** Write each candidate in PRODGUIDE's form: this agent owns X outcome, for Y scope, under Z constraints, and produces these artifacts [PRODGUIDE ch4]. Then ask Ng's question: could an engineer build a first prototype from the sentence? "AI for livestock farming" fails. Face recognition to track individual cows passes, and only the concrete version can be checked quickly for technical and business feasibility (farmers might say RFID tags are cheaper) [NG Concrete Ideas Make Strong AI Startups, 2024-07-24]. A concrete idea is more likely to be wrong in its details, and that is cheap to find out early. The test is pass/fail. Rewrite a failing candidate before anyone scores it, rather than giving it a generous score. Record the sentence and the result in the shortlist.
 
 If the user arrives with one agent in mind, list the neighbouring tasks anyway. In AGENTICAI's engagements nearly half of the requested agents were not the client's best opportunity; one client asked for social-media posting when lead qualification would have returned about five times as much [AGENTICAI ch8].
 
@@ -40,6 +44,8 @@ AGENTICAI's own feasibility circle includes "manageable consequences if somethin
 |---|---|---|
 | **Checkable before effect** | Automate end to end, with monitoring | Automate behind a coded check or human approval before the effect |
 | **Hard to check before effect** | Assist: agent drafts, people sample-review | Keep with people; at most an assist agent that gathers checkable evidence |
+
+The gate judges the application, not the model. The same model can be safe in one task and dangerous in another, so a model's safety rating or a provider's refusals don't answer the fit question (governance-operating-model.md §3).
 
 Place each task, not the whole process. One process often splits across cells:
 - Compliance: monitoring rule changes and flagging gaps is cheap-error and checkable (a false flag costs a reviewer minutes); acting on an interpretation of a rule is costly. ENTERPRISE lists compliance as a good fit and misreading a compliance rule as a bad one [ENTERPRISE ch2]. Both statements hold because they describe different tasks.
@@ -97,7 +103,36 @@ Optional money backing (AGENTICAI's formulas): time = hours per instance x insta
 - Risk is not in the score. Show it in its own column (risk tier, regulated yes/no) and don't fold it into the points.
 - Impact carries 20 of 35 points, which pushes high-volume, high-stakes tasks up the ranking. The fit gate pulls them back.
 
+**Weak-link rule: never pick a first win on a sum.** Two other books build the gate into the score:
+- PRODGUIDE scores impact, frequency, data availability and risk from 1 to 5, where 5 means the factor strongly supports daily use (so a safe task scores high on risk) and 1 means it will block adoption unless something changes. It multiplies the four, because multiplying "punishes weak links": a candidate with one terrible factor is not a first win, whatever the others say [PRODGUIDE ch4]. Its one override: among the top scores, pick the one people will actually use daily, since usage is what produces feedback.
+- PLAYBOOK's five-factor test adds its scores but treats any single 1 as a constraint the total cannot override [PLAYBOOK ch2] (§4b).
+
+Use the 35-point total to order a long list. Pick the first pilot with PRODGUIDE's multiplied score, or check the leaders against PLAYBOOK's any-1 rule: a candidate with one factor at 1 on either scale is not the first pilot, whatever its total.
+
+**Money on impact: PRODGUIDE's equation.** ROI is time saved on a constraint x frequency x adoption x reliability, minus the cost and risk of errors, minus the running cost [PRODGUIDE ch4]. "On a constraint" means time on the step that limits the business (response time, follow-up), not time saved anywhere. Ten minutes saved twice a month is not leverage; two minutes saved fifty times a week is; an hour saved with a costly mistake each quarter is negative leverage. Use it as a screen. The business case runs the full monthly model (business-case-and-roi.md §6), where adoption shows up as the volume actually routed to the agent and reliability as containment and error rate.
+
 **Choosing the pilot.** Pick one quick win whose errors are checkable and whose unit metric the business already tracks, plus one or two next in line. MESH also weighs "demonstration potential" to win sponsors for a platform [MESH ch15]. Use it only to break ties, never to outrank value.
+
+## 4b. Starting autonomy: the five-factor test (Decide gate item)
+
+Score the pick, and anything next in line, on PLAYBOOK's five factors, 1 to 3 each, where 1 argues for less autonomy [PLAYBOOK ch2]:
+
+| Factor | 1 | 2 | 3 |
+|---|---|---|---|
+| Volume | monthly or less | weekly | daily or more |
+| Variability | every case differs; rules hard to write | a pattern with occasional exceptions | predictable inputs and steps |
+| Risk | mistakes hit money, compliance, customer trust or legal standing | mistakes need manual correction | mistakes easy to catch and quick to fix |
+| Judgment required | nuanced interpretation every time | clear logic, occasional judgment calls | the action follows from the input |
+| Action scope | agent recommends; a person takes every action | agent drafts; a person approves before anything external happens | agent executes: changes records, sends messages, triggers workflows |
+
+Totals: 5 to 7 suggest the book's level 1 or 2 (prompt assistance or a fixed workflow), 8 to 10 level 3 (an agent with tools whose output a person reviews before anything is sent), 11 to 13 level 4 (supervised autonomy), 14 to 15 level 4 or 5, and only with strong processes and clean data. **Any single 1 is a constraint the total cannot override** [PLAYBOOK ch2]. PLAYBOOK's own triage example totals 11 and still starts at level 3 because it is the team's first agent, so read the range as a ceiling for the first release, not a target.
+
+How to use the result:
+- Record the five scores, the total, the level and any factor at 1 in the shortlist. This is the Decide gate item "autonomy level scored on the five factors".
+- A 1 on risk or judgment doesn't fail the fit gate by itself. It caps autonomy and sends the affected actions to approval, which the business case then costs.
+- The level is a starting point for the whole workflow and an answer to a sponsor who wants full autonomy on day one. It does not set authority per action: one refund inside a well-scoring support flow still needs approval each time. Per-action permission tiers and how autonomy is earned later belong to agent-threat-modeler (its human-oversight reference: action risk tiers, and earned autonomy per action class). Whether the task needs an agent at all is agent-architect's call.
+- The level sets the review load in the ROI model. At level 3 a person approves every external action, so `qa_share` is 1.0 and `qa_min` is the review time until autonomy is earned.
+- PLAYBOOK's conditions for moving up a level vary across its chapters (about 80% of outputs approved without changes over 30 to 60 days in ch2; 85% over 30 days, then 90% over 60, in ch4). They are judgment, not measurement; don't present one of them as the book's rule [PLAYBOOK ch2], [PLAYBOOK ch4].
 
 ## 5. Readiness (once per organisation, not per use case)
 
@@ -112,7 +147,7 @@ Rate each dimension red (behind), amber (progressing) or green (on top of it) [E
 | Technical resources | In-house skills to design, learn from feedback and iterate? |
 | Change management | Talent, cultural agility, risk appetite; readiness to change roles and manage humans and agents as one workforce |
 
-Each red item becomes a cost line or a named risk in every business case. Readiness red on governance means the governance plan (Mode B) starts before or alongside the first pilot.
+Each red item becomes a cost line or a named risk in every business case. Readiness red on governance means the governance plan (Mode B) starts before or alongside the first pilot. Data readiness is the per-use-case counterpart: run the data preflight on the pick before any source is connected (pilot-and-scale.md §3).
 
 ## 6. Worked example (illustrative scores)
 
@@ -127,4 +162,6 @@ Online retailer, support and finance teams, six candidates. Gate first, then sco
 | E. Approve/deny high-value refund fraud | Costly; ground truth arrives weeks later | 17 | 7 | 3 | 27 | Assist only: agent gathers evidence, a person decides |
 | F. Credit terms for new wholesale customers | Tacit knowledge, opaque counterparties | - | - | - | - | Fails gate; not scored |
 
-E ranks second on points and still fails the gate as an autonomous agent. That is the reason the gate runs first.
+E ranks second on points and still fails the gate as an autonomous agent. That is the reason the gate runs first. The weak-link rule catches it too: E scores 1 on risk, so PRODGUIDE's multiplied score caps it at a fifth of the maximum, and under PLAYBOOK's any-1 rule its risk is a constraint no total can override.
+
+A as one sentence: "This agent owns refunds, cancellations and address changes requested by email for unshipped orders, within the refund cap, using approved reply templates only, and produces the order change, the reply and a run report." An engineer could prototype from that; "AI for customer service" fails the concreteness test. A's five factors: volume 3, variability 2, risk 3 (a wrong change is caught against order state and reversed before shipping), judgment 2, action scope 3 (it changes orders): 13, level 4, with no factor at 1. That fits the business case's 10% sampled review for changes within the cap; refunds above the cap stay at approve-each.

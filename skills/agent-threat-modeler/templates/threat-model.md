@@ -21,6 +21,7 @@ RT- tests. Every ID referenced anywhere must be defined in its table.
 | Scope | <agent(s), flows, environments in scope; what is out of scope> |
 | Principal | <the authenticated person or account the agent acts for, and how it is identified> |
 | Autonomy today | <e.g. drafts only / acts on reads, asks on writes / N/A (greenfield)> |
+| Rule of Two triage | <does any run hold private data, untrusted content and external action at once? Which leg is absent by design, or which flows need a cut or oversight> |
 | Assumptions | <every assumption made because an input was missing; findings that depend on one are tagged (assumed)> |
 
 ## 2. Worst outcomes (what must never happen)
@@ -66,6 +67,12 @@ flowchart LR
 
 <Edit to match the system. Mark where enforcement lives (file or service) and whether it exists or is planned.>
 
+STRIDE per element (fill for audits or multi-agent systems; one row per process, store and flow that crosses a boundary):
+
+| Element | Type | S | T | R | I | D | E | Threats |
+|---|---|---|---|---|---|---|---|---|
+| <tool result: fetch_page> | flow | | x | | x | | | <TH-01> |
+
 ## 5. Lethal trifecta check (per flow)
 
 | Flow | Private data? | Untrusted content? | External channel? | All three? | Leg to cut and how (C-ID) |
@@ -107,23 +114,34 @@ OWASP Agentic coverage: ASI01 <covered / gap / N/A: reason> · ASI02 <...> · ..
 |---|---|---|---|---|---|---|---|---|
 | C-01 | <single policy gate with default-deny allowlist> | existing / planned | TH-01, TH-04 | <service/file> | no | <role that can change gate mode or rules; alarm> | <~ms per call> | P0 |
 
-Group in this order: capability reduction · policy gate · credentials and identity · sandbox · injection containment ·
-memory · guardrails · oversight mechanisms (approval gate, hard limits, send queue, autonomy ladder, kill switch) ·
-detection and recovery.
+Group in this order: capability reduction · policy gate · access rules per action (permission tiers, scope ∩
+entitlements, separate identities, scope gate) · credentials and identity · MCP hardening · sandbox · injection
+containment · memory · guardrails · oversight mechanisms (approval gate, hard limits, send queue, autonomy ladder,
+kill switch) · detection and recovery.
+
+Guardrails (one row per check):
+
+| Check | Layer (prompt / screening / hard limit) | Applies to (input / tool output / output / call arguments) | On error (fail open / closed) | On fail action | Control (C-ID) |
+|---|---|---|---|---|---|
+| <injection scan on tool results> | screening | tool output | closed | <route to human> | <C-04> |
 
 ## 10. Human oversight plan
 
 ### Action tiers
 
-| Action | Tier | Handling | Hard limit (holds after yes) | Control (C-ID) | Reviewer | Promotion gate |
-|---|---|---|---|---|---|---|
-| <issue_refund> | irreversible | ask | <≤ $200> | <C-05 gate, C-06 cap> | <support lead> | <never above cap; under $50 after 300 clean cases> |
-| <reply to inbound sender> | external comms | draft-first / delayed send | <recipient class, content from this thread only> | <C-07 send queue> | <principal> | <per recipient class> |
+| Action | Tier | Permission tier | Handling | Hard limit (holds after yes) | Control (C-ID) | Reviewer | Promotion gate |
+|---|---|---|---|---|---|---|---|
+| <issue_refund> | irreversible | execute with approval | ask | <≤ $200> | <C-05 gate, C-06 cap> | <support lead> | <never above cap; under $50 after 300 clean cases> |
+| <reply to inbound sender> | external comms | draft-only | draft-first / delayed send | <recipient class, content from this thread only> | <C-07 send queue> | <principal> | <per recipient class> |
+
+Starting rung: <five-factor score (volume, variability, risk, judgment, action scope) and any factor scored 1>
 
 ### Approval gate and sends
 
 - States and deadline: <pending → approved / rejected / expired / escalated; deadline; on timeout → next approver → expire>
-- Execution: <separate step; keyed by approval ID; idempotency key downstream; revalidated at execution>
+- Execution: <separate step; keyed by the write's idempotency key from durable run state; approval ID stored with the intent and marked used in the same write; revalidated at execution>
+- Binding: <digest of the exact action and arguments, expiry, nonce; executor recomputes and refuses on mismatch>
+- Confirmation: <payload preview; confirm question naming action and target; agent asks instead when unsure of the target>
 - Sends: <draft-first or delayed send per action; window length and who watches the queue>
 - Reviewer view: <action and arguments → evidence → code reason → agent explanation (labelled)>
 - Escalation triggers: <deterministic list; uncertainty signal only if calibrated>
@@ -136,6 +154,9 @@ detection and recovery.
 | Test | Maps to | Technique class | Injection point | Expected trace property | Cadence |
 |---|---|---|---|---|---|
 | RT-01 | TH-01 / ASI01 | <indirect injection via email> | <inbound email> | <no egress after taint without approval record> | <every model/prompt/tool change> |
+
+Include: <ASI seed suite rows; authorization tests (same call under two identities); harness-level abuse tests agreed
+with agent-harness-designer; MCP deploy probes if in scope>.
 
 Drills: <kill switch, secret rotation, memory purge and restore>. Hand-off: dataset and graders to agent-eval-designer.
 

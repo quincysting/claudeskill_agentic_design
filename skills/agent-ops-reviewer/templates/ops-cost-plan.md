@@ -13,17 +13,20 @@ Date: <YYYY-MM-DD> · Prices as of <date>, source <URL> · Status: <draft | agre
 <text flow of the request path with model, p, calls, cap per step>
 ```
 
-| Task type | Max steps | Max tool calls | Max input tokens | Max retries | Timeout | Cost fuse/session | At the limit |
-|---|---|---|---|---|---|---|---|
+| Task type | Max model calls | Max plan steps | Max tool calls | Max tokens | Max retries | Timeout | Cost fuse/session | At the limit |
+|---|---|---|---|---|---|---|---|---|
+
+At the limit: <partial result with what was done, what was not, the receipts and the smallest unblocking question | degrade | go async>. Enforcement (checks before every call, counters in checkpointed state): agent-harness-designer.
 
 ## 3. Cost model
 
 - Tiers: <small = model, mid = model, …>, prices as of <date>
 - Per request: expected <$>, likely high (~p95) <$>, capped ceiling <$> (<ratio>x; a bound, not a forecast). With no caps: "UNBOUNDED now; <$> with proposed caps <list>".
+- Per successful run: <$> = (expected + <review minutes> × <$ per minute>) / <success rate>; human review <share>
 - Per month: <$> at expected volume; <$> at peak (expected × busiest day's volume × 30)
 - Per-step share: <steps, including non-model cost>
 - Inputs table: <each value marked measured or assumed>
-- Quality baseline: <eval set and version, pass rate with interval, cost per successful task>, or "none yet: build it first (agent-eval-designer); no lever below ships until it exists"
+- Quality baseline: <eval set and version, pass rate with interval, cost per successful run>, or "none yet: build it first (agent-eval-designer); no lever below ships until it exists"
 
 ### Levers, in order
 
@@ -69,7 +72,7 @@ Sampling: <rate, strata, always-captured classes> · Scorers: <cheapest first> �
 
 ## 11. Release and rollback
 
-<shadow (write tools stubbed), canary %, duration, rollback rule, session stickiness, kill switch>
+<shadow (write tools stubbed), canary %, duration, rollback triggers (success under the SLA, p95, duplicate side effects, cost per successful run, review minutes), session stickiness, kill switch levels (draft-only, abort) and how each is flipped without a redeploy>
 
 ## 12. Improvement loop
 
@@ -79,6 +82,8 @@ Sampling: <rate, strata, always-captured classes> · Scorers: <cheapest first> �
 
 | Agent or step | Data sensitivity | Load shape | Tier | Reason |
 |---|---|---|---|---|
+
+Serving design (API layer, workers, model server, streaming, deployment shape): <link to the agent-harness-designer doc | not yet designed>.
 
 Peak load per model (busiest day ÷ 1,440 × peak-hour factor <x>; default 3 = 24 h ÷ 8 busy hours, assumed until measured):
 

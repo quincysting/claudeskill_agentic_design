@@ -2,9 +2,11 @@
 
 Depth for Procedure steps 2 and 5. Citation keys are expanded in SKILL.md under Sources.
 
-Contents: 1 Information map · 2 Do you need long-term memory · 3 Types by update semantics · 4 Write policy · 5 Read policy · 6 Scope, privacy, deletion · 7 Consolidation and forgetting · 8 Threads, checkpoints and concurrent writers · 9 Multi-agent memory · 10 Agent-written notes and memory tools · 11 Poisoning (summary)
+Contents: 1 Information map (state, memory, knowledge) · 2 Do you need long-term memory · 3 Types by update semantics (temporal graph memory) · 4 Write policy (4.5 governed entry; 4.7 proposed and approved writes, expiry, correction) · 5 Read policy · 6 Scope, privacy, deletion · 7 Consolidation and forgetting · 8 Threads, checkpoints and concurrent writers · 9 Multi-agent memory · 10 Agent-written notes and memory tools · 11 Poisoning (summary)
 
 Keep three things apart. The **context window** is the input of one call. **Memory** is state outside the model that survives the call. **Context** is what you put in the window for this step. Storing something is not the same as putting it in the prompt [SYSTEMS ch9]. There are two decisions to design: what the assembler reads into each call, and what the write gate lets into durable memory.
+
+A second cut, by lifecycle, decides what may become memory at all [PRODGUIDE ch8]. **State** is what the current run tracks: goal, plan, payload previews, tool receipts, pending approvals, open questions. When the run ends it becomes the run record, which is evidence for debugging and evaluation, not memory (the run record belongs to agent-harness-designer). **Memory** is what is kept across runs to remove repeated friction: preferences, constraints, defaults and stable facts. **Knowledge** lives in documents and systems of record and is retrieved when needed, because it changes and retrieval brings provenance [PRODGUIDE ch8 §Memory Is a Tool With Consequences]. The read rule follows: consult memory for how the user wants things done, and retrieval for what is true [PRODGUIDE ch8 §A Memory Architecture That Scales Without Code]. Facts copied into memory go stale and lose their source, so the agent is wrong and still sounds right.
 
 ## 1. Information map: classify first, then route
 
@@ -45,6 +47,8 @@ Every book uses the episodic / semantic / procedural split, and they disagree at
 
 Store preferences as facts with an upsert rule [DEFGUIDE ch10], not as episodes [AGENTICAI ch7]. An episode log of every mention forces the model to reconcile contradictions at read time. Storage options: in-process (fast, lost on restart), database (exact, durable, no semantic match), vector store (semantic, approximate), or hybrid, which is the common production choice of exact records plus semantic projections [SYSTEMS ch9]. If memory is a handful of keyed categories plus a few recent notes, a key lookup is enough and a vector store adds nothing. Add one only when the number of items outgrows what you can inject or select by key. When a design spans several store types (a key/range store for threads, a graph, a search index, a relational source of record), choose each by its access pattern and give every item one home (retrieval-pipeline.md §5.1).
 
+**Temporal graph memory.** Semantic memory need not be key-value. A knowledge graph stores facts as (head, relation, tail) triplets, and a temporal graph also records when each fact held [KGRAG ch7 §A formal definition of graphs and knowledge graphs]. That suits memory about entities whose relations change (who owns which account, since when, and who owned it before). Give each edge a valid-from and valid-to instead of overwriting it, so supersession keeps the history and "as of" questions have an answer. The graph needs the same update, cleaning and deletion pipelines as any store [KGRAG ch7 §Knowledge hosting and deployment]; building one is in retrieval-pipeline.md §5.2. For free-form preferences, keyed records stay simpler.
+
 ## 4. Write policy
 
 ### 4.1 When to write (triggers)
@@ -74,12 +78,21 @@ The precision figures are one author's estimates with no stated method [DEFGUIDE
 5. Cap the total per user; when it's full, merge or evict the least used.
 6. Resolve known contradictions deterministically ("dark mode" against "light mode": newest wins) [DEFGUIDE ch10].
 
-### 4.5 Record schema
+### 4.5 The governed memory entry
+PRODGUIDE gives every long-term entry eight fields: key, value, category, source, confidence, last verified, TTL and sensitivity [PRODGUIDE ch8 §A Memory Architecture That Scales Without Code]. Combined with the hygiene fields above:
 ```
-memory_id, org_id, user_id, type (fact|episode|procedure), category/key, value,
-source (user_msg:<id> | tool:<name> | admin | consolidation), status (proposed|active|superseded|deleted),
-confidence, created_at, updated_at, expires_at, supersedes, last_retrieved_at, retrieval_count
+memory_id, org_id, user_id, type (fact|episode|procedure),
+key, value | value_ref, category (preference|constraint|default|stable_fact),
+source (user_confirmed:<msg_id> | approved_artifact:<id> | tool_receipt:<id> | tool:<name> | admin | consolidation),
+confidence (verified|inferred, or a classifier score), last_verified_at, ttl_days, expires_at,
+sensitivity (low|restricted|forbidden), status (proposed|active|superseded|expired|deleted),
+reason, created_at, updated_at, supersedes, last_retrieved_at, retrieval_count
 ```
+- **Category** selects the update rule (4.4) and the approval rule (4.7). Keep personal preferences apart from business defaults so one category doesn't pollute the other [PRODGUIDE ch8 §Memory Write Rules, Expiration, and Correction].
+- **Source and confidence** let the read path treat inferred entries with caution. An inferred entry never overrides a verified one.
+- **A TTL on every entry.** PRODGUIDE's examples run from 60 days for an owner map to 365 for a tone preference [PRODGUIDE ch8 §A Memory Architecture That Scales Without Code]. An expired entry counts as unknown: refresh it from the tool or document that owns it, or ask the user to confirm ("I have this as your default; is it still right?"). Never use it silently in the meantime [PRODGUIDE ch8 §Memory Write Rules, Expiration, and Correction].
+- **Sensitivity** `forbidden` means the value is never stored. Credentials, secrets, financial details and personal data stay out unless explicitly required and approved, and even then the entry holds a reference (`value_ref`: a record ID or link) instead of the raw value. Store an identifier or link instead of raw message content whenever that is enough [PRODGUIDE ch8 §Memory Write Rules, Expiration, and Correction].
+- **Reason** names the future friction the entry removes. An entry nobody can justify in one sentence ("this saves time later") is deleted at the next review.
 
 ### 4.6 Minimal write gate (pattern sketch)
 ```python
@@ -102,6 +115,16 @@ def upsert(store, session, fact):              # scope comes from the session, n
                  expect_version=old.version if old else 0)  # conditional: reload on conflict (section 8)
 ```
 
+### 4.7 Proposed and approved writes, expiry and correction
+Treat a memory write like a draft-first tool call: the agent proposes, and a person or a rule approves [PRODGUIDE ch8 §Memory Write Rules, Expiration, and Correction].
+- **Proposal.** A candidate that passes the gate (4.6) becomes a memory-update proposal: key, value, category, reason, source, TTL, sensitivity. It is easy to approve or reject and leaves a trail in the run record.
+- **Who approves.** Early on, a person approves every write. Automatic writes come later, per category, once that category's proposals are reliably right, and only for low-risk categories (formatting, units, language). Constraints, defaults that steer actions other people see, and restricted categories keep approval. A personal assistant learning low-risk preferences can skip it where approval prompts annoy more than they protect.
+- **Timing.** Save only after a decision is confirmed. A default the agent guessed because information was missing is not memory until the user confirms it; otherwise one-off assumptions become permanent behaviour.
+- **Correction.** "Don't do that anymore" becomes a proposal that shows the current entry, the new value and its TTL. After approval the old entry is superseded (4.4), the agent confirms the change, and later behaviour follows it.
+- **Keep it small.** PLAYBOOK asks four questions of every item (what is stored, who may update it, how long it lasts, when it is reviewed) and one test: what task does this memory improve next time [PLAYBOOK ch4 §Memory: What to Keep, What to Let Go]. A periodic review prunes unused entries and refreshes expired ones.
+
+The gate decides what becomes a candidate; the proposal decides what becomes memory. This complements the automatic hygiene in 4.4 rather than replacing it.
+
 ## 5. Read policy
 
 - Inject only the memory this decision needs, not the full stored history. Retrieval from memory is a filtering problem: what is relevant now, what is too old or weak, what should be summarised first, and what stays stored but out of the prompt [SYSTEMS ch9].
@@ -123,6 +146,7 @@ def upsert(store, session, fact):              # scope comes from the session, n
 | Embedding index rows | Delete by `memory_id` |
 | Derived summaries, consolidated profiles | Recompute without the item |
 | Sanitised cards built from deleted source records (tickets, email) | Delete the card or regenerate it from the remaining records (retrieval-pipeline.md §2.6) |
+| Graph nodes and edges extracted from deleted items | Delete by source link, which needs traceability from every triplet to its source (retrieval-pipeline.md §5.2) |
 | Thread checkpoints and transcripts | Redact or expire per retention policy |
 | Retrieval and answer caches | Invalidate by user scope |
 | Logs, traces, eval datasets | Retention policy; redact on request |
@@ -176,8 +200,9 @@ Pass a sub-agent the current task brief, not the parent's history. Choose its pe
 
 - Giving the agent a write tool (an evidence log, a notes file, a memory directory) works for long tasks that span context resets, and for tasks that repeat [BUILDAGENTIC ch4 §Experiment: The Extended Mind Thesis and Agentic Memory]. Every note is an unreviewed model output, so add validation, provenance, size caps, expiry, and an edit/delete path.
 - A file-based memory tool also needs path-traversal checks and sensitive-data stripping, which provider memory tools leave to the application (provider-notes.md).
+- **Notes that other agents will read.** Ng's coding agents save workaround notes when documentation falls short, and his plan is for agents to share feedback on documentation with other agents, with an opt-out ([NG Context for Coding Agents, 2026-03-09]; [NG Let's Help Agents Share Their Work, 2026-03-16]). The control that follows is derived, not Ng's claim: a note one agent writes and another reads as context is an injection channel. Review shared notes before other agents read them, store each with its author, source and status, and render it fenced and labelled like any other source (context-assembly.md §9).
 - **Memory tools take their scope from the request, not the model.** When memory is exposed as tools (a memory server over a tool protocol, a memory API the agent calls), the server binds the scope keys (tenant, user, session) and the author role from the authenticated request context. They are not tool parameters. A model-chosen session key is a cross-session read path, and a model-chosen role lets an injected instruction write a forged user turn that later reads back as the user's own words. The model writes only as itself (an assistant note or a `proposed` fact); the application writes user turns from the actual user message. Test it: call the read tool with another session's ID and expect a refusal. Tool interface rules belong to agent-tool-designer.
 
 ## 11. Poisoning (summary; threat model → agent-threat-modeler)
 
-Untrusted content gets written to memory and comes back later as trusted context. Agents that write and retrieve memory aggressively are easier to exploit, and prompt-injection defences don't fully cover this path [DEFGUIDE ch10]. The minimum controls belong in any memory design: provenance on every record, no automatic promotion from tool, web or document text, validation before write, monitoring for unusual write volume or content, and treating read-back memory as data, not instructions. Hand attack trees, red-team cases and cross-session exploitation to agent-threat-modeler.
+Untrusted content gets written to memory and comes back later as trusted context. Agents that write and retrieve memory aggressively are easier to exploit, and prompt-injection defences don't fully cover this path [DEFGUIDE ch10]. The minimum controls belong in any memory design: provenance on every record, no automatic promotion from tool, web or document text, validation before write, monitoring for unusual write volume or content, and treating read-back memory as data, not instructions: fenced and labelled with the provenance it was stored with (context-assembly.md §9). Hand attack trees, red-team cases and cross-session exploitation to agent-threat-modeler.

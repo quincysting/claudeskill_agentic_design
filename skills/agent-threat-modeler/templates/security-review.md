@@ -29,13 +29,15 @@ flowchart LR
   %% sources -> context -> model -> (where is enforcement?) -> tools / memory / egress
 ```
 
-| Tool / action | Side-effect class | Data reached | Credential | Brings untrusted content? | Gate today |
-|---|---|---|---|---|---|
+| Tool / action | Side-effect class | Permission tier today | Data reached | Credential | Brings untrusted content? | Gate today |
+|---|---|---|---|---|---|---|
 
 Untrusted inputs: <list every source that reaches the context>
 
 Entry points: <every endpoint, alias and deployed version that can invoke the agent, read from the live config; the
 authenticator on each; who can call each tool backend directly>
+
+Rule of Two triage: <can one run hold private data, untrusted content and external action at once?>
 
 ## Trifecta check (Step 5)
 
@@ -54,13 +56,22 @@ Order by priority, then by impact. One block per finding.
 - **Fix:** <concrete change, where it goes; small snippet if it encodes the pattern>
 - **Effort:** <S / M / L>
 
+## Guardrails as built (Step 9)
+
+| Check | Layer | Applies to | Declared on error | Releases output before verdict? | Finding (F-ID) |
+|---|---|---|---|---|---|
+
+MCP hardening (if in scope): <server::name resolution, definition pinning per session, token pipeline and exchange,
+front door and anonymous probe, consent, sampling/elicitation/roots, runtime defaults: what exists, what is missing>
+
 ## Oversight review (Step 10)
 
 | Action | Current handling | Should be | Hard limit | Fix (F-ID) | Gap |
 |---|---|---|---|---|---|
 
-Approval mechanics: <side effects separated from interrupt? keyed execution? deadline and silence rule? edits re-checked?
-reviewer view order? approvals per day vs reviewer time?>
+Approval mechanics: <side effects separated from interrupt? keyed execution? bound to a digest of the exact arguments,
+an expiry and a nonce? deadline and silence rule? edits re-checked? payload preview and confirm question? reviewer view
+order? approvals per day vs reviewer time?>
 Sends: <who is the principal; draft-first or delayed send for messages to anyone else, incl. invites and notifications>
 Autonomy ladder: <current rung per action class; promotion metric; demotion rule>
 Stop control: <exists? server-side? remote? tested?>
@@ -77,6 +88,9 @@ Stop control: <exists? server-side? remote? tested?>
 
 | Test | Maps to | Technique class | Injection point | Expected trace property |
 |---|---|---|---|---|
+
+Include: <ASI seeds; same call under two identities; harness-level abuse tests (agent-harness-designer); MCP deploy
+probes if in scope>.
 
 Drills: <kill switch, secret rotation, memory purge and restore>. Hand-off: datasets and graders to agent-eval-designer.
 

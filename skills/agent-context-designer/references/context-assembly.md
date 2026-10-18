@@ -2,7 +2,7 @@
 
 Depth for Procedure steps 6-7. Citation keys are expanded in SKILL.md under Sources.
 
-Contents: 1 Per-call inventory · 2 Token budget · 3 Layout for caching · 4 History control and compaction · 5 Tool results and tool definitions · 6 Sub-agent isolation · 7 Long-running tasks · 8 Context observability
+Contents: 1 Per-call inventory · 2 Token budget · 3 Layout for caching · 4 History control and compaction · 5 Tool results and tool definitions · 6 Sub-agent isolation · 7 Long-running tasks · 8 Context observability · 9 Fence and label each source
 
 Context is rebuilt at every step, not accumulated by accident [BUILDAPPS ch5 §Context Engineering]. The operations: **track** everything that might matter later; **select** what this step needs; **compress**; **order**; **isolate** sub-tasks; **budget** each part; **lay out for the cache** ([ILLUSTRATED ch4]; [ILLUSTRATED ch10 §Context Management]; [SYSTEMS ch12 §12.9 Token Budgeting]). The target is the smallest context that supports a grounded answer, not the size of the window [SYSTEMS ch12 §12.9 Token Budgeting].
 
@@ -99,6 +99,7 @@ Providers reuse computation for a prompt prefix they have already seen. That wor
 - **What a change costs.** A change at one position invalidates every token after it. On the next call, one change costs roughly (tokens after the change) × (write_mult − read_mult). A change to the per-user stable block therefore re-bills about the whole history once. That is acceptable when it happens no more often than compaction, which rewrites history anyway. Anything that changes every turn belongs in the volatile tail. Check with the cache-read share per call.
 - **Per-user data that changes mid-session.** Another tab or device can write a preference or note while this session runs. Don't reload the per-user block every turn: each reload re-bills the whole history after it. Keep the session-start snapshot in the per-user block, render what changed since then as a short delta in the volatile tail, and fold the delta into a new snapshot at compaction or the next session.
 - Put per-step injected material at the **tail**. If you drop it next turn, only the tail's cache is lost. For evidence that code injects each turn: on the next turn, replace the chunk text with a one-line citation note (doc IDs) in history and retrieve fresh. Keeping every turn's chunks makes history grow fast; dropping them without a note loses what earlier answers were based on.
+- Every block in the layout is fenced and labelled with its origin when it enters (section 9). Keep the fence format deterministic so the labels don't break the cache.
 
 **Cache breakers to look for in a review:**
 
@@ -151,7 +152,7 @@ Chat agents switch problems mid-conversation and re-suggest fixes the user alrea
 - **Compaction.** Keep the ledger and the current-task line verbatim; never summarise them. If the ledger outgrows its cap, collapse finished or abandoned branches to one line each.
 - **Ledger and progress record.** Both follow the same pattern. The long-run progress record (section 7) tracks the plan: what comes next. The ledger tracks what was tried: what not to repeat. A long run can have both.
 
-**Constraints never live only in compactable context.** In one reported incident, an agent told to confirm before acting deleted over two hundred emails, most likely because compaction dropped the "wait for approval" instruction [ENTERPRISE ch7]. Put rules in the never-compacted prefix so the model follows them, and enforce the costly ones in code (approval gates, tool permissions), where compaction can't remove them.
+**Constraints never live only in compactable context.** In one reported incident, an agent told to confirm before acting deleted over two hundred emails, most likely because compaction dropped the "wait for approval" instruction [ENTERPRISE ch7]. Put rules in the never-compacted prefix so the model follows them, and enforce the costly ones in code (approval gates, tool permissions), where compaction can't remove them. The same holds for decisions and corrections made during a run. Because coding agents can forget after compaction, Ng has his agent record key decisions in a spec file, and when he asks for a fix he also has it update the spec and test plan, so the stopping check covers the problem from then on [NG Make All Your Tokens (and Your Brainwork) Count, 2026-07-10]. For long runs, a correction is done when it is in the persisted progress record or spec and in the check that ends the run, not only in the conversation.
 
 ## 5. Tool results and tool definitions
 
@@ -189,6 +190,27 @@ Log per model call:
 - input tokens per bucket; output tokens; cache-read and cache-write tokens;
 - IDs and scores of injected evidence and memory items, and why each was selected [SYSTEMS ch9];
 - compaction and clearing events: when, tokens before and after, what was dropped;
-- prompt template version and tool-set hash, so you can explain a sudden cache-hit drop.
+- prompt template version and tool-set hash, so you can explain a sudden cache-hit drop;
+- the origin and trust label of each injected block (section 9).
 
 These let you answer "why did the agent say that?" and "why did cost double?" from the trace instead of guessing. Dashboards and alerting go to agent-ops-reviewer.
+
+## 9. Fence and label each source
+
+The model reads the system prompt, tool descriptions, tool output, retrieved text, recalled memory and user messages as one body of guidance, so a line in one block can steer another. That blending is also what lets an agent reason across sources, so label the sources instead of separating them [HARDMCP ch6 §One Context, Every Source Blended].
+
+- **Fence.** Render each source in a bounded section that carries its origin (system, user, tool, retrieved document, memory, another agent), its ID and a trust label. For evidence, the label is the trust tier (retrieval-pipeline.md §3.4).
+- **Label on entry, never later.** Attach provenance when content enters the context. A block that loses its origin can't regain it, and an unlabelled paragraph inherits the trust of whatever surrounds it. Clear stale content once its task is done [HARDMCP ch6 §Fencing and Labeling Each Source].
+- **The labels feed code, not a request to the model.** The rule that uses them is a provenance gate: a tool call whose trigger traces to content the agent read, rather than to the user's request, is refused [HARDMCP ch6 §Blocking Actions Triggered by Content]. agent-threat-modeler specifies the gate (its guardrails reference), the egress allowlist that pairs with it, and the red-team cases. This skill's job is that every block arrives labelled, so the gate has something to check.
+- **Recalled memory and agent-written notes are sources too.** Render them with the provenance they were stored with (source, author, status, last verified; memory-design.md §4.5), in the volatile tail and never inside the instructions. An entry that came from a tool receipt keeps that label when it is read back weeks later. Notes one agent writes for another get the same treatment (memory-design.md §10).
+- **Deterministic format.** Fixed tag names and attribute order, so the labels themselves never break the cache (section 3).
+
+```
+<source id="kb:refund-policy#3" kind="retrieved" trust="official" as_of="2026-09-30">
+...chunk text...
+</source>
+<source id="mem:42" kind="memory" origin="user_confirmed" last_verified="2026-08-02">
+prefers email for case updates
+</source>
+```
+The tag names are an example. The requirement is that code attaches origin and trust at assembly time, from the record's metadata, and the model never writes them.

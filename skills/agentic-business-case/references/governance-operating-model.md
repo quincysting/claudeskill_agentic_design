@@ -34,6 +34,18 @@ Principles to open the operating model with: humans remain accountable; autonomy
 
 Runtime traces live in the observability store, linked to the registry by agent ID and version.
 
+**Govern the catalogue by its decisions.** The action catalog and the MCP subregistry stay consistent without turning into a queue if governance targets decisions rather than artifacts. APIMGMT splits each decision into six elements: inception, choice generation, selection, authorization, implementation and challenge [APIMGMT ch2]. Centralize an element when a bad local choice would hurt the whole estate irreversibly, or when consistency matters more than local fit; leave the rest to teams. Enforce the centralized decisions; steer the decentralized ones with incentives, for example by making the governed path the fastest one [APIMGMT ch2]. A starting decision map:
+
+| Catalogue decision | Centralized (platform team) | Left to teams | Enforce or incentivize |
+|---|---|---|---|
+| Which servers and tools agents may reach | Vetting and the allowlist | Proposing additions | Enforce: the gateway refuses anything unlisted |
+| Error format, failure categories, naming, namespaces | The convention; namespace allocation | Names and implementation inside the convention | Enforce: lint in CI; the registry rejects collisions |
+| Permission tier of a write action | The tier list; authorizing a tier | Proposing it | Enforce: review before publish |
+| Which tools a team builds | Only the duplicate check against the catalogue | Everything else | Incentivize: templates, shared actions as the fast path |
+| Retiring a version | Authorization and the date | Migration plans | Enforce the date; reward early moves |
+
+Of APIMGMT's three governance patterns (a design authority that can stop releases, experts embedded in teams, self-governance steered by a "golden path") [APIMGMT ch2], a small platform team usually starts with the golden path and adds a design authority for write tools. Each centralized decision ends as a check that the pipeline, registry or gateway runs, the same rule as for committee decisions (§5). The catalogue's inventory, lifecycle stages, unique server::name naming and retirement mechanics belong to agent-tool-designer (its catalog-governance reference); this file decides who holds each decision.
+
 **Agent registry minimum schema** (MESH ch9's entity model plus the governance fields spread across MESH and ENTERPRISE):
 
 | Field | Why |
@@ -55,6 +67,8 @@ MESH lists what a production registry still needs: schema evolution, change even
 **Standards status (as of 2026-10).** No standard agent registry exists, so keep the schema your own. The official MCP Registry is in preview, holds metadata only, and recommends running a private registry on its OpenAPI spec ([MCP Registry](https://modelcontextprotocol.io/registry/about), external). A2A publishes Agent Cards but "does not prescribe a standard API for curated registries" ([A2A agent discovery](https://a2a-protocol.org/latest/topics/agent-discovery/), external). NIST's NCCoE concept paper on agent identity (Feb 2026) drew comments that mostly favour composing existing standards: OAuth 2.0, token exchange, SPIFFE/SPIRE, WIMSE, MCP, A2A, Verifiable Credentials ([NIST NCCoE](https://csrc.nist.gov/pubs/other/2026/02/05/accelerating-the-adoption-of-software-and-ai-agent/ipd), external).
 
 ## 3. Risk tiers and certification weight
+
+**Tier the application, not the model.** Ng's scoping rule, which he credits to Narayanan and Kapoor: safety is a property of applications, not of technologies or models. Whether a blender is safe can't be judged by examining its motor [NG Blenders Versus Bombs, or Why California's Proposed AI Law is Bad for Everyone, 2024-06-05]. Risk review therefore attaches to the registered use case (purpose, tools, data, decision rights, who is affected), and the same model can sit inside a T0 summariser and a T3 credit agent. A model's safety rating or a provider's refusal policy doesn't settle the review; the controls go in the application's harness, tools and gateway (agent-threat-modeler). A model change still triggers recertification, because the application's behaviour changes with it.
 
 How heavy governance should be is disputed. MESH is heaviest: seven trust layers and UL-style certification [MESH ch12], [MESH ch5]. BUILDAPPS wants it "lightweight and flexible" [BUILDAPPS ch1]. **Verdict: tier it.** No book measures what its process costs or prevents. Use capability tiers [ENTERPRISE ch8], which MESH itself allows for low-risk agents [MESH ch5]. The classes below merge ENTERPRISE ch8, SYSTEMS ch18 (read-only; drafting for approval; executing low-risk tasks; blocked from sensitive systems) and MESH ch13's policy catalog.
 
@@ -113,7 +127,7 @@ Four areas, each with a named owner [ENTERPRISE ch7]: business purpose and outco
 
 All five are enforced as hard rules in orchestration and tools, not left to the model. Natural-language policy is not a control: ENTERPRISE reports an agent that deleted over two hundred emails after context compression likely dropped its "wait for approval" instruction [ENTERPRISE ch7]. Write policies in plain language for people and tests; enforce them in code.
 
-Liability stays with the deploying organisation, its decision-makers and vendors. Agents are tools, not legal persons. Use contracts that allocate responsibility, documented oversight, audit logs and insurance [ENTERPRISE ch4].
+Liability stays with the deploying organisation, its decision-makers and vendors. Agents are tools, not legal persons. Use contracts that allocate responsibility, documented oversight, audit logs and insurance [ENTERPRISE ch4]. Ng takes the same line: whoever directs an agent answers for what it does, as with a hammer, and he rejects AI companies disclaiming responsibility for their own products [NG Who's Responsible for Irresponsible AI?, 2026-09-18].
 
 ## 5. Operating model
 
@@ -157,6 +171,7 @@ At intake, reject tasks a plain program does better, such as anything needing ex
 - **Data and tools** in formats and accounts you control; tool contracts on open protocols (MCP) behind your gateway.
 - **Evaluation assets export**: datasets, annotations with provenance, per-case results, scorer configs, without the vendor's tool [EVALS ch12].
 - Orchestration vendors all want to be "the layer your agents cannot do without" [ENTERPRISE ch8]. Apply the same scrutiny there.
+- **Keep a second model path for sensitive work.** Ng recounts a 2026 incident in which a hosted model refused, on safety grounds, to analyse the victim's attack logs, and an open-weight model run in-house did the analysis without sending logs or credentials to a third party (details were still emerging when he wrote) [NG When Guardrails Go Wrong, 2026-07-24]. Where agents handle incident forensics or similarly sensitive data, keep a model you can run on your own infrastructure in the approved set.
 - Test: could you move one agent to another provider within a sprint, prompts and evals included?
 - Cost of neutrality: a gateway adds milliseconds and some tokens. That's small for most workflows and a hard constraint for real-time scoring, so measure it [ENTERPRISE ch8]. Keep inline checks deterministic and write traces asynchronously.
 

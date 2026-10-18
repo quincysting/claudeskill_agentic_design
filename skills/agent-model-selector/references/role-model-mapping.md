@@ -9,7 +9,7 @@ How to staff each role in an agent with a model class and a reasoning-effort set
 4. Reasoning effort per role
 5. Calibration and confidence-based routing
 6. Open versus closed weights
-7. Cost per successful task, not per call
+7. Cost per solved task, not per call
 8. Encoders and long inputs
 
 ## 1. Role catalogue
@@ -52,7 +52,9 @@ A small model (or a fine-tuned encoder) is likely enough when most of these hold
 
 Keep a frontier model when the step must handle ambiguity, long-horizon planning, rare long-tail inputs, long documents with cross-references, or final user-facing answers where a mistake is costly.
 
-Watch the hidden cost: a cheap model that emits invalid tool arguments or weak classifications can spend more in retries, repairs and escalations than it saves on the first call. Always compare cost per successful task (section 7).
+Before settling on a frontier model for a role whose output a program can check (tests, a validator, a schema), put the smaller model inside an iterate-and-check loop and bake off both configurations on cost and latency per solved task, not on accuracy alone (`bakeoff-protocol.md` §3).
+
+Watch the hidden cost: a cheap model that emits invalid tool arguments or weak classifications can spend more in retries, repairs and escalations than it saves on the first call. Always compare cost per solved task (section 7).
 
 Small-model conversion loop for an existing agent (after the NVIDIA small-language-model paper and the log-label-tune-distil lifecycle in *The Agentic Enterprise*):
 1. Log every model call with role, input, output and outcome.
@@ -103,16 +105,19 @@ If any role routes, escalates or auto-approves on a confidence threshold, the th
 
 Open models' main advantage is transparency and control (weights, logits, any training method), not automatic cost savings; self-hosting has overhead. A common path: managed models while the system takes shape, then in-house open models for the roles where control, customisation or data isolation justify the operations work. Check licences: "open" usually means open weights only, and some licences that allow commercial use still exclude named use cases. Some providers' terms forbid using their outputs to train competing models, which matters for distillation.
 
-## 7. Cost per successful task, not per call
-8. Encoders and long inputs
+**Lock-in sits in the framework more than in the model.** Switching model providers costs a few lines of code, while switching orchestration frameworks after an agent is built on one is a lot of work [NG The Falling Cost of Building AI Applications, 2024-12-04]. Treat the model choice as the reversible decision it is: keep calls behind a thin provider layer (`bakeoff-protocol.md` §4) and avoid leaning on one provider's request features where a portable option exists. Give the framework choice the lock-in review instead; that decision belongs to agent-harness-designer.
+
+## 7. Cost per solved task, not per call
 
 Compare candidates on:
 
 ```
-cost_per_success = (total spend on the eval run, including retries, reasoning tokens and judge calls) / (tasks that met the role's success definition)
+cost_per_solved_task = (total spend for the configuration on the eval run, including retries, repairs, escalation calls, reasoning tokens and judge calls that are part of the production loop) / (tasks that met the role's success definition)
 ```
 
-and on p95 latency including retries. Add a rough cost for each failure that escapes (human repair, escalation, refund) when that dominates. A model at one fifth of the token price that needs two retries and causes extra escalations may cost more per success than the expensive model.
+and on p95 latency including retries. This is the one cost term this skill uses, defined here only. It covers model and tool spend at configuration level and leaves out human review minutes. When the variants differ in review time (one needs longer human checks or more cleanup), compare them on agent-ops-reviewer's cost per successful run instead, which prices review minutes in (cost-latency.md §2, step 8, in that skill). Add a rough cost for each failure that escapes (human repair, escalation, refund) when that dominates. A model at one fifth of the token price that needs two retries and causes extra escalations may cost more per solved task than the expensive model.
+
+In agentic systems the number that moves cost is tokens per task. A run that reflects, plans, calls tools or coordinates agents can generate hundreds of thousands of tokens before the user sees anything, so fast token generation matters for latency as well as for spend, and faster, cheaper tokens also make evals cheaper to run [NG Why We Need More Compute for Inference, 2024-04-24]. Record input, output and reasoning tokens per solved task for each role and configuration: a model with a lower price per token that takes more turns, longer reasoning or more loop rounds can cost more per task. For multi-call roles, put output speed (tokens per second at p95) in the latency budget. Once the system runs at scale, keep cost per unit of work (per query, per conversation) on a dashboard [NG What Comes After Tokenmaxxing?, 2026-08-07]; agent-ops-reviewer owns that dashboard.
 
 ## 8. Encoders and long inputs
 

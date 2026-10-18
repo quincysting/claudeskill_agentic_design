@@ -4,7 +4,7 @@ Date: <YYYY-MM-DD> · Reviewer: <name> · Scope: <launch | scale-up to N/day | p
 
 ## Verdict
 
-**<Ready | Ready with conditions | Not ready>**: <one sentence: the deciding blockers or gaps>.
+**<Ready | Ready with conditions | Not ready>**: <one sentence: the deciding blockers or gaps>. Run gate: <pass | fails on rows …>.
 
 <When evidence is missing (checklist, "Missing evidence"): **Provisional <verdict>**. Floor <x%> (unverified items at 0) gives <verdict>; ceiling <y%> (unverified items at 2) gives <verdict>. Unverified blockers: <IDs>. A blocker seen at 0 keeps "Not ready" firm.>
 
@@ -34,6 +34,21 @@ Date: <YYYY-MM-DD> · Reviewer: <name> · Scope: <launch | scale-up to N/day | p
 | ID | Blocker | Score | Tag (seen, told, U) | Evidence | Fix (P0) |
 |---|---|---|---|---|---|
 
+## Run gate
+
+Before rollout stage: <internal | limited beta | monitored scale>. A row passes when every item it maps to scores 2, seen; each failing row is a P0 fix.
+
+| Row | Items (scores) | Pass or fail | Evidence | Fix |
+|---|---|---|---|---|
+| 1. Run record | B8 | | | |
+| 2. Idempotent side effects | A4 | | | |
+| 3. Tiers, approval, kill switch | G5, G7 | | | |
+| 4. Redaction and retention | C1, C4 | | | |
+| 5. Safe-mode replay | G1, G8 | | | |
+| 6. KPIs and reruns | I9, F3 | | | |
+| Monitoring live | B1, D3, D7 | | | |
+| Autonomy expansion | written conditions, owner | <written and owned | missing> | | handed to agent-threat-modeler |
+
 ## Scorecard
 
 | Area | Points | Max | % | Biggest gap |
@@ -48,9 +63,10 @@ Date: <YYYY-MM-DD> · Reviewer: <name> · Scope: <launch | scale-up to N/day | p
 | H. Improvement loop | | | | |
 | I. Cost and latency | | | | |
 | J. Deployment and capacity | | | | |
+| K. Servers and supply chain | | | | |
 | **Total** | | | | |
 
-<N/A items are left out of Max, with the reason in the item table (J4 on managed APIs; G1 with no write tools).>
+<N/A items are left out of Max, with the reason in the item table (J4 on managed APIs; G1 with no write tools; K1 when nothing listens locally).>
 
 <details><summary>Item scores</summary>
 
@@ -63,10 +79,11 @@ Date: <YYYY-MM-DD> · Reviewer: <name> · Scope: <launch | scale-up to N/day | p
 
 Prices as of <date>, source <URL>; tiers: <small = model, mid = model, …>.
 - Per request: expected <$>, likely high (~p95) <$>, capped ceiling <$> (<ratio>x expected; a bound, not a forecast). With no caps: "UNBOUNDED now; <$> with proposed caps <list>".
+- Per successful run: <$> at <success rate> success, <review minutes> of review at <$ per minute> (human review <share>), or "not computed: <missing inputs>".
 - Per month: <$> at <N>/day expected; <$> at peak (expected × busiest day's volume × 30).
 - Per-step share: <top steps>. Latency: <p50/p95 measured or estimated>. Gap to target: <…>.
 - Peak load per model at peak-hour factor <x> (default 3 = 24 h ÷ 8 busy hours, assumed until measured): <calls, uncached input and output tokens per minute> vs provider limits.
-- Quality baseline for cost levers: <eval set, pass rate with interval, cost per successful task> or "none yet: build it first (agent-eval-designer)".
+- Quality baseline for cost levers: <eval set, pass rate with interval, cost per successful run> or "none yet: build it first (agent-eval-designer)".
 
 ## Prioritised fixes
 
@@ -78,7 +95,7 @@ Prices as of <date>, source <URL>; tiers: <small = model, mid = model, …>.
 
 ## Handed to sibling skills
 
-- <agent-architect | agent-eval-designer | agent-threat-modeler | agent-model-selector | agent-context-designer | agent-tool-designer | agentic-business-case>: <what and why>
+- <agent-architect | agent-harness-designer | agent-eval-designer | agent-threat-modeler | agent-model-selector | agent-context-designer | agent-tool-designer | agentic-business-case>: <what and why>
 
 ## Measure next
 

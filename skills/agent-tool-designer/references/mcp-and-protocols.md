@@ -43,7 +43,8 @@ Nothing enforces the controller column: a client may call anything. Design for t
 - [ ] Tools cut from agent stories and namespaced; a modest number of active tools (the MCP book warns at 12-20 [MCP ch5]); users also run other servers.
 - [ ] Deterministic tool order; cache hints set if the list is stable.
 - [ ] Inputs typed and validated by the SDK from the same type the handler reads (no hand-maintained schema beside the code), plus business validation and state checks in the handler. For each output type, an output schema with structured content and a text rendering.
-- [ ] Errors: model-fixable and business-rule failures as tool errors with readable messages; protocol errors only for unknown tool, malformed request, missing client capability. Check how your SDK maps exceptions: in Python SDK v2 only `ToolError` text reaches the model.
+- [ ] Results in one envelope (tool-contracts §3): receipts for writes, wrapped collections, opaque IDs, and state-dependent next actions in results, never by changing `tools/list`.
+- [ ] Errors: model-fixable and business-rule failures as tool errors with readable messages and a problem-details body with a category (tool-contracts §4); protocol errors only for unknown tool, malformed request, missing client capability. Check how your SDK maps exceptions: in Python SDK v2 only `ToolError` text reaches the model.
 - [ ] No per-connection state. Cross-call state through explicit handles that are authorised on every call.
 - [ ] Side-effecting tools idempotent under re-sent requests.
 - [ ] Confirmations through elicitation; secrets, payments and third-party consent through URL-mode elicitation only.
@@ -56,13 +57,23 @@ Nothing enforces the controller column: a client may call anything. Design for t
 - [ ] No token pass-through: the server holds its own downstream credentials [MCP ch7].
 - [ ] No deprecated features in new code (sampling, roots, protocol logging).
 - [ ] Tested in an inspector, with automated tests on the critical paths and a tool-choice eval run against several models, since a server author does not pick the user's model [MCP ch7]. Tests run with the credentials and token scopes real callers have, not an admin's.
-- [ ] One supported install path: a remote URL, a registry entry, a container image or a bundle [MCP ch7].
+- [ ] One supported install path: a remote URL, a registry entry, a container image or a bundle [MCP ch7]. Registered in the catalogue with an owner, a version and a namespace; changes follow tool-contracts §8 and retirement follows catalog-governance §5.
 
 **Gating by state on a stateless protocol.** A 2026-07-28 server must not vary `tools/list` per connection or as a side effect of earlier requests. It may vary the list by the authorization on the request. So:
 - *Permission tiers* (read-only vs can-refund) map to OAuth scopes. The list shows what the token allows, and step-up authorization unlocks more.
 - *Workflow order* (look up before refund) cannot be expressed by hiding tools. The handler re-checks the precondition from the backend and returns a tool error naming the missing step.
 - A server-wide list change (`list_changed`) reaches every subscribed client. It is for deploys and feature flags, not for one user's progress.
 - *Per-task exposure* is possible only where the tool list is assembled per turn: in a host or client you run, which can hand the model a subset of a server's tools. Older stateful revisions (2025-11-25 and earlier) let a server change one session's list, but an SDK v2 server also serves stateless clients, so do not build workflow order on it.
+
+**Discovery happens in three layers.** Each answers a different question and changes at a different rate:
+
+| Layer | Question it answers | Changes when | Where it lives |
+|---|---|---|---|
+| Catalogue | Which servers exist, and which are approved here? | A server is published, approved or retired | Registry, private subregistry, gateway [MCP ch9] |
+| Tool list | What may this caller ever invoke on this server? | A deploy, or the caller's authorization | `tools/list` and list-changed notifications |
+| Result | What makes sense next, in this state? | Every call | `next_actions` in the tool result [RESTCOOK ch3 §3.5], [RESTCOOK ch4 §4.9] |
+
+A server that adds `refund_approve` to its list once a refund is pending breaks the middle layer's rule, defeats caching and pinned definitions, and gives two replicas two answers. Put the actions that are valid now in the result instead (tool-contracts §10). The outer layer has its own gap: the MCP Registry holds metadata and package pointers, not liveness, so checking that a catalogued server is up is the gateway's job [MCP ch9 §MCP Registry], [RESTCOOK ch5 §5.13]. Running the catalogue is in catalog-governance.md.
 
 **Approval inside a tool call.** Use form-mode elicitation through the SDK's input mechanism. In Python SDK v2 that is a resolver-filled parameter hidden from the model's schema (code in current facts). Three rules:
 1. Decide in the resolver, from the arguments, whether to ask at all (small amounts can pass without a prompt).
@@ -125,12 +136,14 @@ The protocol identifies the client application and binds tokens to a server. It 
 
 ## §6 Client and host design
 
-- [ ] One client per server; tools namespaced per server so one server cannot shadow another's tool [MCP ch4].
+- [ ] One client per server; tools namespaced by a server identity the host assigns from its own configuration, never `serverInfo.name` (it need not be unique), and resolved as `server::name` so one server cannot shadow another's tool [MCP ch4], [HARDMCP ch9]. Approved definitions hashed and rechecked every session [HARDMCP ch4]; pinning detail in agent-threat-modeler.
 - [ ] Translate MCP tool names to the model API's allowed characters (some APIs reject the dots MCP allows) and keep a reverse map.
-- [ ] Show users new tool definitions and get consent before first use; re-ask whenever the server's list changes [MCP ch4].
+- [ ] Get the user's consent to new tool definitions before first use [MCP ch4], then keep consent rare: group related scopes into one decision, default to deny, remember grants, and diff definitions in code every session and on every list-changed notification. Only a diff that adds a tool, widens a scope or changes a sensitive definition (signing, payments, email, auth) goes to a person; log the rest [HARDMCP ch8], [HARDMCP ch4]. A prompt that fires many times a day trains people to click Allow without reading [HARDMCP ch8].
 - [ ] Treat descriptions, annotations and results as untrusted input. Never base trust decisions on annotations from servers you do not control.
-- [ ] Show the inputs of sensitive calls to the user before sending; confirmation UI names the server that is asking.
-- [ ] Handle elicitation accept, decline and cancel; let the user cancel at any time; never collect secrets through form mode.
+- [ ] Show tool inputs to the user before calling the server, confirm sensitive operations, and keep a person able to deny any call (spec); confirmation UI names the server that is asking.
+- [ ] Elicitation duties under the 2026-07-28 spec: name the requesting server; offer decline and cancel and handle all three answers; let the user review and edit form answers before they are sent; in URL mode show the full URL and its domain, never pre-fetch it, and open it only after explicit consent; never collect secrets, payments or credentials through form mode. Servers bind each elicitation to the client and user it was issued for (current facts). A 2026-07-28 server can elicit only inside a result for a client request; with 2025-11-25 servers, which send `elicitation/create` themselves, drop prompts no request asked for [HARDMCP ch9].
+- [ ] Carry `isError` and `structuredContent` through to the model API and the harness; test it with a forced failure (tool-design-rules §5).
+- [ ] Fetch server-supplied URLs, OAuth metadata included, only through an allowlist [HARDMCP ch8]; the controls are agent-threat-modeler's.
 - [ ] Timeouts on every call. On a lost connection, retry with backoff and resend; dedupe non-idempotent calls, because a resend redoes the action [MCP ch4].
 - [ ] Budget the tool list: count definition tokens per server and apply the selection ladder (scoping, tool search) when it grows.
 - [ ] One translator per model family from MCP tool types to the provider's format, to stay model-agnostic [MCP ch4].
@@ -151,14 +164,15 @@ Design points:
 - Long tasks are first-class: design for streamed progress, input-required pauses and push notifications instead of blocking calls.
 - A2A can also act as a governance plane. One design puts an A2A "governor" between a planner and its MCP servers that checks every tool request against allowlists, budgets and approval rules and records each decision [DEFGUIDE ch6].
 - Start from the official specification and SDKs. Several book examples use pre-1.0 field names and the old card path [BUILDAPPS ch8].
+- Other inter-agent protocols exist (IBM's ACP, the Agent Name Service, Cisco's AGNTCY) [AISEC ch3]. ACP's status is unresolved: AISEC treats it as A2A's competitor, while ENTERPRISE reports it merged into A2A in late 2025 [ENTERPRISE ch8]. Plan on A2A between organisations and check ACP's own status before depending on it (current facts).
 
 ## §8 Review order for an MCP server
 
 1. Transport and deployment fit (production on Streamable HTTP, stateless).
 2. Auth: the receiver checklist in §5 (missing claims fail closed), no pass-through, no user IDs accepted as plain strings, scopes, 401 and 403 behaviour; every backend reachable only through the server or gateway that applies the checks.
 3. Tool surface: intent-level, namespaced, count, descriptions, schemas (run the tool-design checks).
-4. Error mapping in the actual SDK: does the model see the messages you wrote?
-5. Side effects: idempotency under resend, approvals via elicitation, handles.
+4. Error mapping in the actual SDK and the actual client: does the model see the messages you wrote, with the error flag, and does the harness get the category?
+5. Contracts and side effects: receipts, idempotency under resend (key from run state, or a business-object key plus a state check), reversibility, approvals via elicitation, handles, next actions in results (tool-contracts).
 6. Injection surfaces: paths, SQL, shell, fetched content; the lethal trifecta across the server's tools (hand off if present).
-7. Deprecated or removed features, and SDK version pinning.
+7. Deprecated or removed features, SDK version pinning, and the catalogue entry (owner, version, namespace, retirement plan).
 8. Tests and inspector runs under real callers' credentials, tool-choice eval across models, distribution path.

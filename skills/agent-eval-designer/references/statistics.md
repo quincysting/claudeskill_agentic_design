@@ -27,12 +27,27 @@ A 30-task suite cannot tell 75% from 85%. 29 of 30 passing is 97% with an interv
 
 **Worked example: a 10-session batch.** A hosted evaluation runs 10 questions, one trial each, against a pass bar of 0.80. The Wilson 95% intervals are 31 to 83% for 6 of 10, 49 to 94% for 8 of 10, and 72 to 100% even for 10 of 10. A perfect score can't show that the true rate clears 0.80. A drop to 0.60 can't be called a regression without a paired baseline. Two judges reporting 0.75 and 1.00 on the same 10 sessions are inside the noise. Use a batch this size to find failures, not to clear a bar.
 
+## What a 30-case first suite can and cannot show
+
+PRODGUIDE's first suite is 30 cases: ten normal, ten edge and ten adversarial [PRODGUIDE ch13] (datasets-and-harness.md, "First suite"). The formulas in this file give its limits:
+
+| Result | What it shows |
+|---|---|
+| 27 of 30 pass | A 95% Wilson interval of about 74 to 97%, a spread of 23 points |
+| 30 of 30 pass | 89 to 100%. The failure rate could still be up to about 10% (rule of three: 3/30) |
+| 10 of 10 in one slice | 72 to 100%. A ten-case slice is a spot check, not a rate |
+| 0 of 10 adversarial cases succeed | Exact one-sided 95% upper bound on the attack success rate: 26% (rule of three: 30%) |
+| Comparing two versions | The paired sign test needs 6 one-way flips (two-sided p ≈ 0.03). 3 flips give p = 0.25, 5 give p ≈ 0.06. The smallest change it can confirm is 6/30 = 20 points, and only if every flip goes the same way |
+
+It can show that the agent breaks (every failure is real and becomes a task), any hard-check failure, a regression of 20 points or more, and whether the golden run's hard properties still hold. It cannot pin a rate closer than about ±11 points, confirm a gain under about 20 points, bound an attack rate below about one in four, or show release readiness. Once the change-one-thing loop has run against it, its numbers are tuned-on numbers too; label them so. Anything finer needs a larger suite and a held-out split sized for the claim (see "Which split the numbers come from").
+
 ## Zero failures is not zero risk
 
 If all n independent tasks pass, the 95% upper bound on the failure rate is about 3/n (rule of three). Repeated trials of one task are not independent, so count distinct tasks, not trials. Variants of one scenario are not fully independent either; see "Correlated tasks" below.
 - 30 clean runs are compatible with a 10% failure rate.
 - To claim a critical-failure rate below 1%, you need about 300 independent tasks with zero failures (exactly 299).
 - 3 of 3 attacks blocked has a 95% lower bound of about 44% on the block rate.
+- 0 failures in 10 gives an exact one-sided bound of 26% (`zero_fail_upper(10)` below); the rule of three's 3/n is slightly conservative at small n.
 
 For a safety or "never do X" claim, size the suite from the rate you need to rule out. If the suite can't reach that size before launch, state the bound it does support ("zero failures in 40 tasks: below about 7.5%") and keep a human approval on that action until it can.
 
@@ -191,6 +206,10 @@ def icc(clusters):
     den = msb + (m0 - 1) * msw
     return max(0.0, (msb - msw) / den) if den else 0.0
 
+def zero_fail_upper(n, alpha=0.05):
+    """Exact one-sided upper bound on the failure rate when all n independent tasks pass."""
+    return 1 - alpha ** (1 / n)
+
 def n_eff(n, m, rho):
     """Effective independent tasks: n tasks in clusters of about m variants, correlation rho."""
     return n / (1 + (m - 1) * rho)
@@ -217,6 +236,9 @@ def bootstrap_mean(by_scenario, boot=2000, seed=0):
 
 if __name__ == "__main__":
     assert [round(x, 2) for x in wilson(24, 30)] == [0.63, 0.9]
+    assert [round(x, 2) for x in wilson(27, 30)] == [0.74, 0.97]
+    assert round(zero_fail_upper(10), 2) == 0.26 and round(zero_fail_upper(30), 3) == 0.095
+    assert round(2 * sign_test(6, 0), 3) == 0.031 and 2 * sign_test(3, 0) == 0.25
     assert tasks_for_halfwidth(0.8, 0.05) == 246
     assert sign_test(5, 0) == 1 / 32 and sign_test(0, 0) == 1.0
     assert pass_hat_k(5, 5, 3) == 1.0 and pass_hat_k(4, 5, 3) == 0.4

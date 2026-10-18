@@ -6,13 +6,13 @@ Score each item **0** (absent or only planned), **1** (partial, or present witho
 
 **N/A.** J4 is N/A whenever every model runs on a managed API; that is the normal case, so leave it out of the denominator rather than scoring 0. For G1, list every tool and its side effect first, and ask when you cannot see the tool code. Search, fetch and query tools are reads; anything that sends, writes, books, pays, deletes or changes state outside the agent is a write. No write tools (common for research and Q&A agents) makes G1 N/A. Write tools but no shadow or replay path yet is also N/A, with the recorder made a precondition of the fix that introduces shadow. Side effects unknown means G1 is U, not N/A.
 
-**B** marks a blocker. Blockers are the failures that burn money without limit, leak data, make incidents undiagnosable, or let a release act twice.
+**B** marks a blocker. Blockers are the failures that burn money without limit, leak data, make incidents undiagnosable, let a release act twice, or leave a running incident unstoppable short of a redeploy.
 
 ## Verdict rule
 
 - **Not ready**: any blocker scores 0, or the total is below 50% of applicable points.
 - **Ready with conditions**: every blocker scores at least 1 and the total is at least 50%. The conditions are every blocker at 1 plus all P0 fixes, each with an owner and a date before launch or scale-up.
-- **Ready**: every blocker scores 2, the total is at least 75%, and no area is below 50%.
+- **Ready**: every blocker scores 2, the total is at least 75%, no area is below 50%, and the Run gate passes (next section).
 
 Percent = points / (2 × applicable items). Report per area and overall.
 
@@ -20,21 +20,38 @@ Percent = points / (2 × applicable items). Report per area and overall.
 - **Provisional**: put "Provisional" in front of the verdict when any blocker is U or more than a quarter of applicable items are U. Report a floor (U items at 0) and a ceiling (U items at 2) and the verdict each one gives; the gap shows how far the verdict rests on evidence nobody has seen. A blocker *seen* at 0 makes "Not ready" firm, whatever else is unverified.
 - **Too speculative to score**: when the run map is assumed (you have not seen the loop, caps and tool code or config), or more than half of the blockers or half of the applicable items are U, do not hand back item-by-item scores as findings. Deliver a discovery plan (the evidence per blocker: one production trace followed end to end, loop and retry config, exporter and masking config, prompt and tool registry, tool router per mode; who holds each and how long it takes) plus the provisional verdict from what you know. Rescore when the evidence arrives.
 
-**Lite mode** (internal pilot, under about 100 requests a day, no write tools): score only the blockers plus B2, C2, F2, I1 and I2, and say so in the review.
+**Lite mode** (internal pilot, under about 100 requests a day, no write tools): score only the blockers plus B2, C2, F2, I1 and I2, report Run gate rows 1, 4 and 6 only, and say so in the review.
+
+## Run gate
+
+This is the Run stage gate in agent-architect's lifecycle map (lifecycle-map.md), which lays out the stages, the perspectives with their owners and the gate at the end of each stage. Run it before each rollout stage (internal, limited beta, monitored scale) and report it next to the verdict, each row marked pass or fail. It has three parts: PRODGUIDE's six-item readiness gate, kept short because short gates get used [PRODGUIDE ch16 §The Production Spine: State, Retries, Approvals, and Control]; monitoring that is live; and written conditions for widening autonomy. A row passes when every item it maps to scores 2, seen. The runtime rows are designed and tested in **agent-harness-designer**; this review checks that they exist and work.
+
+| Gate row | Passes when | Items | Designed in |
+|---|---|---|---|
+| 1. Run record | Every run has an ID and an append-only record of prompt and policy versions, plan, source references, payload previews, approvals, receipts, errors and exit status | B8 | agent-harness-designer |
+| 2. Idempotent side effects | Every side-effecting call carries an idempotency key, and a timeout triggers a lookup before any retry, so reruns create no duplicates | A4 | agent-harness-designer (retries); agent-tool-designer (keys, receipts) |
+| 3. Tiers, approval, kill switch | Permission tiers are enforced per tool action, irreversible actions need an approval bound to the exact action, and a kill switch forces draft-only at once | G5, G7 | agent-threat-modeler (tiers, approvals); agent-harness-designer (switch) |
+| 4. Redaction and retention | State and logs hold sensitive fields redacted or as references; retention is set per record and deletion runs | C1, C4 | this skill (observability.md §3) |
+| 5. Safe-mode replay | A past run replays from its record with side effects off and reproduces the plan and payload previews | G1, G8 | agent-harness-designer |
+| 6. KPIs and reruns | A small KPI set tied to the SLA is on a dashboard, and the suite reruns after every meaningful change | I9, F3 | this skill; the suite: agent-eval-designer |
+| Monitoring live | Windowed alerts with sample floors route to a named owner, and one trace has been followed end to end in the backend | B1, D3, D7 | this skill |
+| Autonomy expansion | Each move to more autonomy has written conditions: a sustained approval rate, written rules for the new actions and a rollback plan. PLAYBOOK's figures differ by chapter: 80% over 30 to 60 days [PLAYBOOK ch2], 85% over 30 days and 90% over 60 days [PLAYBOOK ch4] | not scored | agent-threat-modeler (human oversight) |
+
+Rows 2 and 5 are N/A when no tool writes, and row 3 then comes down to G5. The autonomy row passes when the conditions are written and owned; whether they are met at a given moment is agent-threat-modeler's call, not this review's.
 
 ## A. Bounded execution and resilience
 
 | ID | Item | Evidence to look for |
 |---|---|---|
-| A1 **B** | Hard caps on loop iterations, tool calls and tokens per task type, enforced by the runtime; the stop reason is recorded | `max_iterations`, `max_turns`, `recursion_limit` and similar set deliberately (framework defaults are not a decision); stop reason on the trace |
+| A1 **B** | Per-run caps on tokens, model calls, tool calls, retries and plan steps per task type, enforced by the runtime before every call; a forced stop returns a partial result (what was done, what was not, the receipts, the smallest question that unblocks the next step) with status `partial`, never `completed`, and records the stop reason [PRODGUIDE ch17 §Budget Guardrails and Context Discipline] | `max_iterations`, `max_turns`, `recursion_limit` and similar set deliberately (framework defaults are not a decision); counters in checkpointed state (design: agent-harness-designer); a forced stop's status and output on a trace |
 | A2 **B** | Per-session cost and turn fuse that halts and hands off, independent of the provider's account-level cap | Session object carrying running cost and turns, checked every iteration; handoff path |
 | A3 | Timeouts on every model call, tool, retrieval and job, and the timeout cancels the work | Client timeouts, cancellation of in-flight tool or generation; no orphaned work after timeout |
-| A4 | Retries only on transient errors (timeouts, 429, 5xx) with jittered backoff and a max; client errors fail fast; write tools retried only with an idempotency key; retries counted on the trace | Retry decorator config; error-class handling; idempotency keys on write calls. A blanket retry on a write tool can act twice: treat it as P0 |
+| A4 | Retries only on transient errors (timeouts, 429, 5xx) with jittered backoff and a max; client errors fail fast; every side-effecting call carries an idempotency key (run ID, action and target), and a timeout triggers a lookup by key or target before any retry; retries counted on the trace | Retry decorator config; error-class handling; idempotency keys on write calls; the lookup before a write is retried. A blanket retry on a write tool can act twice: treat it as P0 |
 | A5 | Circuit breaker per dependency with a defined degraded path | Breaker config; degraded responses flagged |
 | A6 | Fallback model tested end to end with the same schema, enum normalisation and decision-consistency checks | CI job running the suite on the fallback |
 | A7 | Structured output validated: strict schema mode where available, local validation, bounded re-ask with the error | Validator code; re-ask limit |
 | A8 | Long runs are async with job ID, status, cancel and streamed progress; checkpoints allow resume | Job queue, SSE or WebSocket endpoint, checkpoint store |
-| A9 | Rate limits per user or tenant, bounded queues, backpressure, explicit rejection or degradation | Limiter config, queue max size, depth alert |
+| A9 | Rate limits per user or tenant, streams throttled and open streams capped per client, concurrency capped when tools slow down, bounded queues, backpressure, explicit rejection or degradation | Limiter config, open-stream cap, queue max size, depth alert [FASTGENAI ch9 §API Rate Limiting and Throttling] |
 
 ## B. Tracing and correlation
 
@@ -47,6 +64,7 @@ Percent = points / (2 × applicable items). Report per area and overall.
 | B5 | Decisions recorded: selected tool and arguments (or a hash in production), planner choice, validation result, approvals | Attributes or events |
 | B6 | OpenTelemetry-based or OTLP-exportable; GenAI convention names where they exist; instrumentation versions pinned (the conventions are Development status) | Dependency pins; exporter config |
 | B7 | User feedback and online-eval verdicts join the trace by ID | Feedback event or table keyed by trace ID |
+| B8 | Run record keyed by run ID: a header (agent, prompt, policy and model versions, permission tier, input reference, limits) and events for plan, source references, payload previews, approvals, receipts, errors and exit status; the run ID is on every trace and audit entry | One run's record read end to end and matched to its traces by run ID (observability.md §1, "The run record is the join"); design in agent-harness-designer. Traces alone don't count: a run that waits for a person spans several traces |
 
 ## C. Logging, redaction and retention
 
@@ -99,11 +117,13 @@ Percent = points / (2 × applicable items). Report per area and overall.
 | ID | Item | Evidence |
 |---|---|---|
 | G1 **B** | Shadow runs and offline replay cannot execute write tools: they hit a recorder or dry-run stub | Tool router config per mode; a test proving it. N/A if the agent has no write tools, or if no shadow or replay path exists yet; in that case make the recorder a precondition of the fix that introduces shadow |
-| G2 | Canary at 1 to 5% for at least 24 hours with version-tagged telemetry and automatic rollback | Deploy config; rollback rule |
+| G2 | Canary at 1 to 5% for at least 24 hours with version-tagged telemetry and automatic rollback on written triggers: success under the SLA, p95 latency, duplicate side effects, cost per successful run and review minutes | Deploy config; a rollback rule naming each trigger; on a trigger the canary flips to draft-only or rolls back [PRODGUIDE ch17 §Performance Tuning Without Breaking Reliability] |
 | G3 | Rollback has been rehearsed and its time is known | Drill record |
 | G4 | In-flight sessions survive deploys (sticky versions, rainbow deploys, checkpoints) | Deploy strategy |
-| G5 | Kill switch to disable the agent, or one tool, quickly | Feature flag |
+| G5 **B** | Kill switch in two levels: draft-only (execution off, planning and previews on) and abort (every call off, credentials revoked, restart only with a person's approval); flags the gate reads at every call, flipped without a redeploy, drilled, and able to stop one tool as well as the whole agent | The flag store the gate reads; the last drill and how long a flip took to reach running workers. A switch that needs a redeploy scores 0. A blocker only when a tool writes; otherwise scored as a normal item |
 | G6 | After every deploy or config change, a smoke set runs: one canary question per tool or data source whose answer identifies the backend, plus one memory write-and-read in a new session if the agent has memory | Smoke job and its last run; health checks alone don't count |
+| G7 | Permission tier per tool action (read, draft, execute with approval, rarely auto) held in run state and enforced by the gate; an irreversible action needs an approval bound to a digest of the exact action and arguments, with an expiry and a nonce, and the executor refuses a changed digest or an expired approval | Tier table; approval records; a test that edits an argument after approval and is refused. Tier design and who approves: agent-threat-modeler |
+| G8 | Safe-mode replay: any past run loads from its record and replays with tool calls simulated or execution disabled, still producing the plan and payload previews; the team knows whether a replay reproduces (recorded outputs fed back) or experiments (fresh model calls) | One replay of a failed run compared with the original; design in agent-harness-designer. G1 checks that a replay cannot write; G8 checks that replay exists |
 
 ## H. Improvement loop
 
@@ -124,9 +144,10 @@ Percent = points / (2 × applicable items). Report per area and overall.
 | I3 | Cost attributed per workflow, tenant, feature and step from traces, not read off the invoice | Cost dashboard; a per-call ledger that reconciles with the invoice within a few percent; cost metric dimensions low-cardinality (no session or user IDs) |
 | I4 | Cache-read token share and cache write-to-read ratio on a dashboard, with an alert when a deploy breaks the cache | Panel; rule |
 | I5 | Deterministic work done in code; tool results trimmed; token ceiling per prompt section | Code; token budgets |
-| I6 | Any routing or cascade is judged on cost per successful task including repairs | Comparison report |
+| I6 | Any routing or cascade is judged on cost per successful run including repairs | Comparison report |
 | I7 | Batch or flex tiers used for evals, enrichment and backfills | Job config |
 | I8 | p95 latency SLO defined; time to first token tracked; streaming for long answers | SLO doc; panels |
+| I9 | A small KPI set tied to the SLA on one dashboard: success under the SLA, cost per successful run with review minutes priced in, p50 and p95 per phase with jitter, duplicate side-effect rate, review and cleanup minutes per run | Dashboard; the cost per successful run arithmetic (cost-latency.md §2) [PRODGUIDE ch17 §The Economics of an Agent Run] |
 
 ## J. Deployment and capacity
 
@@ -137,11 +158,27 @@ Percent = points / (2 × applicable items). Report per area and overall.
 | J3 | Provider rate limits (requests and tokens per minute) checked against peak load with headroom | Limits vs projected peak |
 | J4 | If self-hosting: weights on persistent storage, measured cold start, prefix caching on, KV cache sized for target concurrency at real context lengths, quantized checkpoint evaluated on own tasks | Infra config; load-test results; base model pinned to an immutable revision and mirrored to own storage when serving adapters. N/A when every model is a managed API |
 | J5 | Each host's maximum execution time exceeds the agent's capped latency ceiling plus the async-job path; for an SLA, health checks replace unhealthy instances, autoscaling follows an agent signal, and instances span at least two zones | Host timeout vs `cost_model.py` latency ceiling; health check and scaling config |
+| J6 | Service boundary: requests and responses validated against declared schemas; errors in one documented format (problem details, RFC 9457) | Schema models on every endpoint; a malformed request refused with a clear error [FASTGENAI ch4 §Pydantic Models] |
+| J7 | No inference or other blocking work on the request event loop (async clients, a worker pool or a separate model server); workers hold no request open; in-flight runs drain or checkpoint on shutdown | Handler code; a load test where one slow call does not stall other requests [FASTGENAI ch5 §Blocking the Main Server]. Serving design: agent-harness-designer |
+
+## K. Servers and supply chain
+
+These rows cover the agent service and every tool or MCP server your team runs: operational defaults that nobody chose but that decide the blast radius [HARDMCP ch10]. Score what you can see; for a third-party server, score what you can verify (signature, pinned version, inventory entry) and hand the rest to **agent-threat-modeler**, which also owns the attacker-style tests and the host-side controls (definition pinning, `server::name`). K1 is N/A when nothing listens locally.
+
+| ID | Item | Evidence |
+|---|---|---|
+| K1 | Local servers bind to loopback (stdio preferred for local use), with a remote endpoint only where one is needed; the Host and Origin headers are checked against an allowlist, because a web page can reach a localhost server through DNS rebinding | Bind address in config; a request with a foreign Host header refused |
+| K2 | Servers run with a read-only filesystem and no ambient capabilities (container settings, or the managed runtime's equivalent) | Container or runtime spec |
+| K3 | Encryption on every hop, client to server and server to server | TLS settings per hop |
+| K4 | Releases are signed and the signature verified before launch; every server is inventoried with owner, version and where it runs; a disclosure contact is published (`security.txt`) | The verification step in the launch path; the inventory; the contact file |
+| K5 | The full resolved dependency tree is pinned to versions and hashes; a vulnerability audit is a build gate, on a tighter clock for auth and crypto libraries; installs use verified wheels from a vetted index | Lock file with hashes; audit job; index config [HARDMCP ch3] |
+| K6 | Every call is answerable: a structured log line per call with actor, tool, arguments (or their hash) and request ID, redacted inside the logging path | Log schema; redaction in the logger, not after storage |
+| K7 | Runtime abuse is resisted: idempotency keys reject replays, per-identity rate limits stop floods, and delegated tasks carry signed provenance | A replayed request refused; limiter config; the provenance check on delegated calls |
 
 ## Fix priorities
 
-- **P0**: any blocker below 2; anything that can spend without bound, leak data or act twice; peak load above provider limits. Fix before launch or scale-up.
-- **P1**: gaps that stop you detecting or diagnosing a regression (B2 to B4, D1 to D3, E1 to E2, E6, F2 to F5, G2 to G3, G6, H1).
+- **P0**: any blocker below 2; any Run gate row that fails; anything that can spend without bound, leak data or act twice; peak load above provider limits; K items on a server that can reach private data or a write tool. Fix before launch or scale-up.
+- **P1**: gaps that stop you detecting or diagnosing a regression (B2 to B4, B8, D1 to D3, E1 to E2, E6, F2 to F5, G2 to G3, G6, H1); K items on other servers.
 - **P2**: cost and latency optimisations, hygiene, tooling.
 
 Within a tier, order by risk removed or money saved per unit of effort. Each fix names what to change, where (file, config, service), how to verify it (the metric or test that proves it), effort (S, M, L), an owner and when it is due: a date when the review targets one, otherwise "week N" counted from the review date (P0 fixes in the first weeks, before any scale-up).

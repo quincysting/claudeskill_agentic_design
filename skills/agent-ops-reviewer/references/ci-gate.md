@@ -4,7 +4,7 @@ Load this for step 9 of the procedure. The offline suite itself (cases, scorers,
 
 ## 1. What triggers the gate
 
-Run it on every PR that touches prompts, model IDs or parameters, tool definitions or tool code, agent configs, retrieval settings or the eval dataset. Use a path filter so documentation-only PRs skip it. Model migrations and provider switches go through the **same** gate, never a looser one.
+Run it on every PR that touches prompts, model IDs or parameters, tool definitions or tool code, agent configs, retrieval settings or the eval dataset. Use a path filter so documentation-only PRs skip it. Model migrations and provider switches go through the **same** gate, never a looser one. The harness test slice (resume after a crash, forced stops, budgets, cancel, kill switch, against an out-of-process store) comes from **agent-harness-designer** and runs in the pre-merge fast tier: the model is scripted, so these are deterministic checks with zero tolerance.
 
 ## 2. Tiers
 

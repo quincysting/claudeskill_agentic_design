@@ -36,6 +36,10 @@ Dated book claim: one book says reasoning models' thinking tokens are discarded 
 - [Context Rot](https://www.trychroma.com/research/context-rot) (Chroma, 2025-07): 18 models; performance varies significantly with input length even on simple tasks, distractors hurt more at longer lengths, and a coherent haystack hurt more than a shuffled one.
 - [Multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system) (Anthropic, 2025-06): start with short, broad queries and then narrow. Effort rules: 1 agent with 3-10 tool calls for fact-finding, 2-4 sub-agents for comparisons, 10+ for complex research. Agents used about 4x the tokens of chat and the multi-agent system about 15x. Reported failures included endless searching for nonexistent sources and preferring SEO content farms to authoritative sources.
 
+## Graph QA chains (checked 2026-10-19)
+
+- LangChain's `GraphCypherQAChain` now lives in `langchain-neo4j` and raises an error at construction unless `allow_dangerous_requests` is set to true. Its docstring asks for narrowly scoped database credentials, because generated queries may cause data corruption or loss ([source](https://github.com/langchain-ai/langchain-neo4j/blob/main/libs/neo4j/langchain_neo4j/chains/graph_qa/cypher.py)). The flag acknowledges the risk and does not reduce it; the controls are in retrieval-pipeline.md §5.3.
+
 ## Context engineering guidance
 
 - [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) (Anthropic, 2025-09): treat context as a finite attention budget with diminishing returns; keep lightweight identifiers in context and load content just in time. Three long-horizon techniques: compaction, structured note-taking outside the window, and sub-agents that return condensed results of roughly 1,000-2,000 tokens.

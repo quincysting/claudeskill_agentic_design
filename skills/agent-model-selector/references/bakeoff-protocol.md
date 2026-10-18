@@ -6,7 +6,7 @@ A side-by-side run of candidate models and settings, per role, on the user's own
 1. What the eval must provide
 2. Pre-register the decision
 3. Candidate grid
-4. Fair prompting
+4. Fair comparison: prompts, harness, provider layer
 5. Running it
 6. Scoring
 7. Analysis and the statistics you need
@@ -42,34 +42,44 @@ Write these down before running anything, so the result cannot move the goalpost
 - Primary metric per role (accuracy, macro-F1, tool-call exact match, schema-valid rate, rubric pass rate, pass^k for side-effecting roles).
 - Absolute target per role, and a hard floor if any (for example, no class below 80% recall).
 - **Non-inferiority margin** versus the reference: how much worse a cheaper option may be on the primary metric. Set it to the larger of the business tolerance and the smallest margin the task count can verify (table in section 7). Never pre-register a margin the sample cannot detect; if the business needs a tighter one, label more tasks.
-- Budgets: p95 latency per role call, cost per successful task.
+- Budgets: p95 latency per role call, cost per solved task.
 - Secondary metrics that can veto: calibration error where thresholds matter, refusal or error rate, tool-call rate on no-tool cases.
 
 ## 3. Candidate grid
 
-Per role, typically 3 to 6 configurations:
+A candidate is a configuration, not a bare model: model and version, effort, loop (one shot, or a fixed number of check-and-revise rounds) and prompt version, all run under the same harness. Per role, typically 3 to 6 configurations:
 - **Reference:** the incumbent configuration if one runs in production; otherwise the provider's recommended general model at its recommended effort. Add the provider's top capability tier only as a probe for roles that miss their target with the reference.
 - **Step-downs:** one tier down; the smallest class plausibly able (see `role-model-mapping.md`).
 - **Effort sweep** for each reasoning-capable candidate: off or lowest, low, medium, high (and higher levels only for planning or long agentic work). Skip levels a model does not support.
 - **Constraint-driven options:** an open-weight model if data residency or token probabilities are required; a fine-tuned encoder or small model if the role is fixed-label classification with labelled data.
 - **Different family** from the judge, where a judge scores the role.
+- **A smaller model in a loop**, where a program can check the role's output (tests, a validator, a schema): the smaller candidate with a fixed number of check-and-revise rounds, next to the larger candidate in one shot. Try this before stepping up to a bigger model. Ng's 2024 compilation of HumanEval results is the illustration: GPT-3.5 zero-shot solved 48.1%, GPT-4 zero-shot 67.0%, and GPT-3.5 inside an iterative agent loop up to 95.1% [NG Agentic Design Patterns Part 1, 2024-03-20]. The figures come from 2024 models on one coding benchmark, are the best of several research methods and report no cost, so carry only the direction into a plan. The loop multiplies calls and tokens, so it wins only if cost and p95 latency per solved task still fit (sections 6 and 8).
 
 Prune the grid with a quick screen on 30 to 50 dev tasks; run the survivors on the full test split.
 
-## 4. Fair prompting
+## 4. Fair comparison: prompts, harness, provider layer
 
-The incumbent prompt was tuned for the incumbent model, which biases the comparison in its favour.
+**Prompts.** The incumbent prompt was tuned for the incumbent model, which biases the comparison in its favour.
 - Give every candidate the same small adaptation budget on the dev split (for example, up to three prompt edits or one hour), then freeze.
 - Use each provider's native tool-calling and structured-output features rather than a lowest-common-denominator format.
 - Keep the information content identical: same context, same tools, same examples.
 - Record the exact prompt version per candidate.
+
+**Hold one thing fixed.** To compare models, keep the harness, tools, budgets, stop rules and provider layer identical. To compare harnesses (a framework against your own loop, a vendor harness against a neutral one), keep the model fixed. A model win measured under two different harnesses is not a model result. Public leaderboards rank a model and a harness as one entry, and rows also differ in prompts, budgets and versions, so the gaps between rows are observational. The one controlled study so far (one author, 80 tasks, two frontier models; Arjmandi, arXiv 2609.11987, 2026-09) showed no reliable average gap with the model held fixed, gaps that varied by task family, and a 1.2 to 1.6 times difference in cost per solved task. So the harness can matter as much as a model upgrade on some tasks, or not at all, and it reliably moves cost. Never carry a fixed points gap for "harness versus model" into a plan; report pass rate by task family and cost per solved task. The harness bake-off itself (task families, trials, the harness test slice) belongs to the agent-harness-designer skill (its harness-tests.md, section 5); this file supplies the statistics.
+
+**Keep provider swaps cheap, and know what the layer changes.** Route every model call through one thin interface, so trying another provider's model for accuracy, latency or cost is a configuration change [NG Build an Autonomous Agent Using This Simple Recipe!, 2025-12-10]. Switching model providers then costs a few lines of code, while switching orchestration frameworks after an agent is built on one is a lot of work [NG The Falling Cost of Building AI Applications, 2024-12-04], so keep a second provider (an open-weight option included) working from the first prototype [NG What Comes After Tokenmaxxing?, 2026-08-07]. The layer stays cheap only while your code avoids one provider's request features. A swap layer is not neutral either. In aisuite 0.2.0 (released 2026-09-18, read 2026-10-18), the library Ng started for exactly this, the Anthropic adapter:
+- sets `max_tokens` to 4,096 when the caller gives none;
+- maps any stop reason it does not recognise, a refusal among them, to an ordinary `stop`;
+- lifts only a leading system message into the system field [RELATED repo: aisuite/aisuite/providers/anthropic_provider.py].
+
+A bake-off run through such a layer can be measuring the adapter's defaults: one provider looks terse because its output was capped, or compliant because its refusals read as normal stops. Set output limits explicitly per candidate, log what the layer actually sent and the provider's own stop reason (section 5), and rerun the full suite after any change to the layer or its version.
 
 ## 5. Running it
 
 - **Same tasks, every candidate** (paired design). Randomise run order to spread time-of-day load effects.
 - **Production settings.** Same context length, tools, timeouts and retry policy as production. Do not lower temperature to reduce variance on the system under test (several current APIs no longer accept sampling parameters anyway). Fix the judge's settings for reproducibility.
 - **Repeated trials.** Outputs vary even at temperature 0 (serving-stack batch effects). Use at least 3 trials per task for side-effecting or customer-facing roles and report pass^k; 1 or 2 suffice for screening deterministic-looking classification.
-- **Record per call:** raw output, input, output and reasoning tokens, cached tokens, wall-clock latency, retries, errors and refusals, model ID with version and date.
+- **Record per call:** raw output, input, output and reasoning tokens, cached tokens, wall-clock latency, retries, errors and refusals, model ID with version and date. Also record the effective request parameters as sent (output cap, effort, system prompt), the provider's native stop reason, and the harness and provider-layer versions.
 - **Count errors and timeouts as failures.** Dropping them inflates the rate.
 - **Cache state:** note whether prompt caching was warm; compare candidates under the same cache conditions.
 
@@ -79,7 +89,8 @@ The incumbent prompt was tuned for the incumbent model, which biases the compari
 - For tool-calling roles: tool choice (exact), argument accuracy (normalised), schema validity, calls made on no-tool cases, calls per task.
 - For classifiers: accuracy, per-class recall, macro-F1, confusion matrix, ECE if thresholds are used (log-probabilities or classifier head, never stated confidence).
 - For synthesis: faithfulness to provided evidence, completeness against a checklist, then style.
-- Cost per successful task = total spend (including retries, reasoning tokens, judge calls if they are part of the production loop) divided by successes.
+- Cost per solved task, as defined in `role-model-mapping.md` §7: configuration-level spend, retries, repairs and escalations included, divided by successes, without human review minutes (use agent-ops-reviewer's cost per successful run when variants differ in review time).
+- For loop configurations, count every call in the loop, check runs included, and report tokens and p95 latency per solved task. In agentic runs the token volume per task, not the price per call, drives cost (`role-model-mapping.md` §7).
 
 ## 7. Analysis and the statistics you need
 
@@ -117,7 +128,7 @@ For a half-width of ±10, ±5 or ±3 points at 80% you need about 61, 246 and 68
 
 ## 8. Decision rule
 
-For each role, choose the cheapest configuration (by cost per successful task) that:
+For each role, choose the cheapest configuration (by cost per solved task) that:
 1. meets the absolute target and any hard floor;
 2. is non-inferior to the reference: the lower end of the 95% interval on the paired difference is above minus the margin;
 3. meets the p95 latency budget;
@@ -140,6 +151,7 @@ Re-run the bake-off (at least the affected roles) when:
 - prices change enough to reorder the cost ranking;
 - production metrics drift from the bake-off numbers;
 - the task, tools or label set change;
+- the harness, framework or provider layer changes version (re-run with the model held fixed, so a score change is pinned on the right component);
 - a provider changes a model behind an unpinned alias (pin versions where possible);
 - otherwise on a fixed schedule (quarterly is common).
 
@@ -151,7 +163,8 @@ Keep the harness, splits and candidate configs versioned so a re-run is a comman
 Bake-off: <system>, <role>, run <date>
 Tasks: n=<…> (test split), strata: <…>; trials per task: <k>
 Pre-registered: metric=<…>, target=<…>, margin=<…>, p95 budget=<…>, cost budget=<…>
-| Config (model@version, effort, prompt v) | Primary (95% CI) | Paired diff vs reference (95% CI) | b / c | p95 s | Cost/success | Veto metrics |
+Held fixed: harness=<name@version>, provider layer=<name@version>, tools, budgets
+| Config (model@version, effort, loop rounds, prompt v) | Primary (95% CI) | Paired diff vs reference (95% CI) | b / c | p95 s | Cost/success | Veto metrics |
 Decision: <config> because <rule 1–4>. Not distinguishable: <…>.
 Caveats: <judge agreement, cache state, small strata>
 ```
@@ -190,7 +203,7 @@ def non_inferior(base, cand, margin):
     """True if the lower 95% bound of (cand - base) is above -margin."""
     return paired_diff(base, cand)[1] > -margin
 
-def cost_per_success(total_cost, successes):
+def cost_per_solved_task(total_cost, successes):
     return total_cost / successes if successes else float("inf")
 
 lo, hi = wilson(24, 30)

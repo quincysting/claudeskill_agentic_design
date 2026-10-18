@@ -6,7 +6,7 @@
 
 Source: https://modelcontextprotocol.io/specification/2026-07-28/changelog
 
-- **Stateless.** There is no `initialize` handshake and no `Mcp-Session-Id`. Every request carries its protocol version and client capabilities in `_meta`. List results must not vary per connection, but they may vary by the authorization on the request (for example, only the tools the caller's scopes allow).
+- **Stateless.** There is no `initialize` handshake and no `Mcp-Session-Id`. Every request carries its protocol version and client capabilities in `_meta`. List results must not vary per connection or as a side effect of other requests, but they may vary by the authorization on the request (for example, only the tools the caller's scopes allow). State-dependent availability therefore goes in tool results.
 - **`server/discover`** must be implemented by servers; clients may call it for up-front version selection.
 - **Multi round-trip requests (MRTR)** replace server-initiated requests. The server returns `resultType: "input_required"` with `inputRequests` (and optionally `requestState`). The client retries the original request under a new JSON-RPC ID with `inputResponses`. Every result carries `resultType` (`complete` or `input_required`).
 - **No resumability.** A broken stream loses the in-flight request, and the client re-issues it with a new ID. Side-effecting tools therefore need deduplication.
@@ -14,11 +14,12 @@ Source: https://modelcontextprotocol.io/specification/2026-07-28/changelog
 - **Caching.** `tools/list`, `prompts/list`, `resources/list`, `resources/read` and `resources/templates/list` results carry `ttlMs` and `cacheScope` (`public` or `private`). Servers should return tools in a deterministic order.
 - **HTTP headers.** Streamable HTTP POSTs carry `Mcp-Method` and `Mcp-Name`. The `x-mcp-header` schema extension mirrors a primitive tool parameter into an `Mcp-Param-{name}` header for routing; never mark secrets or PII with it.
 - **Tasks** moved to an official extension (`io.modelcontextprotocol/tasks`): `tools/call` returns a task handle, and the client polls `tasks/get`.
-- **Elicitation:** form mode for flat, non-sensitive schemas; URL mode for OAuth consent, payments and credentials. Clients answer accept, decline or cancel.
-- **Schemas:** `inputSchema` and `outputSchema` accept any JSON Schema 2020-12 keywords; `structuredContent` can be any JSON value. When returning structured content, also return its serialised JSON in a text block for older clients. For a no-parameter tool, use `{"type": "object", "additionalProperties": false}`.
+- **Elicitation:** form mode for flat, non-sensitive schemas; URL mode for OAuth consent, payments and credentials. Clients answer accept, decline or cancel. The elicitation page (fetched 2026-10-19) makes the client's duties normative: name the requesting server, offer decline and cancel, let the user review and edit form answers before sending, and in URL mode show the full URL with its domain, never pre-fetch it, and open it only after explicit consent, in a view the client and model cannot read. Servers must bind each elicitation to the client and user identity, take the user from authorization rather than anything the client asserts, and check that the person who opens a URL-mode link is the one who started the request. A 2026-07-28 server can elicit only inside the result of a client request. Source: https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation
+- **Calling tools (client side):** clients should show tool inputs to the user before calling the server, confirm sensitive operations, keep a human able to deny any invocation, validate results against the output schema, time out calls and log them (tools page, fetched 2026-10-19).
+- **Schemas:** `inputSchema` and `outputSchema` accept any JSON Schema 2020-12 keywords; `structuredContent` can be any JSON value, arrays included (wrap collections anyway; tool-contracts §7). A server that declares an output schema must return conforming structured content, and clients should validate it. The page does not say whether an error result must match the output schema. When returning structured content, also return its serialised JSON in a text block for older clients. For a no-parameter tool, use `{"type": "object", "additionalProperties": false}`.
 - **Stateful tools** (non-normative guidance): mint opaque handles, authorise each call against the handle, state the handle's lifetime in the description, and return a tool execution error for an expired handle.
 
-**Tool names** (spec, SHOULD): 1-128 characters, case-sensitive, only `A-Z a-z 0-9 _ - .`, unique within a server. Clients aggregating servers should prefix with a server identifier; `serverInfo.name` is not guaranteed unique.
+**Tool names** (spec, SHOULD): 1-128 characters, case-sensitive, only `A-Z a-z 0-9 _ - .`, unique within a server. Clients aggregating servers should prefix with a server identifier; `serverInfo.name` is not guaranteed unique. The spec's examples of valid names include `DATA_EXPORT_v2`; a tool has no version field, so a breaking change ships under a new name (tool-contracts §8).
 
 **Tool names and schema key by target** (checked 2026-10):
 
@@ -39,6 +40,8 @@ Source: https://modelcontextprotocol.io/specification/2026-07-28/changelog
 | `idempotentHint` | false | Repeating with the same arguments has no further effect (only when not read-only) |
 | `openWorldHint` | true | Interacts with an open world of external entities (web search: true; memory store: false) |
 
+There is no reversibility hint and no version field (schema checked 2026-10-18: https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/2026-07-28/schema.ts). "Not destructive" means additive updates only, so sending an email counts as non-destructive although it cannot be undone. Keep reversibility in your own contract.
+
 **Errors.** Protocol errors are JSON-RPC errors for an unknown tool, a malformed request or a server error. Tool execution errors are results with `isError: true` for API failures, input validation errors and business-logic errors. Clients should pass tool execution errors to the model. Codes: -32602 invalid params (now also resource not found), -32603 internal error, -32020 header mismatch, -32021 missing required client capability, -32022 unsupported protocol version.
 
 **Authorization** (HTTP transports; stdio takes credentials from the environment). Source: https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization
@@ -53,14 +56,15 @@ Source: https://modelcontextprotocol.io/specification/2026-07-28/changelog
 
 ## MCP Python SDK v2 (`mcp>=2.0`)
 
-Sources: https://py.sdk.modelcontextprotocol.io/whats-new/, https://py.sdk.modelcontextprotocol.io/servers/handling-errors/
+Sources: https://py.sdk.modelcontextprotocol.io/whats-new/, https://py.sdk.modelcontextprotocol.io/servers/handling-errors/, and for error results with structured content (fetched 2026-10-19) https://py.sdk.modelcontextprotocol.io/servers/structured-output/, https://py.sdk.modelcontextprotocol.io/advanced/low-level-server/
 
 | Purpose | v2 name |
 |---|---|
 | High-level server (was `FastMCP`) | `from mcp.server import MCPServer` (module `mcp.server.mcpserver`) |
 | Tool decorator | `@mcp.tool(name=, title=, description=, annotations=, structured_output=)`; schema inferred from type hints and `Annotated[..., Field(...)]` |
 | Annotations | `from mcp.types import ToolAnnotations` (also `mcp_types`); snake_case fields `read_only_hint`, `destructive_hint`, `idempotent_hint`, `open_world_hint` |
-| Model-visible tool failure | `raise ToolError("...")`, from `mcp.server.mcpserver.exceptions` |
+| Model-visible tool failure | `raise ToolError("...")`, from `mcp.server.mcpserver.exceptions`. The result has `is_error=True`, the text `Error executing tool <name>: <message>`, and `structured_content` set to `None`: text only |
+| Tool error that also carries structured content | Not possible through `ToolError`. A low-level `Server` handler returns `CallToolResult(content=[TextContent(...)], structured_content=..., is_error=True)`; an exception raised in a low-level handler is always a protocol error. The low-level server never compares `structured_content` with the declared `output_schema`; the SDK's `Client` raises `RuntimeError` when they do not match, and the docs do not say whether error results are exempt (fetched 2026-10-19) |
 | Protocol error (model sees nothing) | `raise MCPError(code=INVALID_PARAMS, message=...)`, `from mcp import MCPError` |
 | Any other exception | The model gets a generic "Error executing tool <name>" and the traceback goes to the server log |
 | User input mid-call | Parameter `Annotated[ElicitationResult[Model], Resolve(fn)]`, where `fn` returns `Elicit(message, Model)`. Results are `AcceptedElicitation`, `DeclinedElicitation` or `CancelledElicitation`. The parameter is hidden from the model's schema. A client without the capability fails the whole call with a protocol error ("Elicitation not supported") before the tool runs. The resolver works on both protocol eras; `ctx.elicit()` inside the body works only on legacy (2025-11-25 or earlier) connections. |
@@ -181,7 +185,18 @@ Source: https://a2a-protocol.org/latest/specification/, https://github.com/a2apr
 - v1.0.0 released 2026-03-12; v1.0.1 on 2026-05-28 (binding fixes).
 - Three bindings: JSON-RPC 2.0, gRPC, HTTP+JSON. Task states include `INPUT_REQUIRED` and `AUTH_REQUIRED`. Streaming over SSE plus webhook push notifications.
 - Agent card at `/.well-known/agent-card.json` (changed from `agent.json` in v0.3.0). The card declares security schemes (API key, HTTP auth, OAuth 2.0, OpenID Connect, mutual TLS); cards can be signed; authenticated clients can fetch an extended card.
-- A2A sits in the same Linux Foundation body (Agentic AI Foundation) as MCP.
+- The A2A site announces that A2A has joined the Agentic AI Foundation, the Linux Foundation body that hosts MCP (see Governance below).
+
+## Governance and other inter-agent protocols (as of 2026-10)
+
+- On 2025-12-09 the Linux Foundation announced the Agentic AI Foundation (AAIF), with MCP (from Anthropic), goose (Block) and AGENTS.md (OpenAI) as founding projects, and AWS, Anthropic, Block, Bloomberg, Cloudflare, Google, Microsoft and OpenAI as platinum members. Source (fetched 2026-10-19): https://www.linuxfoundation.org/press/linux-foundation-announces-the-formation-of-the-agentic-ai-foundation
+- MCP protocol changes now go through Specification Enhancement Proposals (SEPs) [MCP ch9].
+- **ACP status is unresolved.** AISEC (2026) presents IBM's Agent Communication Protocol as a REST alternative competing with A2A, while ENTERPRISE reports it merged into A2A in late 2025 [AISEC ch3], [ENTERPRISE ch8]. Check ACP's own project status before depending on it. AISEC also lists the OWASP GenAI Security Project's Agent Name Service (a certificate-backed agent directory) and Cisco's AGNTCY stack; treat both as emerging.
+
+## HTTP conventions used in tool contracts
+
+- **RFC 9457 problem details** (July 2023) obsoletes RFC 7807, which RESTCOOK uses [RESTCOOK ch5]. Same members (`type`, `title`, `status`, `detail`, `instance`, plus extensions); adds a registry of common problem types, guidance for several problems in one response, and a rule that clients ignore extensions they do not recognise. Source (fetched 2026-10-18): https://www.rfc-editor.org/rfc/rfc9457.html
+- **The Idempotency-Key header is not a standard.** The IETF draft reached revision 07 on 2025-10-15 and has expired. Its behaviours are still a useful convention: the first result returned for a completed repeat, 422 for a reused key with a different payload, 409 while the first request is in progress, 400 for a missing key, and a published expiry. It recommends a random UUID per request, which is safe for an agent only if the key is created once and stored in the run record before the first attempt. Sources (fetched 2026-10-18): https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/, https://www.ietf.org/archive/id/draft-ietf-httpapi-idempotency-key-header-07.html
 
 ## Agent Skills
 

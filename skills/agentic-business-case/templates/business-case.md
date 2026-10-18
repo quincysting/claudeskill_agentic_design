@@ -8,6 +8,8 @@ Sponsor: <name, role> · Process owner: <name> · Business owner / safety owner 
 |---|---|
 | Evidence status | Validated: baseline facts measured (<source, period>) / **UNVALIDATED: pilot required** (assumed: <inputs>). Script verdict: fundable / pilot only / not fundable |
 | Decision requested | <fund a pilot of N weeks for <pilot spend> / scale at <full one-off cost> / stop>. An unvalidated case asks for pilot spend only |
+| Decide gate | Concreteness test: pass / fail · Data preflight: pass / pass after narrowing to <slice> / fail · Starting autonomy: five factors <V,Va,R,J,A> = <total>, level <L>, factors at 1: <none / which> · Funding verdict: fundable / pilot only / not fundable |
+| Job (one sentence) | This agent owns <outcome>, for <scope>, under <constraints>, and produces <artifacts> |
 | Scope | <in scope request types, channel> · Out of scope: <...> |
 | Gate result | <fit quadrant; why errors are caught before effect; risk tier> |
 | Unit of value | <metric the business already tracks, e.g. cost per resolved request at reopen rate ≤ baseline> |
@@ -20,7 +22,8 @@ Sponsor: <name, role> · Process owner: <name> · Business owner / safety owner 
 | Build / buy | <per layer: what is bought, what is built, exit route> |
 | Regulation | <EU AI Act class + duties and dates; GDPR Art. 22? Art. 50 disclosure?> |
 | Measurement | <control design, split, stabilisation weeks, measurement window, sample size> |
-| Exit criteria | Value: <threshold> · Risk: <error ceiling, no unbounded failure mode> · Platform: <tracing, eval suite, on-call, cost metering> |
+| SLA | Response time <...> · success as artifacts <...> · failure handling: missing context → questions and pause; conflicting sources shown; failed tool → retry rule or escalate · run report: done / not done / assumptions · cost of a bad run <...>, bounded by <...> |
+| Exit criteria | Value: <threshold> · Risk: <error ceiling, SLA breaches, no unbounded failure mode> · Platform: <tracing, eval suite, on-call, cost metering> |
 | Kill criteria | <containment floor by date> · <wrong-outcome ceiling> · <any unbounded failure mode> |
 
 ## Evidence used
@@ -50,12 +53,12 @@ Left out of the model: <transition dip, harder residual items, CSAT effects, ...
 
 | Item | Plan |
 |---|---|
-| Weeks 0-N | Baseline measurement (if missing), process fixes, knowledge clean-up |
+| Weeks 0-N | Baseline measurement (if missing), data preflight fixes (workflow write-up, field and knowledge-base clean-up, source owners), process fixes |
 | Build | <sprints, users in every review> |
 | Stabilisation | <2-4 weeks of tuning; not counted> |
 | Measurement window | <weeks, control arm, routing rule> |
 | Metrics | Unit metric · model drivers · guardrails · risk · adoption · platform |
-| Rollout if exit criteria met | 10 → 25 → 50 → 75 → 100%, stage gates: <...> |
+| Rollout if exit criteria met | 10 → 25 → 50 → 75 → 100%, one dimension per stage (volume, use cases or autonomy); stage gates: <...>; draft-only switch tested before live actions |
 | Reporting | <cadence, audience>; after scale: monthly unit metric, quarterly portfolio review with retire rule |
 
 ## Assumptions to verify

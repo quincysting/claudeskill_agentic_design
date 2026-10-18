@@ -27,3 +27,7 @@ Severity: **Critical**: the suite can pass while the agent fails. **High**: the 
 ## Out of scope / handed off
 
 <online monitoring → agent-ops-reviewer; attack coverage → agent-threat-modeler; …>
+
+## Review plus plan
+
+<Only when the user also wants a plan ("Both" in SKILL.md). Keep the sections above as the review, then append the eval-plan.md sections in order. In the plan's §12 Rollout, the week-1 build list is the Critical findings above, fixed before any new task is added.>

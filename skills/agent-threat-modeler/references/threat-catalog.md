@@ -17,6 +17,10 @@ Each layer sees well-formed input and lets it through [DEFGUIDE ch12]. Two conse
    than intended while staying inside its permissions [DEFGUIDE ch12], [DEFGUIDE ch6]. Model at least one path with no
    adversary.
 
+Four lenses, one job each: the six layers below to trace one path, STRIDE per element on a data-flow diagram to show
+nothing was skipped [APIARCH ch6], MAESTRO to inventory build, evaluation and agent-to-agent links, and the CoSAI risk
+map as a final coverage check [AISEC ch10] ([owasp-mapping.md](owasp-mapping.md)).
+
 Working assumption: anything that reaches the context window can steer the model. That includes the user's message,
 retrieved documents, web pages, emails, file contents, screenshots, tool results, tool names and descriptions, memory,
 and messages from other agents [SYSTEMS ch11], [MCP ch4]. You cannot stop the model being fooled, so you design for a
@@ -44,8 +48,36 @@ Six layers, each with its typical mechanism. Use them to make sure the register 
 | Memory | Confidentiality, integrity | Poisoned or over-shared persistent state | Compromise outlives the session; cross-user leaks |
 | Infrastructure | All | Host code execution, secrets in env, exposed local servers, supply chain; control-plane changes (gate mode, policy detach, authorizer removal, config replaced on update) | Host or account compromise; controls silently off |
 
-For an inventory that also covers the build pipeline and the evaluation stack, the CSA MAESTRO framework uses seven
-layers from foundation model to agent ecosystem [BUILDAPPS ch12]. Use the six layers above to trace a path and MAESTRO to check you haven't missed a whole area.
+For an inventory that also covers the build pipeline and the evaluation stack, MAESTRO uses seven layers from
+foundation model to agent ecosystem. [BUILDAPPS ch12] credits it to the Cloud Security Alliance and [AISEC ch10] to
+the OWASP Agentic Security Initiative; the layers match ([owasp-mapping.md](owasp-mapping.md) §MAESTRO). Use the six
+layers above to trace a path and MAESTRO to check you haven't missed a whole area.
+
+## STRIDE per element, ranked with DREAD
+
+The classical method, still the best proof of coverage [APIARCH ch6]:
+
+1. Draw a data-flow diagram of the agent: processes (planner model, policy gate, tool handlers, sandbox), data stores
+   (memory, vector index, audit log, credential vault), data flows (tool calls, tool results, agent messages, retrieved
+   chunks) and external entities (users, third-party MCP servers, other agents, outside websites). Mark every trust
+   boundary a flow crosses. The CoSAI component names (policy decision and enforcement points, consent surface,
+   isolation runtime, audit repository) make good element labels
+   [RELATED repo: cosai-secure-ai-tooling/risk-map/yaml/components.yaml].
+2. Apply each STRIDE letter to every process and every flow, not just to the system as a whole:
+
+| Letter | Question for the element | Agent example | Usual control |
+|---|---|---|---|
+| Spoofing | Can something pose as this element or its caller? | A user ID asserted as a string; a tool from another server under the same name (T20) | Verified tokens, `server::name` |
+| Tampering | Can data in or on this flow be changed? | A tool definition edited after approval (T4); a poisoned memory entry (T11) | Definition pinning, validated writes |
+| Repudiation | Could an actor deny an action? | No per-call audit row naming user and acting agent | Audit log with subject and actor |
+| Information disclosure | Can data leave or cross a boundary? | Trifecta exfiltration (T6); another tenant's context (T18) | Leg cut, tenant scoping, egress allowlist |
+| Denial of service | Can the element be exhausted? | Loops, fan-out, sampling abuse (T14) | Budgets, rate limits, circuit breakers |
+| Elevation of privilege | Can a caller get rights it lacks? | The agent's scope used where the user's entitlements should apply (T8, T9) | Scope ∩ entitlements, per-action tiers |
+
+3. Rank findings. The P0-P3 rule in SKILL.md Step 8 decides the level. When a team wants an order within a level,
+   score DREAD (damage, reproducibility, exploitability, affected users, discoverability, each 1 to 10, averaged) with
+   the meaning of each value written down first, since the scores are subjective. DREAD-D drops discoverability so
+   obscurity earns no credit [APIARCH ch6]. A score never moves a finding across levels.
 
 ## The lethal trifecta
 
@@ -72,6 +104,9 @@ Worked case [MCP ch7]: a malicious issue in a public repository told a coding ag
 repositories and publish them in a pull request. All three legs were present in one run. The demonstrated fix cut the
 private-data leg per request: gateway middleware refused access to any repository other than the one the session
 started in, and OAuth tokens were scoped to a single repository.
+
+The **Rule of Two** (Meta, October 2025, in [PLAYBOOK ch9]) names the same three ingredients and allows all three only
+under human oversight; how the two tests combine is in [controls-catalog.md](controls-catalog.md) §4.
 
 **MCP Colors** (stricter variant, [MCP ch7]): label each tool red (handles untrusted content) or blue (critical action),
 treat all data as private by default, and never mix red and blue tools in one agent or server. Use it when you design
@@ -100,12 +135,15 @@ vendor's policy; an injection attacks your application's authority over your too
 jailbreaks; only architecture helps reliably with injection. **Control:** content guardrails and vendor safety for the
 first; the rest of this catalog for the second.
 
-### T4 Tool poisoning, name shadowing, rug pulls
+### T4 Tool poisoning and rug pulls
 Tool names, descriptions and schemas are loaded into context, so a malicious or compromised server injects through them [MCP ch7].
-A server can also shadow another server's tool name, or change its tool list after the user approved it.
-**Look for:** third-party MCP servers, unpinned versions, tool lists fetched at runtime, no namespacing.
-**Control:** show descriptions to a human and re-consent when the tool list changes; namespace tools by server;
-pin versions; vet registries [MCP ch4].
+In a rug pull, a server the user approved rewrites a definition later: same name, new instructions. One scan found
+184 versions that did so after publication [HARDMCP ch4]. Shadowing another server's tool name is T20.
+**Look for:** third-party MCP servers, unpinned versions, tool lists fetched at runtime, approval checked once rather
+than every session.
+**Control:** show descriptions to a human and re-consent when the tool list changes; pin versions; vet registries
+[MCP ch4]; hash each approved definition and recompare every session, halting on drift; re-prompt for sensitive tools
+([mcp-hardening.md](mcp-hardening.md) §1).
 
 ### T5 Excessive agency
 More tools, data or permission than the task needs. Example: an agent with a raw SQL tool "optimised" a production
@@ -130,18 +168,26 @@ server; log scrubbing; short-lived scoped tokens.
 ### T8 Confused deputy and token pass-through
 A privileged component uses its privilege for a less privileged caller. In MCP: a server forwards the client's token to
 a downstream API (breaks attribution, lets stolen tokens be replayed through you), or a proxy uses one static OAuth
-client ID for all users, so consent can be skipped [MCP ch7]. **Control:** accept only tokens issued for your server
-(audience check); use your own credentials downstream; per-client consent stored server-side; exact redirect-URI match;
-single-use `state`.
+client ID for all users, so consent can be skipped [MCP ch7]; with open dynamic registration and a reused consent
+cookie, one client inherits another's grant [HARDMCP ch7]. The agent itself is a deputy whenever it authorises a call
+on its own scope rather than the user's entitlements: the user reads another customer's record by naming its ID
+(broken object-level authorization) or runs an admin-only function (broken function-level authorization) through the
+agent [APIARCH ch7]. **Look for:** token forwarding; one upstream client identity for all users; authorization checks
+that read only the agent's scopes. **Control:** accept only tokens issued for your server (audience check); exchange
+rather than forward; per-client consent stored server-side; exact redirect-URI match; single-use `state`; every call
+authorised as granted scope ∩ user entitlements ([controls-catalog.md](controls-catalog.md) §2 Access rules).
 
 ### T9 Identity and privilege abuse between agents
 Agents impersonate each other, inherit a caller's broader rights, or share one service account so nothing can be
 attributed or revoked individually [MESH ch11], [MESH ch12]. **Look for:** `user_id` or `for_user` parameters on token
 or invoke APIs (asserted identity); agent clients that also hold a client-credentials grant; claims decoded without
 verifying the signature; tokens forwarded instead of exchanged per hop; scope that widens along a chain; an agent split
-whose data boundary exists only in prompts. **Control:** per-agent workload identity; scoped delegated tokens that
-never exceed the delegator's rights; authorisation per call in a policy engine; verified user identity and the four
-delegation invariants ([controls-catalog.md](controls-catalog.md) §3).
+whose data boundary exists only in prompts; tenant-wide delegation, which lets one identity act on every user's data
+(Google Workspace domain-wide delegation, Microsoft 365 application permissions not limited to named mailboxes): P0 when
+the agent reads untrusted content. **Control:** per-agent workload identity; scoped delegated tokens that never exceed
+the delegator's rights, or application access scoped to named mailboxes; authorisation per call in a policy engine;
+verified user identity and the four delegation invariants ([controls-catalog.md](controls-catalog.md) §3, with dated
+provider notes).
 
 ### T10 Insecure inter-agent communication
 Messages between agents are unauthenticated, unencrypted or free text that the receiver treats as instructions.
@@ -180,7 +226,10 @@ leads with the exact action; rare, routed escalations ([human-oversight.md](huma
 Goal drift, completion bias, reward hacking, chaining tools nobody anticipated while staying inside formal permissions
 [DEFGUIDE ch6]. Canonical case: an agent told to take no action without approval deleted more than two hundred emails,
 most likely because context compression dropped the instruction; remote attempts to stop it failed [ENTERPRISE ch7].
-**Control:** rules in code, not prompt; behaviour monitoring; a stop control that works remotely.
+Coding agents add a variant: editing the tests or checks that judge them so they pass
+[NG Agentic Coding and Agentic Software Testing Go Together, 2025-09-17].
+**Control:** rules in code, not prompt; behaviour monitoring; a stop control that works remotely; tests, eval
+configurations and policy files outside the agent's write path ([controls-catalog.md](controls-catalog.md) §10).
 
 ### T17 Improper output handling
 Model output flows into SQL, HTML, shell, templates or another system without encoding, so the model becomes an
@@ -189,8 +238,12 @@ output as untrusted input to every downstream system: parameterise, escape, vali
 
 ### T18 Sensitive information and hidden context exposure
 System prompts, retrieved documents, memory, tool responses or another tenant's data surface in answers. A memory leak
-is a behavioural failure: protected data resurfaces in the wrong conversation [SYSTEMS ch9]. **Control:** no secrets in
-prompts; tenant filters enforced in retrieval code; PII redaction on output; retention limits.
+is a behavioural failure: protected data resurfaces in the wrong conversation [SYSTEMS ch9]. Two routes are easy to miss: a
+conversation or thread ID the caller chooses, with a shared fallback such as `"default"`, so callers who send none share
+one conversation [BUILDAGENTIC repo: sdr_multi_agent/flask_app/app.py]; and one context pooled across MCP servers and
+tenants, so a weak server reads what a strong one returned [HARDMCP ch9]. **Control:** no secrets in prompts; tenant
+filters enforced in retrieval code; PII redaction on output; retention limits; thread IDs issued by the server per
+principal and never defaulted; context scoped per server and tenant and cleared when the task ends.
 
 ### T19 Computer-use and browser specifics
 Screen and page text is untrusted content; the agent often holds logged-in sessions (private data) and can type, post or
@@ -198,6 +251,24 @@ buy (external channel), so a browser agent is a trifecta by default. Anthropic's
 attack success of 23.6% without mitigations and 11.2% with them (2025, external; see [owasp-mapping.md](owasp-mapping.md) sources).
 **Control:** dedicated VM or profile with no personal sessions, domain allowlist, confirmation for purchases, posting,
 sharing personal data and accepting terms ([sandboxing.md](sandboxing.md)).
+
+### T20 Tool shadowing (namespace collision)
+A newly connected server registers a tool whose name matches a trusted server's tool, and the host resolves the name
+by registration order, so a payment call can reach the newcomer. Nothing in the trusted server is broken; the name
+alone can't say which server a tool belongs to [HARDMCP ch9]. **Look for:** several MCP servers on one host, tools
+addressed by bare name, no gateway that prefixes origin. **Control:** resolve every tool as `server::name`, refuse
+ambiguous calls, pin which server owns each sensitive capability, least agency per server
+([mcp-hardening.md](mcp-hardening.md) §1).
+
+### T21 Agent-written shared notes (derived)
+Agents increasingly leave notes for later runs and other agents: documentation, workarounds, "lessons learned" files,
+shared wikis. Ng's coding agents save such notes for other agents to read [NG Context for Coding Agents, 2026-03-09],
+[NG Let's Help Agents Share Their Work, 2026-03-16]. Derived, not stated in the letters: those notes are the next
+agent's context, so a run that read untrusted content can plant instructions that a later run follows with more
+privilege. It is memory poisoning (T11) through a channel that often has no write gate. **Look for:** notes, docs or
+skill files that agents write and other agents read; no review between writer and reader. **Control:** treat notes as
+untrusted input; the same validation, provenance and review as memory writes ([controls-catalog.md](controls-catalog.md)
+§7); version them and diff changes; no notes from tainted runs without review.
 
 ## Propagation path worksheet
 

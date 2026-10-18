@@ -21,6 +21,15 @@ The cheapest control is a capability that does not exist.
   it in a sandbox against a replica.
 - Default-deny visibility: an agent sees only the tools and registries granted to it; new agents start with fewer
   tools and earn more [MESH ch5], [AGENTICAI ch5].
+- Least privilege by exposure, not by refusal: a tool that isn't exposed can't be talked into anything. Write tools
+  exist only for writable roots [RELATED repo: aisuite/aisuite/toolkits/files.py]; a shell tool needs a command
+  allowlist and rejects shell operators [RELATED repo: aisuite/aisuite/toolkits/shell.py]; each subagent holds only
+  its own phase's tools, and a high-impact action can be a tool that returns a pending ticket with a required
+  justification instead of executing [AISEC repo: part5_agents_and_mcp_servers/deepagents_example/soc_agent.py].
+- Keep an inventory of every tool, MCP server, endpoint and version an agent can reach. A forgotten server or an old
+  version still answering is a finding, not hygiene (the CoSAI risk map lists zombie and shadow MCP servers as their
+  own risk [RELATED repo: cosai-secure-ai-tooling/risk-map/yaml/risks.yaml]). Catalogue lifecycle and retirement:
+  agent-tool-designer.
 
 ## 2. The policy gate (single enforcement point)
 
@@ -35,7 +44,10 @@ tool and the arguments. It can enforce allowlists, caps on argument values, iden
 counts. It can't know a record's real state, so a condition on a value the model supplies ("status is not shipped") is
 a hint, not a control. Facts about the world (status, balance, owner) are checked in the handler, or in a lookup the
 gate calls, against the system of record. Use both: the gateway for coarse, auditable limits, the handler for state. A
-single gate is right; a single place for every rule, with rule-free handlers behind it, is not.
+single gate is right; a single place for every rule, with rule-free handlers behind it, is not. The gateway also
+drops traffic that doesn't match the contract and strips inbound headers outside an allowlist (a caller-set role
+header must never reach a service that trusts it), and the service behind it still validates its own input
+[APIARCH ch6]. The gate fails closed when it errors ([guardrails.md](guardrails.md) §6).
 
 Checks, in this order:
 
@@ -46,7 +58,7 @@ Checks, in this order:
    against the agent's timeout [DEFGUIDE ch6].
 5. **Arguments.** Schema (types, required fields) then semantics: IDs exist and belong to the tenant, paths resolve
    inside the allowed root, URLs and recipients on allowlists, amounts and counts under hard caps. Content checks on
-   free-text arguments (§6).
+   free-text arguments ([guardrails.md](guardrails.md) §4).
 6. **Flow rules.** Taint: once untrusted content has entered the run, egress tools need approval or are denied.
    Resource scoping: a session that started on resource A may not touch resource B (the per-repository rule from the
    trifecta case in [MCP ch7]). Order rules ("tool B only after tool A") and per-session call caps are flow rules too;
@@ -105,8 +117,10 @@ def gate(run, name, args):
 - Approval gates live outside the engine. The engine only allows or denies a call; it can't see whether a human
   approved, and it doesn't route anything. For a gated action class, the agent's principal gets a permit only for a
   request or propose tool (`request_refund_approval`, not `issue_refund`). A separate executor identity, allowed by
-  its own rule, runs the approved action keyed by approval ID after re-checking the hard limits and the record's state
-  ([human-oversight.md](human-oversight.md) §3).
+  its own rule, runs the approved action under the write's idempotency key from durable run state (the approval ID is
+  stored with the intent and marked used in the same write) after re-checking the hard limits and the record's state
+  ([human-oversight.md](human-oversight.md) §3). That approval binds a digest of the exact action and arguments, an
+  expiry and a single-use nonce; the executor recomputes the digest and refuses on any mismatch.
 
 **Shipping a gate rule.** Rules need their own release process:
 - Lint: reject a rule with no condition, or a forbid with no exception, unless the reason is written next to it. Where
@@ -117,6 +131,41 @@ def gate(run, name, args):
   asynchronous and fail after the console reported success, and log-only evaluation can fail silently when a
   permission is missing. A rule that failed to deploy turns an allow into an outage and a forbid into a hole. Alarm on
   any rule that isn't active, and on decision logs going quiet.
+
+### Access rules per action
+
+Authentication says who is calling, not what they may do to this record with this tool. Broken object-level
+authorization (another user's record reached by changing an ID) and broken function-level authorization (an admin
+operation run by a standard user) are two of the commonest API failures [APIARCH ch7], and an agent reproduces both
+whenever it acts on its own scope instead of the user's. The gate enforces four rules:
+
+1. **Permission tier per action, not per agent.** Read-only; draft-only (nothing sent or saved); execute with approval
+   of the specific payload; auto-execute, kept rare and limited to narrow, reversible actions with strong validation
+   and a clear rollback [PRODGUIDE ch12]. One agent can be read-only on the CRM, draft-only on email and execute with
+   approval on tasks. Keep the tier in run state so nothing upgrades silently, have the agent restate it in every
+   approval request, and keep a short "never" list (delete records, change billing, handle credentials, make financial
+   commitments) that no tier unlocks. The kill switch's draft-only level (agent-harness-designer) moves every action to
+   the draft-only tier while it is on. The tier is a field in each tool's contract (agent-tool-designer);
+   [human-oversight.md](human-oversight.md) §1 maps tiers to review.
+2. **Granted scope ∩ user entitlements, per object and per function.** A user can grant a client scopes the user
+   doesn't hold [APIARCH ch7]. Authorise every call as what the token was granted, intersected with what this user may
+   do to this object, intersected with this tool's own scope [HARDMCP ch5]. Read tools get read-only connections; a SQL
+   tool on a read-write connection running model-written SQL as is breaks this rule
+   [BUILDAGENTIC repo: text_to_sql/agent/react_agent_sql.ipynb]. Validate IDs before they become file paths or keys
+   [BUILDAGENTIC repo: codeact_browser/state_manager.py].
+3. **Three identities: recommend, prepare, execute.** Each phase runs under its own identity with dedicated or
+   just-in-time credentials scoped to that phase [AISEC ch7]. The identity that recommends can't execute, and a
+   person's yes doesn't lend the agent the approver's power. No ambient authority: bind each action to user, agent,
+   tool and purpose, and never let an agent inherit broad service credentials by default [AISEC ch10]. The executor
+   identity is the one that runs approved actions above.
+4. **Scope gate and circuit breaker.** Every state-changing or outbound step passes one scope check: target on an
+   allowlist and inside an authorised time window, otherwise log the attempt and stop without touching the target.
+   Approvals for such steps are one-time and expiring, and rejection, timeout or a missing rollback plan is a hard
+   denial [AISEC repo: part8_multi-agent_harness_spec/safety-governance.md]. A circuit breaker stops calls to a tool
+   after repeated failures instead of retrying into the budget [AISEC ch10].
+
+Test each rule by making the same call under two identities (and A, then B, then A for escalation):
+[red-team-test-plan.md](red-team-test-plan.md) §Authorization tests.
 
 AWS mapping: [aws-implementation-notes.md](aws-implementation-notes.md).
 
@@ -133,7 +182,7 @@ AWS mapping: [aws-implementation-notes.md](aws-implementation-notes.md).
   a parallel identity store splits the audit trail. When agents are split to separate data, the boundary has to exist
   in their credentials, not only in prompts or tool lists. Verify it with a negative test (a policy simulation or a
   real call) showing each agent's identity is denied every other agent's stores, and review the effective permissions,
-  not the policy names.
+  not the policy names. Within one agent, split identities by phase (recommend, prepare, execute): §2 Access rules.
 - **Delegation.** When acting for a user, use delegated tokens that never exceed the user's rights; record both
   identities in the audit log. Across more than one hop, apply the invariants in "Delegation chains" below.
 - **Verified, not asserted, identity.** The user an agent acts for is proven by a token the identity provider signed
@@ -155,6 +204,19 @@ AWS mapping: [aws-implementation-notes.md](aws-implementation-notes.md).
   one OAuth scope. Then keep the token in a proxy service that exposes only intent-level operations (create draft,
   reply in thread X) and enforces recipients and rates there; the agent never holds the token. An agent running on the
   user's own full-scope token is a finding, not a premise.
+- **Tenant-wide delegation is ambient authority.** A grant that lets one identity act on every user's data (Google
+  Workspace domain-wide delegation; Microsoft 365 application permissions not limited to named mailboxes) is P0 when the
+  agent reads untrusted content. Replace it with per-user delegated tokens, or application access scoped to named
+  mailboxes (threat-catalog.md T9).
+- **Provider notes (as of 2026-10-19; scopes and names change, verify before use).** Gmail: `gmail.compose` covers
+  managing drafts and sending, so a token meant for drafting can send; `gmail.send` sends only; `gmail.readonly`
+  reads only (https://developers.google.com/workspace/gmail/api/auth/scopes). Google Workspace domain-wide delegation
+  gives the app access to the data of all users in the domain for the granted scopes, without their consent
+  (https://knowledge.workspace.google.com/admin/apps/control-api-access-with-domain-wide-delegation). Microsoft Graph
+  application permissions such as `Mail.Read` and `Mail.Send` reach all mailboxes without a signed-in user. Exchange
+  Online's RBAC for Applications scopes an app to named mailboxes (management scopes or administrative units) and
+  replaces Application Access Policies; its grants add to those made in Entra ID, so remove the unscoped Entra grant or
+  the scope has no effect (https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac).
 
 ### Delegation chains
 
@@ -198,12 +260,23 @@ Validate every inbound token in this order, and fail closed when a claim is **mi
 8. Policy claims, for example that the subject is a person.
 9. At a resource: the actor's rights stay within a per-actor ceiling the resource keeps itself.
 
-Take the user or customer from the verified subject, never from a request parameter. For the MCP server side of this
-checklist, see agent-tool-designer.
+Take the user or customer from the verified subject, never from a request parameter. MCP specifics (resource
+indicators, issuer pinning, PKCE, per-client consent at proxies): [mcp-hardening.md](mcp-hardening.md) §4.
 
 AWS mapping: [aws-implementation-notes.md](aws-implementation-notes.md).
 
 ## 4. Breaking the trifecta
+
+**Triage with the Rule of Two first.** Meta's Rule of Two (October 2025, in [PLAYBOOK ch9]) names the trifecta's three
+ingredients: private data, untrusted content, and the ability to act externally. An agent should hold at most two at
+once, and a task that needs all three requires human oversight. The trifecta says remove one [MCP ch7]; the Rule of
+Two allows all three under review. Treat them as one test with ordered fallbacks:
+1. Cut a leg per request, in code, wherever the task allows (options below).
+2. Where the product needs all three, keep a person in the path, and because review alone is weak, add controls that
+   hold without the reviewer: an egress allowlist, the provenance gate ([guardrails.md](guardrails.md) §3) and approvals
+   bound to the exact action ([human-oversight.md](human-oversight.md) §3).
+
+Run the triage once for the whole job (SKILL.md Step 1), then per flow (Step 5).
 
 Cut one leg per request, in code. Options per leg:
 
@@ -276,30 +349,9 @@ P0 or P1 path.
 
 ## 6. Tiered guardrails
 
-| Tier | What | Where | Latency |
-|---|---|---|---|
-| 1 Deterministic | Unicode normalisation, invisible-character flags, regex families (injection markers, exfiltration patterns such as URLs with encoded data), schema checks, allow/deny lists, PII patterns | Inline, every request and every tool result | Microseconds [EVALS ch10] |
-| 2 Small model or classifier | Injection/jailbreak classifier, topic classifier | Inline only on the uncertain band of tier-1 scores, with a cache | Tens to hundreds of ms |
-| 3 LLM judge | Policy or alignment check on the plan or output | Uncertain band only, or in parallel with delivery | Hundreds of ms or more [EVALS ch10] |
-| 4 Online eval | Quality and safety sampled after delivery | Async, sampled | None for the user |
-
-Design rules:
-- Weight by trust context: tool output gets higher injection and exfiltration sensitivity than authenticated staff
-  input [DEFGUIDE ch12].
-- Map the score to allow / human review / block, and invoke the judge only between two thresholds (the book's scanner
-  uses 0.2 and 0.8 [DEFGUIDE ch12]; tune yours on a labelled set). Before enforcing, run the check in shadow
-  (log-only) mode and set thresholds on the observed score distribution.
-- Scan the free-text **arguments of proposed calls** (reasons, notes, message bodies) as well as inputs and results.
-  Injection markers in an argument mean the plan was steered upstream: deny or route to a human, as a forbid no allow
-  can override. It is still detection, not the control for a P0 path. Test each such rule with a paired call
-  ([red-team-test-plan.md](red-team-test-plan.md) §Gate rule tests).
-- Choose the on-fail action per validator: fix or redact (deliver the rest), re-ask, filter one field, refrain, log only,
-  raise [DLLMA ch10]. Prefer modification to blocking; a guardrail that blocks good answers can be worse than none [EVALS ch10].
-- Start from untrusted defaults, measure a bypass baseline with an automated red-team harness, tune only the categories
-  that fail [DEFGUIDE ch12].
-- Detector quality varies widely: on the vendor-run PINT benchmark one commercial detector scored 92.5% and Llama Prompt
-  Guard 61.4% [BUILDAPPS ch12]. Whatever you deploy leaves a residue the architecture must absorb.
-- Output handling: encode model output for its destination (HTML escape, parameterised SQL, no `shell=True`).
+Moved to [guardrails.md](guardrails.md): the three layers (prompt, screening, hard limits), input, tool-output and
+output checks, the provenance gate and egress allowlist, the tier table and its design rules, release discipline,
+and the fail-open or fail-closed decision per check. None of it replaces §1 to §4 on a P0 or P1 path.
 
 ## 7. Memory hygiene
 
@@ -331,24 +383,11 @@ Design rules:
 
 ## 9. MCP-specific controls (as of 2026-10, spec 2026-07-28)
 
-Client and host side:
-- Show tool descriptions to users; re-obtain consent when a server's tool list changes; namespace tools by server [MCP ch4].
-- Pin server versions; prefer vetted registries; review descriptions as untrusted text.
-- Prefer stdio for local servers; if HTTP, bind to 127.0.0.1 and validate the Origin header (DNS rebinding) [MCP ch8].
-- Consent before running one-click local server install commands.
-
-Server side:
-- OAuth 2.1 resource server: validate token audience and scopes; never pass client tokens downstream [MCP ch7].
-  Audience and scope are two of the receiver checks in §3; run all of them.
-- Proxies with a static client ID: per-client consent stored server-side, exact redirect-URI matching, single-use
-  `state` set only after consent [MCP ch7].
-- Block private IP ranges during OAuth metadata discovery (SSRF); use an egress proxy.
-- Bind state handles to the verified user; possession of a handle is not authentication.
-- Progressive scope minimisation: start with low-risk scopes, step up on demand.
-- Validate paths and arguments in tool code. Per [MCP ch7], the Python SDK checks resource-template parameters but not tool parameters.
-
-The MCP spec does not solve prompt injection or tool poisoning through tool content; that stays the host's job.
-MCP is an integration contract, not a security boundary [SYSTEMS ch7].
+Moved to [mcp-hardening.md](mcp-hardening.md): tools resolved by `server::name` and definitions pinned per session,
+supply chain, the server's front door, the token acceptance pipeline and token exchange, consent and the credential
+store, sampling, elicitation and roots, and runtime defaults. Two points to keep in view here: MCP authentication is
+not an injection defence, and injection through tool content stays the host's job; MCP is an integration contract,
+not a security boundary [SYSTEMS ch7].
 
 ## 10. Detection and recovery
 
@@ -378,14 +417,21 @@ MCP is an integration contract, not a security boundary [SYSTEMS ch7].
   policies, or replace an endpoint's authorizer is the permission to disable every control at once. Log-only mode
   still logs "would have denied", so a switched-off gate looks like a working one. Give that permission to a separate,
   narrowly held role, require a second person for changes, and alarm on every change to gate mode, rule set,
-  authorizer and allowed clients.
+  authorizer and allowed clients. The same goes for tests, eval configurations and policy files: keep them read-only
+  to the agent, run checks from a protected copy and flag diffs to them in review. Coding agents have edited tests to
+  make them pass and weakened password resets to simplify development
+  [NG Agentic Coding and Agentic Software Testing Go Together, 2025-09-17]; [PLAYBOOK ch9] reports a model that
+  changed the timer instead of speeding up the code.
 - **Configuration drift.** Update APIs that replace the whole configuration drop any field you don't resend
   (authorizer, header forwarding, environment), and may publish the result as the new default version. Build each
   update from the current state, and after every deploy diff the security fields (authorizer, allowed audiences and
   clients, header forwarding, gate attachment and mode) against the approved baseline. Setup wizards can add grants
   nobody asked for, such as a default scope on a new client, so read back effective grants afterwards.
 - **Kill switch**: per agent and global, server-side (revoke credentials, halt the queue), reachable remotely, tested in
-  drills. A local process kill is not enough [ENTERPRISE ch7].
+  drills. A local process kill is not enough [ENTERPRISE ch7]. Name its triggers here: scope mismatch, unexpected
+  egress, loss of the audit path, budget exhaustion, injected text that changes policy
+  [AISEC repo: part8_multi-agent_harness_spec/safety-governance.md]. The runtime side (the stop sequence, draft-only
+  mode, safe-mode replay) is designed in agent-harness-designer; this skill requires the switch and drills it.
 - **Rotation**: rotate secrets on demand; for secrets you can't rotate, remove them from the agent's reach [MESH ch11].
 - **Restore**: back up configuration, registry and memory; restore a known-good state [MESH ch11].
 - **Runbook**: detect → quarantine agent → revoke and rotate → scope the blast radius from the audit log → purge

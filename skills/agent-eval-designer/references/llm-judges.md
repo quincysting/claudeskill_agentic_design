@@ -2,6 +2,8 @@
 
 A judge is a measuring instrument and needs testing like one. Everyone agrees on deterministic checks first and human calibration [EVALS ch1][DEFGUIDE ch9][SYSTEMS ch14][ILLUSTRATED ch7]. The disagreement is about how far to trust a judge by default. One book says a well-built judge reaches 80 to 90% agreement with people, citing no source [EVALS ch5]. The likely origin is the MT-Bench study, which measured pairwise preferences between chat answers, not agent outcomes, and documented position, verbosity and self-enhancement bias in the same paper (Zheng et al., external, 2023-06). Others warn that a judge can "make bad judgment scalable" [SYSTEMS ch14] and say not to trust evaluations whose criteria you cannot see [DLLMA ch5]. **Rule:** quote no agreement figure for a judge until you have measured one on your own task with a chance-corrected statistic. Until then, use judge scores to rank outputs for human review [DEFGUIDE ch8].
 
+Ng makes the same point from practice: a rubric judge on free-form output beats nothing, but can be too noisy to show whether a tweak helped [NG We Need Better Evals for LLM Applications, 2024-05-29]. Even a calibrated judge's verdict on one change needs paired reruns before anyone acts on it (ci-gates.md, "Gate rules"), and whatever can be checked against a label belongs in code (scorers.md).
+
 ## Rubric design
 
 The judge receives the task input, the agent's output (or transcript), the rubric and optionally a reference. It returns a score and a reason per criterion as JSON [EVALS ch5].

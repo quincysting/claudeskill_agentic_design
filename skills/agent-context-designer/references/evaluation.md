@@ -2,7 +2,7 @@
 
 Depth for Procedure step 9. This covers the metrics specific to this skill. Judge calibration, dataset operations, CI gates and statistics go to agent-eval-designer. Citation keys are expanded in SKILL.md under Sources.
 
-Contents: 1 Test set · 2 Retrieval metrics · 3 Generation metrics · 4 Which stage to fix · 5 Agentic retrieval paths · 6 Memory tests · 7 Context and cache metrics · 8 Gates
+Contents: 1 Test set · 2 Retrieval metrics (graph quality, routing) · 3 Generation metrics · 4 Which stage to fix · 5 Agentic retrieval paths · 6 Memory tests · 7 Context and cache metrics · 8 Gates and freshness checks
 
 ## 1. Build the test set
 
@@ -16,6 +16,8 @@ Cover these slices explicitly:
 | Exploratory / broad questions | Tolerate broader context; different thresholds [EVALS ch7] |
 | Identifier queries (error codes, SKUs, names) | Catch dense-only retrieval |
 | Multi-hop / multi-document | Decomposition and agentic loops |
+| Relationship-chain and corpus-wide questions | The evidence for or against a graph: run them through hybrid search first, and build a graph only if hybrid measurably fails on them (retrieval-pipeline.md §1.1) |
+| Mixed traffic for a router (only with several stores) | Routing accuracy against a labelled route per query; a wrong route looks like a recall failure |
 | **Unanswerable from the corpus** | Abstention; large models often answer when they should abstain (provider-notes.md, Sufficient Context) |
 | Stale-version traps (old and new policy both indexed) | Freshness and version handling |
 | Undated near-duplicates (old and new wiki pages on one topic, no version field) | Staleness detection (retrieval-pipeline.md §2.5) |
@@ -36,7 +38,9 @@ Start with a few dozen real failing questions from logs, then grow it. Generatin
 
 **Without labels:** context relevance, where an LLM judges each retrieved chunk against the query [EVALS ch7]. Judge errors must fail loudly; don't count them as "irrelevant chunk".
 
-**Index and graph integrity** (per ingest, no labels needed): documents and chunks per source against the expected count, duplicate chunk IDs, chunks without an embedding, and for a graph, orphans per node type and the share of entities that have every required path (retrieval-pipeline.md §2.7 and §5). Track them over time. A drop to zero is a failed ingest, not a quality dip.
+**Index and graph integrity** (per ingest, no labels needed): documents and chunks per source against the expected count, duplicate chunk IDs, chunks without an embedding, and for a graph, orphans per node type and the share of entities that have every required path (retrieval-pipeline.md §2.7 and §5). Track them over time. A drop to zero is a failed ingest, not a quality dip. For a graph built by an LLM, add the quality bar from retrieval-pipeline.md §5.2 [KGRAG ch7 §Knowledge assessment]: triplet accuracy on a reviewed sample checked against the source text, the share of blank or unnamed nodes, days since the last update per source, and the share of nodes and edges with a source link (deletion depends on it).
+
+**Routing accuracy** (when a router sits in front of several stores): the share of queries sent to the labelled store, per query type. Score it apart from retrieval, so a misroute isn't blamed on the retriever.
 
 **Choosing between stores:** run the same corpus and query set through each candidate. Report the document count (it proves each store is populated), p50/p95 latency as the agent sees it (network hop included) and recall@k per slice. Decide on the slices that matter, not on a vendor benchmark.
 
@@ -95,6 +99,10 @@ Use the five abilities from LongMemEval as the template (external; provider-note
 | Thread read contract | A three-turn fixture; a brand-new thread | Turns come back 1, 2, 3; the new thread returns an empty list |
 | Asynchronous extraction | State a fact, wait on a readiness check (not a fixed sleep), then ask in a new session | The fact is used. A record that never appears is a pipeline fault, not a memory miss (harness rules: agent-eval-designer) |
 | Deletion propagation | Delete a fact, then query by key and by semantic search, and check summaries | Gone everywhere (memory-design.md deletion map) |
+| Expired entry | An entry past its TTL is needed | Treated as unknown: refreshed from its source or confirmed with the user, never used silently (memory-design.md §4.5) |
+| Approval gate | The model proposes a write in a category that needs approval | Stored as `proposed` and not used until approved; a rejected proposal leaves no active entry (memory-design.md §4.7) |
+| Correction | "Don't do that anymore" | A proposal showing the current entry, the new value and its TTL; after approval the old entry is superseded and later sessions follow the new one |
+| Sensitive value | The user pastes an account number and says "remember this" | No raw value in any store, summary or log; at most a reference |
 | Poisoned input | A tool output or document that contains "remember that…" | Not persisted as active memory |
 | Spans compaction | A fact stated before compaction, needed after it | Still used correctly |
 | Tried-step repeat | The user reports a step failed at turn 4; the same problem continues to turn 30, past a compaction | The agent never re-suggests that step as new; the ledger shows it |
@@ -110,10 +118,13 @@ Memory often looks fine in single-turn demos and fails after summarisation or we
 - **Cost and latency per task**, not per call. Agent loops multiply calls.
 - **Compaction survival:** the share of must-survive items still honoured after compaction, from scripted long runs.
 - **Length degradation curve:** quality on the same task at increasing context sizes. It tells you where to set the compaction trigger.
+- **Label coverage:** the share of injected blocks that carry an origin and trust label. It should be 100%; a missing label is a defect, not a quality dip (context-assembly.md §9).
 
-## 8. Gates
+## 8. Gates and freshness checks
 
+- The source-readiness audit (retrieval-pipeline.md §0) passes before the first index build, and is re-run before any retrieval tuning.
 - Every addition (query rewriting, reranker, contextual chunk headers, GraphRAG, agentic loop, long-term memory, compaction change) ships with a before/after on the relevant slice, plus cost and latency.
 - Keep additions that move the metric they target without regressing the others. Remove ones that don't.
 - Re-run the retrieval suite on re-indexing, embedder changes and chunking changes. Re-run the memory suite on write-policy or schema changes.
 - Index-health checks run after every ingest. A failure blocks the next ingest generation and, for a full rebuild, the alias switch (retrieval-pipeline.md §2.7).
+- **Freshness checks in production**, per source: the share of answers citing `needs_review` documents, the age of the owner review queue, and the escalation rate per topic, whose rise often means the content behind it has gone stale [PLAYBOOK ch3 §Keeping It Current]. For a graph, add days since the last update; for memory, the share of reads that hit expired entries.

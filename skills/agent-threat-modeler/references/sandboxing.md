@@ -2,7 +2,26 @@
 
 Use when the agent writes or runs code, uses a shell, installs packages, edits files, drives a browser, or operates a
 desktop. Approval decides *whether* something runs; isolation decides *what it can reach* when the approval was wrong.
-For users who cannot read the command, isolation is the only control that works [ILLUSTRATED ch10].
+For users who cannot read the command, isolation is the only control that works [ILLUSTRATED ch10]. Put the effort
+here rather than in the model's refusals: Ng attributes a 2026 agent breach to buggy sandboxing and monitoring and
+holds the builder responsible [NG Who's Responsible for Irresponsible AI?, 2026-09-18].
+
+## What earns the name "sandbox"
+
+Call it a sandbox only if it bounds files, network, time and memory, and you have checked each. A container is useful
+isolation, not proof of it: verify network paths, mounts, identities and host-escape protections independently
+[AISEC repo: part8_multi-agent_harness_spec/safety-governance.md]. Three shapes that look like sandboxes and aren't:
+
+- **`exec` called a sandbox.** A graph node named `sandbox` sends model code, with no timeout, to a local service that
+  runs it with `exec` [BUILDAGENTIC repo: codeact_browser/create_codeact.py]. The name changes nothing about what the
+  code can reach.
+- **An unauthenticated execution service.** That same service listens on every interface with no authentication
+  [BUILDAGENTIC repo: codeact_browser/browser_service.py], so anything on the network can run code on it. An
+  execution service is an endpoint like any other: private network or loopback only, authenticated callers, a time
+  and memory limit per call, fresh state per call.
+- **A path jail that one tool skips.** File tools check paths by string prefix while a code tool runs a subprocess
+  that can open any path [ILLUSTRATED repo: src/illustrated_agents/toolbox.py]. Confinement has to hold for every
+  tool that touches the filesystem, at the process level.
 
 ## Three cumulative layers
 
@@ -42,6 +61,10 @@ Quick pick:
 - CPU, memory, process-count, disk and wall-time limits; output size caps before results return to the model.
 - Network off by default. If needed, egress through a proxy with a domain allowlist; block cloud metadata endpoints
   and private IP ranges.
+- Egress isolation is deny by default and covers the quiet routes: public DNS resolution, arbitrary package installs,
+  production routes, corporate identity endpoints and shared mounts are unreachable unless a documented need names
+  them [AISEC repo: part8_multi-agent_harness_spec/safety-governance.md]. Test from inside the sandbox that each
+  is refused.
 - Fresh environment per user or session, destroyed afterwards; never share a sandbox between users
   [ILLUSTRATED ch10].
 - Secrets absent unless a step needs one; then a short-lived, narrowly scoped token injected for that step.
@@ -118,7 +141,9 @@ success fell from 23.6% to 11.2% with mitigations; one in nine is not acceptable
 ## Red flags in code review
 
 - `exec(`, `eval(`, `subprocess` with `shell=True`, or `os.system` on model output outside a sandbox.
-- A node, class or service called "sandbox" that runs code in-process.
+- A node, class or service called "sandbox" that runs code in-process, or hands it to an `exec` service.
+- A code-execution service listening on all interfaces, without authentication or a per-call timeout.
+- A path check in the file tools that a code or shell tool can bypass.
 - Docker socket mounted into the agent container; container running as root; `--privileged`.
 - The whole host environment passed to a child process or MCP server.
 - Path checks with `startswith` or a `".." in path` test.

@@ -9,6 +9,7 @@
 - **Hard gates:** <three to five checks that block any release>
 - **Top risks addressed:** <1>, <2>, <3>
 - **Build first:** <what exists by end of week 1>
+- **Gate items supplied** (lifecycle map: agent-architect): Decide: <decision served; eval budget, cost and wall time per tier>. Build: <first smoke suite, golden run and baseline, ready by …>. Prove: <held-out hard checks pass; harness slice passes>
 
 ## 1. System under test
 
@@ -48,6 +49,8 @@ Rules the agent must follow. Only signed-off rules become hard checks; open ones
 **Sources and share:** incidents/bad traces <x%>, production or pilot logs <x%>, expert-written <x%>, reviewed synthetic <x%>. Expected outcomes confirmed by <who>.
 *Pre-launch:* existing prompts as seeds <n>, real inputs borrowed from the current manual process <n>, dogfood/beta harvest <n> (dates), threat-model seeds <n>, reviewed synthetic <n>. The real-input slice is reported separately. Gates resting mostly on synthetic tasks: <list>. Date by which real inputs make up most of each slice: <date>.
 
+**First suite (smoke, run on every change):** 10 normal / 10 edge / 10 adversarial, plus failure cases (a tool fails, data is missing). Binary SLA predicates. Golden run <ID>, checked on its hard properties. Baseline <ID>, saved before the first change. One change per iteration. It catches large regressions only (27 of 30 is 74 to 97%; changes under about 20 points are ties), so it is not the release gate.
+
 **Composition:**
 
 | Slice | Scenarios | Tasks | Notes |
@@ -58,11 +61,12 @@ Rules the agent must follow. Only signed-off rules become hard checks; open ones
 | Must ask / must refuse / must escalate | | | no write while info missing (hard) |
 | Stress variants (ambiguity, missing info, partial tool failure, intent switch, injected instruction) | | | |
 | Lost acknowledgement on writes (timeout after commit, duplicate message, restart) | | | exactly one write |
-| Multi-turn (simulated persona) | ≥ 20 | | |
+| Multi-turn (simulated persona) | ≥ 20 | | N/A for single-turn agents |
 | Safety: misuse / manipulation through data / benign-task harm | | | attack design: agent-threat-modeler |
-| **Total (dev / held-out)** | | | |
+| Harness slice: resume after crash, stop rules, budget exhaustion, cancel, kill switch, kill while paused, edge faults | n/a | | scripted model, hard checks; harness side: agent-harness-designer |
+| **Total (dev / held-out)** | | | slice counts must sum to this total |
 
-**Schema:** id, scenario_id, version, clock, prompt or turns, initial_state, success predicates, hard_rules, expected_tools / expect_no_tool, reference (optional), tags (type, tool, difficulty, source, risk, split).
+**Schema:** id, scenario_id, version, clock, prompt or turns, initial_state, success predicates, hard_rules, expected_tools / expect_no_tool, expected_exit, reference (optional), tags (type, tool, difficulty, source, risk, split).
 
 **Versioning and maintenance:** immutable versions with changelog, including fixtures and recordings; validation before each run; expected tools checked against the live registry; quarterly review; incident → task within <1 day>.
 
@@ -78,6 +82,8 @@ Rules the agent must follow. Only signed-off rules become hard checks; open ones
 - Production settings; oracle visible to scorers only; suite shown to fail against a deliberately broken agent
 - Prompt and config version recorded per trial; runs with mixed versions rejected; runtime-read prompts pinned to <version>
 - Trials read from telemetry: <no / yes: export checked live before traffic, per-trial readiness wait with deadline, eval sessions sampled at 100%, missing trace = harness fault (rerun, then counted as failed)>
+- Run-record contract: fields the scorers read <list>, each with the harness code that writes it; status and stop reason from the fixed lists; a missing field = unscorable, counted against the suite; exit status checked against expected_exit
+- Suite read-only to the agent (tests, data, fixtures, scorers, judge prompts); hashes checked before scoring
 
 ## 7. Scorers
 
@@ -87,7 +93,7 @@ Rules the agent must follow. Only signed-off rules become hard checks; open ones
 **Judge rubrics** (one per judge): criteria as practical questions, level definitions, weights or gate criteria, JSON output with reasoning first, judge model and family, rubric version.
 
 **Calibration plan:** <50–100> human-labelled cases per gating criterion and task type, labelled by <who>, 20% double-labelled; report κ, false-pass rate, confusion matrix, bias; readiness threshold <κ ≥ 0.6 and false-pass ≤ x%>; recalibrate on judge or rubric change and <quarterly>. Until ready, the judge ranks outputs for human review only. Held-out evaluator for release (not tuned against): <hidden-rubric judge / fresh human-labelled sample / none needed because prompts aren't tuned on judge scores>.
-**Schedule:** labels needed <criteria × task types × cases> ÷ capacity <hours/month × measured labels/hour> = <months> until the judge can gate.
+**Schedule:** labels needed <criteria × task types × cases> ÷ capacity <hours/month × measured labels/hour> = <months> until the judge can gate. Measure labels per hour in the first labelling session; do not assume a rate.
 
 ## 8. Metrics and reporting
 
@@ -114,9 +120,9 @@ Rules the agent must follow. Only signed-off rules become hard checks; open ones
 
 | Tier | Trigger | Runs | Blocks when |
 |---|---|---|---|
-| Pre-merge | PR touching prompts/tools/models/data | Critical subset, deterministic scorers, 1 trial (cached transcripts when only scorers or data changed) | Any hard regression |
+| Pre-merge | PR touching prompts/tools/models/data | Critical subset, deterministic scorers, 1 trial (cached transcripts when only scorers or data changed); harness slice when harness code changed | Any hard regression or harness-slice failure |
 | PR judge run (few PRs/week) or nightly (many) | <choose one> | Dev split, judges, k trials | Confirmed (rerun) regressions with sign test p < 0.05, or net Δ < −tolerance |
-| Release | | Hard checks on dev + held-out; rates from held-out; consensus judging | As above, tolerance <2–3%>; critical hard checks 100% on every trial; non-critical floors <x%> with listed limitations; human reads lowest-scoring passes |
+| Release | | Hard checks on dev + held-out; rates from held-out; consensus judging | As above, tolerance <2–3%>; critical hard checks 100% on every trial; non-critical floors <x%> with listed limitations; human reads lowest-scoring passes; full harness slice passes |
 
 Tolerance source: <spread of three unchanged runs>. Baseline policy: saved only after review, with dataset and judge versions. Model migrations use the same gate.
 
@@ -128,6 +134,8 @@ Tolerance source: <spread of three unchanged runs>. Baseline policy: saved only 
 | Labelling budget (annotations/month, who) | |
 | Cost per run by tier (agent inference from measured cost per trial + judge + simulator) | |
 | Monthly eval spend vs production inference | |
+| Eval budget line by tier: cost per day (ideas × tasks × trials × cost per trial) and wall time per run (tasks × trials × median trial time ÷ concurrency) | |
+| Error analysis: cadence, who reads failing traces, attribution table (step × share of failing cases) | |
 | Flaky-case triage cadence | |
 | Hand-off to online monitoring | agent-ops-reviewer: <what it receives: suite, baseline, scorers, tags> |
 
@@ -143,3 +151,4 @@ Tolerance source: <spread of three unchanged runs>. Baseline policy: saved only 
 
 - Not covered by the offline suite: load, concurrency, rate limits, behaviour at production scale → <load testing / production monitoring owner>
 - Open policy decisions (section 3)
+- Security tests beyond refusal (implementation, infrastructure, runtime agentic behaviour) → agent-threat-modeler

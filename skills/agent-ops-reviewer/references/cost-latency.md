@@ -1,6 +1,6 @@
 # Cost and latency: model, levers, deployment
 
-Load this for steps 12 to 15 of the procedure: estimating cost per request, choosing levers, planning latency and deciding where each agent runs. Prices and provider features change monthly; everything marked "as of 2026-10" must be rechecked against the provider's page before it goes into a decision.
+Load this for steps 12 to 15 of the procedure: estimating cost per request and per successful run, choosing levers, planning latency and deciding where each agent runs. Prices and provider features change monthly; everything marked "as of 2026-10" must be rechecked against the provider's page before it goes into a decision. How the runtime enforces caps, and how the agent is served (API layer, workers, model server, streaming, deployment shape), is designed in **agent-harness-designer**; this file sets the numbers and checks the result.
 
 ## 1. The two sums
 
@@ -12,7 +12,9 @@ cache factor     = fresh share + cached share × read multiplier + written share
 latency          = Σ critical path (prefill + decode per model call, retrieval, tool, orchestration time)
 ```
 
-An agent's cost belongs to the workflow, not the model. One request may end after one call; another plans, retrieves, calls tools, reflects and synthesises. The price list sets the unit cost and your loop decides how many units you buy. Price the system on the **expected** value, budget and alert on the **likely high** (about p95) request, and size caps and fuses from the **capped ceiling**. A ceiling exists only when every loop, tool budget and retry policy has a hard maximum the runtime enforces.
+An agent's cost belongs to the workflow, not the model. One request may end after one call; another plans, retrieves, calls tools, reflects and synthesises. The price list sets the unit cost and your loop decides how many units you buy. So token volume per task, not the per-call price, drives cost and speed: an agentic workflow can generate hundreds of thousands of tokens before anyone reads the output [NG Why We Need More Compute for Inference, 2024-04-24]. Price the system on the **expected** value, budget and alert on the **likely high** (about p95) request, and size caps and fuses from the **capped ceiling**. A ceiling exists only when every loop, tool budget and retry policy has a hard maximum the runtime enforces.
+
+**How many tokens to spend.** In 2024 Ng welcomed workflows that burn hundreds of thousands of tokens and asked for cheaper, faster inference [NG Why We Need More Compute for Inference, 2024-04-24]; in 2026 he warns that past a point more tokens run into organisational bottlenecks and diminishing returns, and that sellers of tokens gain when you burn them [NG What Comes After Tokenmaxxing?, 2026-08-07]. PRODGUIDE says teams fail less because the agent is unintelligent than because it is unbounded [PRODGUIDE ch17]. The positions agree once the unit is right: spend tokens where they raise the success rate or cut human minutes, measured as cost per successful run (section 2, step 8), and cap each run so that a loop cannot decide the spend (section 4, "At a cap, stop cleanly").
 
 ## 2. The estimation method (no code needed)
 
@@ -32,7 +34,7 @@ Fill one row per step on the request path. Use traced numbers where you have the
    **No caps, no ceiling.** If any step lacks a cap, report the current ceiling as "UNBOUNDED", then rerun with the caps you propose and report that figure separately, labelled "with proposed caps".
 6. **Per-step share** = each step's expected cost / total. The lever goes where the share is, not where the code is easiest to change.
 7. **Monthly** = expected × requests per day × 30. Compare with the invoice; a material gap means a missing step, retries, non-model costs or wrong token counts. **Monthly at peak** = expected × the busiest day's volume × 30: what a month would cost if every day looked like the peak day. It is a planning upper figure, not a forecast.
-8. **Cost per successful task** = expected cost / task success rate (from evals). Use this, not cost per request, to compare variants.
+8. **Cost per successful run** = (expected cost + review minutes × value per minute) / success rate [PRODGUIDE ch17 §The Economics of an Agent Run]. Expected cost already holds model and tool cost. Review minutes are the human review and cleanup time per run, averaged over all runs; the value per minute is an internal rate, rough but kept consistent. A success is a run that met its SLA inside guardrails, a verified or approved outcome: count every output as a success and you optimise for chatter. Use this unit, not cost per request or per call, to compare variants and to hand to **agentic-business-case**. Leave the human term out only when review time is the same for every variant you compare. agent-model-selector compares model configurations on cost per solved task, the same spend without review minutes (its role-model-mapping.md §7); use this unit instead whenever the variants differ in review time. In the built-in example (85% success, half a minute of review at $40 an hour) review is about 90% of the total, which fits Ng's rule that AI tokens are cheap and human tokens are gold [NG Make All Your Tokens (and Your Brainwork) Count, 2026-07-10]. There, shorter review (scannable previews, receipts) moves the total more than any model lever. Once an application scales, know this number per query or per conversation [NG What Comes After Tokenmaxxing?, 2026-08-07].
 
 Run the same arithmetic with `scripts/cost_model.py`:
 
@@ -41,13 +43,14 @@ python scripts/cost_model.py --example > spec.json   # edit: prices (dated), ste
 python scripts/cost_model.py spec.json
 ```
 
-It prints expected, likely high and capped ceiling per request (or UNBOUNDED), monthly cost at expected volume and at the peak-day run rate, per-step share including non-model cost, latency and peak load per tier. Steps run in sequence unless marked `parallel` or given a shared `stage`. Each default the script had to fill in (missing `max_tok_in`, guessed p95, no cap, no peak volume) gets a warning line. The what-ifs are prompt cache off; prompt cache churning (every cached token written and none read, as when the prefix changes per request; printed only when the spec caches something); every step on the cheapest tier, printed as a BOUND because it ignores quality and repair cost (an upper limit on routing savings, never a recommendation); and the most expensive step's calls halved (the loop lever). `--selftest` runs the self-check alone; it also runs before every report. Partial `prices` merge per tier and field; edited prices without `prices_as_of` print as UNDATED. Example output with the built-in spec (prices as of 2026-10-06; small = Haiku 4.5, mid = Sonnet 5.5):
+It prints expected, likely high and capped ceiling per request (or UNBOUNDED), monthly cost at expected volume and at the peak-day run rate, cost per successful run when the spec sets `success_rate` (with `review_minutes` and `value_per_minute`; a user spec never inherits these from the example), per-step share including non-model cost, latency and peak load per tier. Steps run in sequence unless marked `parallel` or given a shared `stage`. Each default the script had to fill in (missing `max_tok_in`, guessed p95, no cap, no peak volume) gets a warning line. The what-ifs are prompt cache off; prompt cache churning (every cached token written and none read, as when the prefix changes per request; printed only when the spec caches something); every step on the cheapest tier, printed as a BOUND because it ignores quality and repair cost (an upper limit on routing savings, never a recommendation); and the most expensive step's calls halved (the loop lever). `--selftest` runs the self-check alone; it also runs before every report. Partial `prices` merge per tier and field; edited prices without `prices_as_of` print as UNDATED. Example output with the built-in spec (prices as of 2026-10-06; small = Haiku 4.5, mid = Sonnet 5.5):
 
 ```
 model calls/request   expected 6.2   cap 21
 cost/request          expected $0.0391   likely high (~p95 request) $0.2498
 capped ceiling        $4.1533 (106x expected): every step at its cap, no cache, max retries; a bound, not a forecast
 per month (30 days)   $11,725 at 10,000/day; $29,313 at the peak-day run rate (25,000/day)
+cost/successful run   $0.4382 at 85% success: model and tools $0.0460, human review $0.3922 (90%)
 share: router 2.9%, retrieval 2.6%, reasoning 72.7%, reflection 13.9%, guardrails 2.8%, other (non-model) 5.1%
 what-ifs: prompt cache off +110%; cache churning +141%; BOUND all steps on 'small' -43%; 'reasoning' calls halved -36%
 ```
@@ -63,6 +66,8 @@ A reported "cache hit rate" can mean three things: the share of calls with any c
 **Attributing cost.** Compute cost per model call from the four token classes (uncached input, cache read, cache write, output) × one dated price table, kept in one module rather than copied into each service. Put it on the span (`app.cost.usd`) and emit it twice:
 1. A per-call ledger record keyed by tenant, workflow, agent, session and version, kept for drill-down and for monthly reconciliation against the provider's bill.
 2. A metric with low-cardinality dimensions only (agent, model, tenant tier or task type). Never use session or user IDs as metric dimensions, because metric cost grows with every distinct value.
+
+Per run, also count model calls, tokens and tool calls, plus review and cleanup minutes, and split cost by phase (planning, retrieval, drafting, verification, execution, reporting). Without the phase split a team shortens the final answer while verification and rework eat the budget [PRODGUIDE ch17 §The Economics of an Agent Run].
 
 A gap of more than a few percent between the ledger and the invoice means a missing step, unpriced retries or wrong token semantics.
 
@@ -101,19 +106,23 @@ Work down the stack. The top three change how many units you buy and need only c
 
 | # | Lever | What to do | Typical effect | Prove it with | Risk |
 |---|---|---|---|---|---|
-| 1 | **Bound the work** | Cap loop steps, tool calls, retries, tokens and cost per task type; per-session cost and turn fuse with handoff | Removes the tail; saves what capped sessions spend today (read it from traces) | max and p99 cost per session, stop-reason mix | Caps too tight cut success; set from the success-rate curve by step count |
+| 1 | **Bound the work** | Per-run caps on tokens, model calls, tool calls, retries, plan steps and cost per task type, ending in a partial result (below); per-session cost and turn fuse with handoff | Removes the tail; saves what capped sessions spend today (read it from traces) | max and p99 cost per session, stop-reason mix | Caps too tight cut success; set from the success-rate curve by step count |
 | 2 | **Fewer calls** | Move routing, validation, formatting, permission checks and schema repair to code; merge classify + choose + fill into one structured call; drop reflection where evals show no gain | Proportional to calls removed | calls per request, task success | Merging steps on high-risk actions that need a separate check |
 | 3 | **Fewer tokens per call** | Token ceiling per prompt section; 3 to 5 re-ranked chunks, not 10; trim tool results to the fields the next step needs; summarise old turns ("context janitor": keep system prompt and last turns, drop the middle with a note) | Large in loops, because every kept token is paid again on each later step; also cuts time to first token | input tokens per call by step | Dropping facts the next step needs; check with evals |
 | 4 | **Reuse finished work** | Cache-stable prompt prefix (layout details: **agent-context-designer**); application caches for stable, non-personalised work; planner-decision memoisation | Prompt cache: input cost on cached share falls to 0.1x (lower on the top tiers, see section 3); app caches skip whole calls | cache-read token share, hit rate per cache, correctness spot checks | App caches can serve stale or cross-user results (section 5) |
-| 5 | **Cheaper model per step** | Small models for classify, extract, guard; strong model for planning and the answer; cascade where most inputs are easy (section 6). Shortlist with **agent-model-selector** | Real only on steps with a large share | cost per *successful* task, repair rate | Repairs and retries erase the saving |
+| 5 | **Cheaper model per step** | Small models for classify, extract, guard; strong model for planning and the answer; cascade where most inputs are easy (section 6). Shortlist with **agent-model-selector** | Real only on steps with a large share | cost per successful run, repair rate | Repairs and retries erase the saving |
 | 6 | **Cheaper pricing tier** | Batch for evals, enrichment, backfills, nightly reports; flex for latency-tolerant synchronous work; regional pricing only when residency requires it | About 50% on the moved share | share of spend on batch or flex | Never for work a user waits for; check whether batch and prompt caching combine on your platform before counting both discounts |
 | 7 | **Engine and hardware** | Self-host narrow, steady, high-volume steps; quantization, prefix caching, speculative decoding (section 9) | Step-shaped; wins only at high utilisation | cost per million tokens at measured utilisation | Ops burden, cold starts, quality loss from quantization |
 
-Rule of thumb: when one step holds more than half the spend, levers 1 to 4 on that step come before anything else. A cheaper system that answers worse has been degraded rather than optimised, so compare variants on cost per successful task against the eval set (**agent-eval-designer**).
+**At a cap, stop cleanly.** A capped run drops to draft-only and returns a partial result: what it finished, what it could not, the receipts that exist, and the smallest set of questions that would unblock the next step, with status `partial` [PRODGUIDE ch17 §Budget Guardrails and Context Discipline]. A cap that stops without saying so turns a cost control into a silent failure. How tight: the capped ceiling (section 2) sizes fuses; PLAYBOOK puts a run-level token cap at about three times expected use [PLAYBOOK ch6 §Token Cost Management], which bounds the tail far more tightly and ends some legitimate runs early, so it needs this fallback. Set each cap from the success-rate curve by step count. The checks themselves run before every model and tool call, with counters in checkpointed state (agent-harness-designer).
+
+**Ship each lever like a release.** Canary on 1 to 5% of runs, with rollback triggers on success under the SLA, p95 latency, duplicate side effects, cost per successful run and review minutes; on a trigger, flip to draft-only or roll back [PRODGUIDE ch17 §Performance Tuning Without Breaking Reliability].
+
+Rule of thumb: when one step holds more than half the spend, levers 1 to 4 on that step come before anything else. A cheaper system that answers worse has been degraded rather than optimised, so compare variants on cost per successful run against the eval set (**agent-eval-designer**).
 
 **No eval set yet: baseline before levers.** "Without hurting quality" needs a measured quality, so no lever that changes prompts, context, models or the number of calls ships before a baseline exists. Order the work:
 1. Trace per-step tokens, calls and stop reasons (the cost model needs them anyway). If only final answers are logged, this comes first.
-2. Build a minimal baseline: about 100 real requests sampled from traces, stratified by task type and including recent failures; a pass or fail rule per case (deterministic checks where possible, a rubric otherwise); three runs of the unchanged system to measure the noise band. Record a pass rate with its interval (100 cases resolve about ±7 points at an 85% pass rate) and the cost per successful task.
+2. Build a minimal baseline: about 100 real requests sampled from traces, stratified by task type and including recent failures; a pass or fail rule per case (deterministic checks where possible, a rubric otherwise); three runs of the unchanged system to measure the noise band. Record a pass rate with its interval (100 cases resolve about ±7 points at an 85% pass rate) and the cost per successful run.
 3. Apply levers one at a time, each measured against the baseline.
 
 Safe to ship before the baseline: caps and fuses set above the traced p99 (they stop runaway sessions without touching typical ones) and moving offline jobs to batch. A cache-layout change can also go first when it only moves volatile fields (timestamp, user name, request ID) below the cache point and leaves the wording unchanged. Run it in shadow on identical inputs with write tools stubbed, and compare tool choice and final decision pair by pair with production. Ship it only if the pairs disagree no more often than two runs of the unchanged system disagree on the same inputs. Any change to wording waits for the baseline. Dataset design, scorers and judge calibration belong to **agent-eval-designer**; hand it the sampled traces and the task types.
@@ -137,7 +146,8 @@ Reasoning models and caching: early measurements found reasoning-model caches ra
 
 - **Task-based routing** (per step): small model classifies, extracts and guards; strong model plans and answers. Start with cheap heuristics (task type, keywords) before a trained router. Learned routers trained on preference data have reported more than halving cost at equal quality on public benchmarks (RouteLLM, 2024); verify on your own traffic.
 - **Cascade** (per input): try the small model, escalate on low confidence. With per-request costs c_small and c_large and a share s that stops at the small model, the cascade costs c_small + (1 − s) × c_large. It beats large-only only when **s > c_small / c_large**, and only if the confidence signal is validated against labelled outcomes (agreement across reruns or a separate checker beats self-reported confidence).
-- **Judge it on cost per successful task**: (expected cost + repair cost) / success rate. A cheap model that produces invalid tool arguments can cost more than it saves.
+- **Risk-based routing** (per case): routine cases get a cheap mode (short context, few sources, templated output); a risk trigger detected in code (a missing critical field, conflicting instructions, sensitive data, any irreversible action) moves the run to careful mode, with deeper retrieval, stricter verification and mandatory approval [PRODGUIDE ch17 §Performance Tuning Without Breaking Reliability]. Task-based routing picks the model per step; risk-based routing picks the effort per case. It pays only when the triggers are reliable; otherwise everyone ends up in careful mode.
+- **Judge it on cost per successful run**: (expected cost + repair cost + review minutes × value per minute) / success rate. A cheap model that produces invalid tool arguments can cost more than it saves, and a cheap mode that needs longer review can too.
 
 ## 7. Resilience is also cost policy
 
@@ -150,6 +160,8 @@ Reasoning models and caching: early measurements found reasoning-model caches ra
 
 Decompose p95, not the mean, into: model time (prefill, felt as time to first token, grows with prompt length; decode, one token at a time, bound by memory bandwidth), retrieval, tools, orchestration, and loop iterations. Agents are slow mostly because of sequential calls and long contexts.
 
+Read distributions, not averages: report p50 and p95 per phase, log tool latency apart from model latency, and watch jitter (the spread of completion times), because operators feel the p95. Slow or unpredictable runs also cause failures: people re-run them, and timeouts trigger retries that can duplicate side effects [PRODGUIDE ch17 §Performance Tuning Without Breaking Reliability].
+
 | Symptom | Lever |
 |---|---|
 | p95 far above p50 | Loop iterations and retries in the tail: cap steps, add tool timeouts that cancel, check the stop-reason mix of slow traces |
@@ -157,14 +169,14 @@ Decompose p95, not the mean, into: model time (prefill, felt as time to first to
 | Many sequential calls | Merge steps; run independent reads in parallel (raises downstream peak load; avoid speculative fan-out under load). Before running hops in parallel, confirm from the data flow that neither consumes the other's output, carry trace context into worker threads (observability.md §1), then rerun the quality gate. At the extreme, parallel sub-agents cut research time by up to 90% while using about 15 times the tokens of a chat (Anthropic, 2025-06) |
 | Trace shows a staircase of identical child spans | N+1 lookups: use the tool's batch call (tool shape: **agent-tool-designer**) |
 | Long answers | Stream tokens; show progress |
-| Work over about 30 s | Async job with ID, status, cancel and streamed progress over SSE or WebSockets; common gateways cut REST calls at 30 s |
+| Work over about 30 s | Async job with ID, status, cancel and streamed progress over SSE or WebSockets; common gateways cut REST calls at 30 s (job and stream design: agent-harness-designer) |
 | Inline checks slow | Guardrail budget about 10 ms regex, 50 ms embedding, 100 ms total; LLM checks go asynchronous unless they guard an irreversible action |
-| Bursts | Rate limits per user or tenant, bounded queues, priorities, explicit rejection or degradation ("a queue that grows without limits is a delayed failure") |
+| Bursts | Rate limits per user or tenant, concurrency capped when tools slow down, bounded queues, priorities, explicit rejection or degradation ("a queue that grows without limits is a delayed failure") |
 | Speed matters for some users only | Premium fast tiers only on paths where users wait |
 
 ## 9. Where each agent runs
 
-Place each agent, not the whole system: the data a step touches decides sensitivity; its traffic decides load shape.
+Place each agent, not the whole system: the data a step touches decides sensitivity; its traffic decides load shape. This section places agents and checks capacity; the serving design itself (three layers, no inference on the request event loop, streaming, deployment shape by trigger) is agent-harness-designer's, and the readiness review scores it (checklist J6, J7).
 
 | | Bursty load | Steady, high volume |
 |---|---|---|

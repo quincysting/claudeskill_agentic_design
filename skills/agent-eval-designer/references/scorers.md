@@ -2,6 +2,8 @@
 
 Pick a scorer per quality, not per eval. Each scorer returns a normalized score, a pass flag and a readable reason. "Correct but verbose" and "wrong" need different fixes, and a bare 3/5 is not actionable [EVALS ch2][EVALS ch5]. Every scorer needs a ground truth, rules or a rubric, plus a target value. Without them you are guessing [BUILDAGENTIC ch3].
 
+Andrew Ng splits eval targets into two classes. Tasks with one right answer get a labelled test set. Free-form output gets an LLM judge with a rubric, which he found better than nothing but at times too noisy to tell whether a tweak helped [NG We Need Better Evals for LLM Applications, 2024-05-29]. These are the code and judge rungs of the ladder below. Move every quality you can into the first class, and treat a judge-scored difference on one tweak as a tie until paired reruns confirm it (ci-gates.md, "Gate rules").
+
 ## The ladder
 
 ```
@@ -52,6 +54,8 @@ Most agent qualities are rule-decidable [DEFGUIDE ch9][SYSTEMS ch14]:
 | Reply matches executed actions (no "done" without the write, stated amount = executed amount) | Hard | Extract amounts, plan names and IDs from the reply and compare with the final state; a judge criterion ("does the reply claim an action not in the executed-call list?") covers free-form claims once calibrated |
 | Forbidden content (PII, internal notes, competitor names) | Hard | Regex or classifier. The same check can serve as a production guardrail [EVALS ch4] |
 | Tests pass (coding agents) | Hard | Run the repo's tests. A broken-then-fixed test is the check [DEFGUIDE ch9][ILLUSTRATED ch7] |
+| Same call under an irrelevant change (paraphrase, reordered details, an added greeting) | Hard on gating tasks, else soft | Run the variants of one scenario and compare tools and normalised arguments. FASTGENAI's property tests cover minimum functionality, invariance under irrelevant edits and the expected direction of change [FASTGENAI ch11] |
+| Expected exit status | Hard | `status == expected_exit` from the run record; a capped or cancelled run never passes as `completed` (datasets-and-harness.md, "Run-record contract") |
 
 Outcome means state. An agent can say "done" when nothing changed, or claim it lacked access after fetching the data [DEFGUIDE ch8]. Expected tool calls with parameters catch, for example, a full-order refund where only the damaged item should have been refunded [BUILDAPPS ch9].
 
@@ -144,9 +148,28 @@ Split safety evals by who causes the harm; each threat model has its own metric 
 
 The third is the least standardised and depends on your own tasks and harness [ILLUSTRATED ch7]. Run threat tests alongside behaviour tests from the prototype on [DEFGUIDE ch8]. Small samples say little. "100% mitigation" on one attack per type, or 3 of 3 blocked injections, has a 95% lower bound around 44% (see statistics.md). Attack design and coverage belong to agent-threat-modeler; this plan reserves the slots, the metrics and the gates. If agents pass a user's identity on to other agents or services, reserve slots for agent-threat-modeler's four delegation property tests (propagation, scope narrowing, agent ceiling, reach) and score them as hard checks.
 
+Refusal tests cover only part of security. The OWASP GenAI red-teaming guide, as AISEC summarises it, has four evaluation areas: the model, the implementation (guardrails, prompts, RAG), infrastructure (APIs, supply chain) and runtime agentic behaviour [AISEC ch10 §Security Controls for AI Systems]. Security tests for all four come from agent-threat-modeler. Where the system has a guardrail, evaluate what reached the user, not what the guard reported, and report its false-block rate beside its false-pass rate (review-checklist.md, "A guard that blocks only in its report").
+
 ## Multi-agent systems
 
 The books say least here. Test agents alone, then sub-hierarchies from different nodes, then the whole [ENTERPRISE ch6]. Score per-agent fidelity, global completion and coordination quality [MESH ch6]. Tag failed transcripts with the MAST taxonomy: 14 failure modes in three groups (system design, inter-agent misalignment, task verification), built from over 1,600 traces (Cemri et al., external, 2025). Then the fixes target the right layer.
+
+## Error analysis: where the failures come from
+
+Evals say how often the agent fails; error analysis says where. Ng's order: build a rough prototype, read a handful of outputs, then write evals (code for objective checks, a judge for subjective ones) and keep revising them. He rates a team's discipline with evals and error analysis as the biggest predictor of its progress [NG Improve Agentic Performance with Evals and Error Analysis, Part 1, 2025-10-15]. Error analysis then takes the subpar cases, reads the trace of every step, and counts which step most often did materially worse than a person following the same steps. Start with a few traces read informally, and grow toward a regularly refreshed set with per-step attribution [NG Improve Agentic Performance with Evals and Error Analysis, Part 2, 2025-10-22].
+
+One attribution table per round:
+
+| Step | Failing cases where this step was materially worse than a person | Share of failing cases | Typical failure | Next fix |
+|---|---|---|---|---|
+| (e.g. search query planning) | (e.g. 14 of 40) | (35%) | (query terms unrelated to the request) | (one change, rerun paired) |
+
+Rules:
+- **Pick the fix from the attribution, not from an average.** Fix the step with the largest share, change one thing, and rerun the suite paired against the baseline (datasets-and-harness.md, "First suite").
+- **Label failures with categories.** PLAYBOOK's four failure patterns (missing context, unclear rules, wrong tool, no stop condition) make a first label set [PLAYBOOK ch4 §Build It, Test It, Fix It]. Use MAST for multi-agent transcripts (above) and reviewers' classified rejections (llm-judges.md, "Human annotation as an operation"). Each labelled failure becomes a task.
+- **Hard checks first, then look.** PRODGUIDE fixes success criteria and cases before building [PRODGUIDE ch13]; Ng reads outputs before choosing metrics [NG Improve Agentic Performance with Evals and Error Analysis, Part 1, 2025-10-15]. Both hold. Known requirements (artifacts, forbidden actions, approvals) are hard checks from the first run, and the qualities worth scoring are found by reading outputs.
+- **Remove scaffolding only on evidence.** Ng's signal is that every step does well but the sequence as a whole underperforms a person, so the steps may be too rigid [NG Improve Agentic Performance with Evals and Error Analysis, Part 2, 2025-10-22]. This skill's rule: drop or merge a step only when the traces point there and a paired run on the existing suite shows the simpler workflow is no worse on hard checks and quality. At each model upgrade, rerun the suite with and without the step instead of assuming the newer model copes.
+- **Read the run record, not only the reply.** Per-step attribution needs the recorded tool calls, results and stop reasons (datasets-and-harness.md, "Run-record contract"). A trace with a step missing is a harness error.
 
 ## Public benchmarks
 

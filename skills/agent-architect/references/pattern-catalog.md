@@ -19,6 +19,15 @@ Pick the skeleton pattern first, then the pattern inside each agent step. Each e
 | Several modes share the same policies | Hierarchical state machine |
 | Runs last minutes to days, wait on people, must survive crashes | Durable workflow engine |
 | Tools, controls and use cases multiplying | Orchestrator service instead of an embedded loop |
+| Actions change systems of record, or approvals arrive later | Draft and execute as separate states |
+| Valid next actions depend on server state the model cannot see | Next actions in tool results (affordance-driven tools) |
+| Users talk to the agent by voice | Cascaded voice pipeline, or foreground and background agents |
+
+## Ng's four patterns and how reliable each is
+
+Andrew Ng's four agentic design patterns cut the same space more coarsely [NG Agentic Design Patterns Part 1, 2024-03-20]: reflection is the evaluator-optimizer below, tool use is the tool-calling loop, planning is the plan-then-execute pattern, and multi-agent collaboration is multi-agent.md. He orders them by maturity. Reflection and tool use he can make work reliably; planning and multi-agent collaboration are powerful but harder to predict [NG Agentic Design Patterns Part 4, Planning, 2024-04-10] [NG Agentic Design Patterns Part 5, Multi-Agent Collaboration, 2024-04-17].
+
+Use the order as the default for what to try first, with two qualifiers. It is 2024 practitioner judgment from his own applications, not a measurement. And reflection is reliable only when it reflects on evidence such as a test, a tool error or a rubric; unprompted self-critique can make answers worse (reasoning-strategy.md, "Depth: reflection").
 
 ## Workflow patterns (code decides the path)
 
@@ -63,11 +72,11 @@ Pick the skeleton pattern first, then the pattern inside each agent step. Each e
 - **Use:** the next action depends on what the last one revealed.
 - **Avoid:** the path is predictable.
 - **Failure:** over-calling tools, looping without stopping criteria, growing state [DEFGUIDE ch2].
-- **Guard:** step cap (even the minimal teaching loop has `max_steps` of 10 [ILLUSTRATED ch6]), no-progress detection, validation gate, explicit exits. These live in the loop, not the prompt. See control-loop.md.
+- **Guard:** step cap (even the minimal teaching loop has `max_steps` of 10 [ILLUSTRATED ch6]), no-progress detection, validation gate, explicit exits. These live in the loop, not the prompt. See the agent-harness-designer skill, references/control-loop.md.
 
 ### Plan, then deterministic execution
-- **Use:** plans are reviewable and steps map to registered tools.
-- **Avoid:** most observations would invalidate the plan.
+- **Use:** plans are reviewable, steps map to registered tools, and the decomposition depends on the input.
+- **Avoid:** most observations would invalidate the plan; or the steps could be listed in advance, in which case they belong in code. Planning is worth its unpredictability only when the steps cannot be specified ahead of time [NG Agentic Design Patterns Part 4, Planning, 2024-04-10].
 - **Shape:** the model writes a plan as data (ID, steps with step ID, tool or collaborator, parameters, status, result; a DAG when steps depend on each other); code binds each step to a registered tool, fills parameters, and a deterministic engine runs it. MESH prefers the engine over model-driven execution for repeatability and explainability, and persists plan, bindings, substitutions and execution log for comparison afterwards [MESH ch5] [MESH ch6].
 - **Payoff:** an inspectable plan, a clear failure location, cheaper models during execution [BUILDAPPS ch5].
 - **Cost:** adaptability. Add explicit replanning triggers (see reasoning-strategy.md).
@@ -76,6 +85,19 @@ Pick the skeleton pattern first, then the pattern inside each agent step. Each e
 - **Use:** most steps fixed, a few need judgment. This is the reference design in [SYSTEMS ch16] and [SYSTEMS ch17].
 - **Shape:** code fetches what is always needed (e.g. merge-request metadata and changed files). The planner returns one next action from an allowlist, or "done", as structured data. The service validates tool name, argument schema, scope (the file belongs to this request) and step budget before anything runs [SYSTEMS ch17]. Separate model roles behind separate interfaces: a reasoner that picks the next bounded action, and an analyzer that turns one unit of input into evidenced findings and returns nothing when evidence is weak [SYSTEMS ch17].
 - **Rule:** the planner should be "boring in the best possible way" [SYSTEMS ch16]. Every step that code can decide is removed from the model.
+
+### Draft and execute as separate states
+- **Use:** actions change systems of record, or approvals arrive later than the run that proposed them.
+- **Avoid:** read-only answers with no side effects.
+- **Shape:** the run moves through phases: a planner returns the classification, entities, unknowns and a plan mapped to tools; retrieval fetches the governing procedure; a verifier checks the plan against the rules and that unknowns were surfaced rather than guessed; an executor drafts artifacts and payload previews; the run stops at the approval boundary when execution is not allowed [PRODGUIDE ch16]. A run-level state machine (received, planned, drafted, awaiting approval, executed, completed, failed safely) shows operators what is stuck [PRODGUIDE ch16].
+- **Rule:** draft and execute are different states with different enforcement in code, not different prompts. The same agent can then run draft-only for weeks and have its permissions widened per action on evidence (autonomy-and-shape.md, "Raising authority over time"). `suggest` is draft-only; only code moves a draft into the world.
+- **Runtime:** the draft-only switch, the kill switch that forces it, and approvals bound to the exact action are agent-harness-designer's.
+
+### Next actions in tool results (affordance-driven tools)
+- **Use:** tools act on objects with a lifecycle (an order, a claim, a ticket), and which actions are valid depends on server state and on the user, which the model cannot see.
+- **Avoid:** stateless lookups.
+- **Shape:** each result lists the actions possible now, with their inputs and rules, instead of the prompt hard-coding a workflow [RESTCOOK ch3]. The object's lifecycle is a small state machine whose transitions are typed safe, unsafe or idempotent. A three-step flow can then become two without breaking the agent that follows the controls. State-dependent next actions go in tool results, not in the tool list, which says what a caller may ever do.
+- **Guard:** an advertised action is a hint, never a permission. The harness intersects it with the allowlist and the risk tiers before anything runs; following tool output blindly makes it an injection channel. Contract fields and the result shape: agent-tool-designer; the threat side: agent-threat-modeler.
 
 ### Hierarchical state machine
 - **Use:** behaviour alternates among a few stable modes (plan, act, reflect, await approval) and recovery matters.
@@ -92,6 +114,18 @@ Pick the skeleton pattern first, then the pattern inside each agent step. Each e
 ### Orchestrator service versus embedded loop
 - Embedded (the app runs the loop) is fine for a narrow early system.
 - A dedicated orchestrator service becomes the better design as tools, memory and controls accumulate, because guardrails and observability get one home [SYSTEMS ch10]. A single process funnelling every step hits throughput limits and one crash takes the pipeline down [MESH ch6].
+
+## Voice agents
+
+The loop is the same; what changes is where you can check the output before it reaches the user.
+
+| Shape | Use when | Avoid when |
+|---|---|---|
+| Cascaded pipeline: speech-to-text, a text agent, text-to-speech | The agent makes commitments (refunds, bookings) that must be checked against policy, and confirmed as executed, before anything is spoken; you need transcripts and swappable parts | Every 100 ms of delay matters more than control |
+| Speech-to-speech session | Quick prototypes and low-stakes conversation where an occasional mistake is acceptable | You must inspect or filter each turn before it is spoken |
+| Foreground and background agents | You need both: a foreground agent talks in real time while a background agent reasons, applies guardrails and calls tools | A cascade already meets the latency target |
+
+Ng builds the cascade when he needs control: in text there are guardrails and agentic workflows to check, for example, that a promised refund is within policy and that the refund call is actually made, while the tools for checking voice-in, voice-out output are much less mature [NG What I've Learned Building Voice Applications, 2025-02-26]. The cascade costs latency, and people expect conversational replies within roughly 0.3 to 1 second; his 2025 workaround was a quick pre-response while the full answer was computed [NG What I've Learned Building Voice Applications, 2025-02-26]. His 2026 letter describes the foreground and background split instead, which keeps the guardrails in the background agent [NG Building Voice-Enabled Apps is Easier Than You May Think, 2026-04-03]. A benchmarked cascade (a phone bot that claims sub-second response) is in [BUILDAGENTIC ch9]; interruptions and when voice is the wrong channel are in [BUILDAPPS ch3]. Serving and streaming: agent-harness-designer; the latency budget: agent-ops-reviewer.
 
 ## Topology discipline
 

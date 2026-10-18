@@ -28,6 +28,7 @@ A tool definition has two readers. The model reads the name, description and sch
 - Use the `service_verb_object` pattern: `billing_refund_order`, `crm_find_contacts`, `calendar_create_event`. Pick one scheme (prefix by service) and keep it everywhere.
 - Make every name distinct from its neighbours. A name that is too general (`process_data`, `handle_request`) gets called when it is not needed [BUILDAPPS ch4].
 - Prefix every name with a namespace per service or server. This stops one server's `search` shadowing another's and lets tool search match a whole group [MCP ch5].
+- In a host that connects servers it did not write, a prefix each server picks for itself is not enough. The host or gateway resolves every tool as `server::name`, with the server identity taken from its own configuration rather than the server's self-reported name, and pins a hash of each approved definition so a later rewrite halts the client with a diff [HARDMCP ch9], [HARDMCP ch4]. Shadowing and pinning are agent-threat-modeler's; what a description edit then means for callers is in tool-contracts §8.
 - Use only `A-Z a-z 0-9 _ -`, at most 64 characters. That is the strictest limit among the targets checked: MCP allows 128 characters and dots, Claude's API 128 without dots, OpenAI's API and the Claude connector directory 64 (per-target table in current facts).
 - Leave room for prefixes added downstream. A gateway that aggregates servers or API targets usually prefixes each tool with the target name, and some hosts add their own prefix. The budget applies to the final name the model sees, so keep target and tool names short (current facts, "Managed MCP gateways").
 
@@ -42,7 +43,7 @@ Returns <shape, key fields>. <Side effects, limits, latency or cost if notable.>
 <Failure behaviour the model should expect, e.g. "Fails if the order is not paid.">
 ```
 
-This covers the five parts of a tool specification: identity, inputs, outputs, operational constraints and error handling [AGENTICAI ch5]. Write it as you would explain the code to a capable new hire: make explicit the context you hold implicitly. Then ask a model where the description is vague or overlaps with another tool [MCP ch5].
+This covers the five parts of a tool specification: identity, inputs, outputs, operational constraints and error handling [AGENTICAI ch5]. Write it as you would explain the code to a capable new hire: make explicit the context you hold implicitly. Then ask a model where the description is vague or overlaps with another tool [MCP ch5]. "Lazy prompting" is no excuse for thin descriptions: Ng limits the advice to interactive work and excludes prompts in code that run repeatedly, which is what tool descriptions are [NG The Benefits of Lazy Prompting, 2025-04-02]. To stay lean safely, start short and add a sentence when a tool-choice eval case fails.
 
 **Business constraints belong in the description and in code.** In one documented case an inventory agent used its pricing tools exactly as designed and marked premium wines for clearance. They were being aged on purpose, and about $100,000 of revenue was lost [AGENTICAI ch5]. The rule "never discount stock tagged for aging" belonged in the validation code, with one sentence in the description so the model would not try.
 
@@ -64,9 +65,11 @@ Bad and good:
 - **Parameter names say what they hold**: `customer_email` not `user`, `amount_cents` not `amount`, `start_date` not `date`.
 - **Types and constraints are in the schema**, so the model reads them and the runtime enforces them: `enum` for closed sets, `minimum`/`maximum`, `pattern` for IDs (`^ord_[0-9]{6}$`), `format: date` with an example, `maxLength` on free text.
 - **Dates and times** are ISO 8601 with an explicit time zone, or a separate `timezone` parameter. Money is an integer in minor units plus a currency code.
+- **Writes take absolute values.** An update carries the new value plus the expected current value or version (§6, tool-contracts §5), never a relative change ("+5%", "add 2 days"). If the user speaks in percent, the agent reads the current value, computes the absolute one and passes that, so the preview shows the real number and a repeat is a no-op or a `conflict`.
 - **Keep `required` minimal and meaningful.** Defaults go in the schema and the description.
+- **A missing required value is never guessed.** A schema can require a field but cannot stop the model inventing a plausible value. Say in the parameter description to ask the user, or to propose a default labelled as an assumption for approval [PRODGUIDE ch7], and reject values the runtime can tell were invented (an order ID that is not in this customer's history).
 - **No catch-alls.** `**kwargs`, `options: object` and `extra: string` leave nothing to validate and invite hallucinated fields. Set `additionalProperties: false`.
-- **No conditional requirements.** If `mode=x` requires `a` and `mode=y` requires `b`, split the tool (§1).
+- **No conditional requirements.** If `mode=x` requires `a` and `mode=y` requires `b`, split the tool (§1). The one exception is a lookup that takes exactly one of two identifiers (`employee_id` or `work_email`): declare it with `oneOf` or say so in the description, and check it in the handler, returning a tool error when both or neither arrive. Anything more conditional than that becomes two tools.
 - **Never model-filled:** caller identity, tenant, role, approval status, auth tokens, idempotency keys, and facts the server can look up (current status, balance, owner, remaining refundable amount). The runtime injects identity and approval; the handler reads state from the system of record. A parameter the model can fill is a parameter an injected instruction can fill: a confused or steered model that passes `current_status: "processing"` for a shipped order defeats every rule that trusts the field.
 - **One definition for schema and handler.** Generate the published input schema from the type the handler validates with. A hand-written catalog kept beside the code drifts: the schema says `customer_ref` while the handler reads `customer_id`, or declares a string where the handler expects an integer, and every call fails. Add a contract test that calls each tool in the list response with its own schema example and expects no validation error.
 - **The schema is the policy contract.** If a policy engine will govern the tool, every field a rule reads needs a precise type or enum, and should be required (a rule on an optional field the call left out may silently not apply). Free text can be governed only by classifiers.
@@ -78,7 +81,9 @@ Bad and good:
 ## §4 Results
 
 - **Structured beats prose for the next decision** [SYSTEMS ch7]. Return a JSON object with stable field names and also a short text rendering where the protocol expects text (MCP: `structuredContent` plus a text block).
-- **Names next to IDs.** Return `{"id": "usr_8812", "name": "Dana Ruiz"}`, not just an opaque ID the model must carry blind. Return stable, meaningful identifiers (slugs, UUIDs), not internal row pointers.
+- **Names next to IDs.** Return `{"id": "usr_8812", "name": "Dana Ruiz"}`, not just an opaque ID the model must carry blind. Return stable, opaque identifiers (slugs, UUIDs), not internal row pointers, and never personal data such as an email as an ID: arguments spread into transcripts, traces, caches and eval sets (tool-contracts §7).
+- **An envelope, never a bare array.** Every result is an object (`status`, then `data`, `receipt` or `problem`, plus `next_actions` and a cursor where they apply), so a list can later gain pagination without breaking anyone. Writes return a receipt: ID, link, the fields as applied, status, idempotency key and contract version (tool-contracts §3, §7).
+- **Valid next actions for state-dependent tools.** Return the actions possible now, flagged safe, idempotent or reversible, in the result rather than by changing the tool list; the harness still checks them against its allowlist (tool-contracts §10).
 - **Only high-signal fields.** Drop internal metadata, nulls and audit columns. Each extra field costs tokens on this turn and every later turn.
 - **Bound the size.** Paginate or truncate by default, state in the result that it was truncated, and say how to get more ("47 more; call again with page=2 or narrow the date range"). Offer `response_format: concise|detailed` when callers sometimes need full records. In Anthropic's Slack example the concise form took 72 tokens and the detailed one 206 (Writing tools for agents, 2025-09).
 - **Batch tools report per item.** Return a status per item (done, failed with a reason, skipped) plus a count. A batch-level "ok" that hides failed items misleads the model. Retry only the failed items, each with its own idempotency key.
@@ -94,6 +99,8 @@ Bad and good:
 
 **Flag it as an error.** Mark refusals and failures with the protocol's error flag (`isError` in MCP, `is_error` in the Claude API) as well as the readable message. A magic prefix inside a success result ("Rejected: ...") is easy for clients, graders and the model to miss. If a gateway or policy engine in front of the server can deny a call, check the shape in which that denial reaches the model (current facts, "Managed MCP gateways").
 
+**Return errors as tool results, not exceptions, and keep the flag across hops.** A tool layer that raises on invalid arguments ends the run instead of giving the model a message it could act on [RELATED repo: aisuite/aisuite/utils/tools.py]. A client that unpacks results to text loses the flag: the MCP book's client keeps only the content, so the error text still reaches the model, but as an ordinary result, and `structuredContent` is gone [MCP repo: ch3/12_make_tool_calls/client.py]. Map `isError` onto the model API's error flag, keep the structured body for the harness, and test with a forced failure through the real client. Failure categories and the problem-details body are in tool-contracts §4.
+
 | Instead of | Return |
 |---|---|
 | `KeyError: 'ord_12'` | `No order ord_12 for this customer. Check the ID with crm_find_orders.` |
@@ -107,27 +114,28 @@ Bad and good:
 
 ## §6 Side effects, state and resilience
 
-**Idempotency.** Retries, client re-sends after dropped connections and the model reissuing a call all happen in production. Repeating an operation must not repeat its effect [SYSTEMS ch4]. Under stateless MCP a dropped request is re-sent, so deduplicating non-idempotent calls is the client's and host's job [MCP ch4].
+**Idempotency.** Retries, client re-sends after dropped connections, the model reissuing a call and the harness replaying a step all happen in production. Repeating an operation must not repeat its effect [SYSTEMS ch4]. Under stateless MCP a dropped request is re-sent, so deduplicating non-idempotent calls is the client's and host's job [MCP ch4]. Updates get operation idempotence (a new value guarded by the expected current one, never a delta); creates and sends get request identity (an idempotency key or a client-chosen ID). The three kinds are in tool-contracts §5.
 
 ```python
-import hashlib, json
-
-def idempotency_key(task_id: str, tool: str, args: dict) -> str:
-    # Same task + same operation + same arguments -> same key, however often the model reissues it.
-    # Never use the model's tool-call ID: it changes on every reissue.
-    material = json.dumps({"t": task_id, "tool": tool, "args": args}, sort_keys=True)
-    return hashlib.sha256(material.encode()).hexdigest()[:32]
+def idempotency_key(run_id: str, tool: str, target_id: str, step: str = "") -> str:
+    # One intended effect = run + action + target (+ the plan step if the plan repeats it on purpose).
+    # Taken from durable run state and recorded before the first attempt, so retry, resume and replay reuse it.
+    # Never the model's tool-call ID or the attempt number (both change), nor a hash of every argument
+    # (a reworded free-text field would make a new key).
+    return ":".join(p for p in (run_id, tool, target_id, step) if p)
 ```
 
-Pass the key to a backend that stores it and returns the first result for repeats. If the backend cannot, keep a dedupe table in your runtime keyed the same way. Decide deliberately whether "the same refund twice in one task" is a duplicate (usually yes) or two intended actions (then the arguments must differ, e.g. a line-item ID).
+Pass the key to a backend that stores it and returns the first result for repeats. If the backend cannot, keep a dedupe table in your runtime keyed the same way. A second refund of the same order in one run is a duplicate unless the plan says otherwise; then the plan step or a line-item ID goes into the key. After a timeout, verify by key before any retry (tool-contracts §5).
 
-**No task ID.** An MCP server running in Claude Desktop, an IDE or a partner's agent never sees your task or conversation ID, and stateless MCP has no session to borrow one from. Two layers then do the work:
+**No run ID.** An MCP server running in Claude Desktop, an IDE or a partner's agent never sees your run, task or conversation ID, and stateless MCP has no session to borrow one from. Two layers then do the work:
 1. **The state check stops duplicates.** The handler re-reads the business object and refuses what its state does not allow: refund at most the remaining refundable amount, cancel only an order not yet cancelled, ship only what is unshipped. A second identical refund then fails with a readable error ("Order already refunded in full") whether or not anything deduplicated it.
-2. **A natural key catches the exact resend.** Key on the business object and the operation's arguments (`order_id`, `amount_cents`, line items) within a short window, such as 10 minutes, so a transport resend lands on the first result. Be aware that this also blocks a deliberate second refund of the same amount in that window. Make such a refund distinguishable (a line item, a reason code, a client-supplied request reference) or have the model say why it is retrying.
+2. **A natural key catches the exact resend.** Key on the business object and the operation's arguments (`order_id`, `amount_cents`, line items) within a short window, such as 10 minutes, so a transport resend lands on the first result. Put in the key the target and the values that define the effect (the new value, the effective date, the version read), never free text (reason, notes), which a resend may reword. When the caller is a harness that holds a run ID, its key is injected by the runtime, never part of the model's schema, and takes precedence over the natural key. Be aware that this also blocks a deliberate second refund of the same amount in that window. Make such a refund distinguishable (a line item, a reason code, a client-supplied request reference) or have the model say why it is retrying.
 
 Never key on the model's tool-call ID or on a timestamp.
 
-**Timeouts.** Every call gets one, set from the backend's p99 latency plus a margin, not a blanket 30 s. Reads can retry twice with backoff. Writes retry only with an idempotency key, and only in code. A timeout on a write means "unknown", not "failed": say so in the message and offer a status tool.
+**Timeouts.** Every call gets one, set from the backend's p99 latency plus a margin, not a blanket 30 s. Reads can retry twice with backoff. Writes retry only with an idempotency key, and only in code. A timeout on a write means "unknown", not "failed": say so in the message and offer a status tool, and have the harness look the write up by key before any retry (tool-contracts §5).
+
+**Reversible or not.** Every write declares whether it can be undone and, if so, names its revert action keyed by request ID; irreversible steps run last, behind approval (tool-contracts §6).
 
 **State across calls** (carts, browser sessions, transactions, long jobs). Return an opaque handle from a create tool and take it as an argument on later calls. Authorise the caller against the handle on every call, because a handle is a name, not a permission. Give handles high entropy and a bounded lifetime, state the lifetime in the create tool's description, and return a tool error naming the expiry when a handle is stale, so the model can create a new one (MCP spec, Stateful Tools).
 
@@ -138,6 +146,7 @@ Never key on the model's tool-call ID or on a timestamp.
 ## §7 Permissions and approvals
 
 - **A tool call is a request, not authority** [SYSTEMS ch7]. Treat it like an inbound request from an untrusted client: validate, authorise, log, bound.
+- **A permission tier per action.** Give each tool action one tier: read-only, draft-only, execute with approval, or auto-execute, kept for narrow, reversible actions already proven safe. Hold the tiers in an allowed-actions table (tool, action, default tier, receipt) and deny everything off it [PRODGUIDE ch7]. The tier belongs to the action, not the agent: one agent may read orders, draft refunds and issue them only after approval. An action moves to a more autonomous tier only on evidence: previews consistently right, receipts present, escalations made when information was missing [PRODGUIDE ch7].
 - **Narrow over broad.** One documented agent "optimised" a database by dropping half the rows of a production table through a generic SQL tool [BUILDAPPS ch4]. Prefer named operations (`crm_get_account(account_id)`).
 - **Free-form query and command tools (raw SQL, graph query languages such as Cypher, Gremlin or SPARQL, shell, arbitrary HTTP).** Never give one to an agent that serves end users or reads untrusted content (chat messages, emails, web pages, tickets, retrieved documents); remove it in a review (P0). Most agents need two or three fixed lookups, so prefer named, parameterised operations and, for graphs, named traversals (`graph_get_rules_for_entity(entity_id)`) over a query-language tool. If staff need ad-hoc queries, put the tool in a separate staff-only agent or server with staff authentication and:
   - a read-only account on a replica, scoped to allowlisted views without secrets or unneeded PII;
@@ -150,19 +159,24 @@ Never key on the model's tool-call ID or on a timestamp.
 - **Authorization in code** from the authenticated caller, per object (user A cannot touch user B's records) and per tool (admin tools only for admins). Do not reveal whether an object exists to someone not allowed to see it. The caller is proven by a verified token, never by a user ID passed as a string (receiver checklist in mcp-and-protocols §5).
 - **A gateway or policy engine in front adds a layer; it does not replace the handler's checks.** It sees the caller, the tool and the arguments, so it suits allowlists, caps on argument values, identity and tenant rules, and call counts. It cannot see a record's real state, so a rule on a value the model supplies ("status is not shipped") is a hint, not a control. The handler still checks status, balance and ownership against the system of record, and still validates its own inputs. A single gate is right; rule-free handlers behind it are not.
 - **Make the gate the only route.** The backend behind each tool accepts calls only from the gate's identity (resource policy, network policy, or an allowlist of calling workloads). Anything else that holds invoke rights skips every rule. In a review, list who can call each backend directly. Writing and operating the gate's rules goes to agent-threat-modeler.
-- **Least-privilege credentials per tool.** A read tool runs with read credentials even if the agent also has write tools.
+- **Least-privilege credentials per tool.** Give each tool its own scope and check it in the tool on every call, so a token that reads documents cannot move money [HARDMCP ch5]. One scope pair demanded on every request (`read` and `write` for all tools, as in the MCP book's OAuth example) is the shape to avoid [MCP repo: ch7/03_mcp_oauth_resource_server/server.py]. A read tool runs on read credentials and a read-only connection even if the agent also has write tools. One text-to-SQL example opens a default read-write SQLite connection and runs the model's SQL as written [BUILDAGENTIC repo: text_to_sql/agent/react_agent_sql.ipynb]; for a file database, open it read-only at least (`sqlite3.connect(f"file:{path}?mode=ro", uri=True)`), and for a server database use a role that can only read (free-form query rule above). Validate IDs against an enum or pattern before they become file paths or database names.
 - **Test under the agent's own identity.** Run tool tests, inspector sessions and evals with the credentials and token scopes the agent has in production. An admin or developer credential hides missing grants and over-broad ones alike.
 - **Progressive access.** A new agent starts on read tools and earns write tools after it proves reliable, as with an inventory agent that queries stock before it may change orders or prices [AGENTICAI ch5].
 - **Scope the visible list.** Show only the tools the caller's scopes permit. Filter by task state too wherever you assemble the list per turn: your own loop, or an MCP host or client you control (it can pass the model a subset of a server's tools). An MCP server cannot: its list may vary by the authorization on the request, not by task state (§8).
-- **Approval** for irreversible, high-value, externally visible or bulk actions, enforced by the runtime (an approval step the model cannot skip) or by MCP elicitation, where the approval parameter is resolved by the server and never appears in the model-facing schema. If the host auto-approves, the gate degrades to a prompt, so the host's consent UI is part of the control. An elicitation answer shows only that the client said yes: users can set a host to answer automatically (Claude Code's Elicitation hook does this), and it never proves which person approved. When policy needs a named approver (a manager over a limit), use the propose-only path below with sign-in in your own UI.
+- **Approve the payload, bound to what runs.** The person approves a preview of the exact payload (recipients, amounts, titles), not "Shall I proceed?" [PRODGUIDE ch7]; the MCP specification likewise asks clients to show tool inputs to the user before calling a server (current facts). The approval stores a digest of the exact action and arguments, an expiry and a nonce, and execution refuses if the digest changed or the approval expired. That record and its checks belong to the harness (agent-harness-designer) and the oversight design (agent-threat-modeler). The tool's side: build the preview from the same arguments it will execute, and accept nothing the preview did not show.
+- **A declared approval label must be enforced in code.** A `requires_approval=True` or `risk_level="high"` field on a tool is metadata. In aisuite the executor consults an approval policy only if the caller passes one, and with none every call runs [RELATED repo: aisuite/aisuite/toolkits/shell.py], [RELATED repo: aisuite/aisuite/utils/tools.py]. Refuse to start an agent that registers an approval-labelled tool without an approval policy (fail closed), and test that an unapproved call is refused. Annotations behave the same way: `destructiveHint` drives some hosts' prompts, and users can switch those off.
+- **Approval** for irreversible, high-value, externally visible or bulk actions, enforced by the runtime (an approval step the model cannot skip) or by MCP elicitation, where the approval parameter is resolved by the server and never appears in the model-facing schema. If the host auto-approves, the gate degrades to a prompt, so the host's consent UI is part of the control. An elicitation answer shows only that the client said yes: users can set a host to answer automatically (Claude Code's Elicitation hook does this), and it never proves which person approved. When policy needs a named approver (a manager over a limit), use the propose-only path below, with the approver signed in where the request is stored.
 - **Choosing the threshold.** Start from the existing human policy: the agent's limit is no higher than what a front-line employee may do without sign-off. Set it lower if the loss you would accept from one wrong action is lower. Irreversible actions that reach outside the company (payments out, emails to customers, deletions without undo) need approval at any amount until evals and production data show the agent is reliable; then raise limits step by step, as with progressive access. Write the threshold down as an assumption for the owner to confirm.
-- **When nobody can be asked** (a client without elicitation, a batch run): degrade to propose-only. The tool records a pending action with a summary and returns its reference. A human approves it in your own UI, and the backend executes it, never the agent. A destructive tool that fails whenever approval is impossible is safe but useless; pair it with this path.
+- **Propose-only as the primary design.** When policy needs a named approver, or the action is irreversible and legally consequential (pay, employment, credit), propose-only is the design, not a fallback: the tool records a pending request with a summary and returns its reference; a person approves that stored request in the system of record, and the backend executes exactly that record, never the agent. A propose-only tool is a draft-only write: it takes an idempotency key, returns a receipt with a request ID, and comes with a status read and a cancel tool. The approval check passes when the approval happens in the system of record on the stored request.
+- **When nobody can be asked** (a client without elicitation, a batch run): degrade to the same propose-only path. A destructive tool that fails whenever approval is impossible is safe but useless; pair it with this path.
 - **Annotations are hints.** `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint` help a trusted client decide what to confirm. Clients must not base decisions on annotations from untrusted servers (MCP spec).
 - **Escalate to agent-threat-modeler** when an agent combines access to private data, exposure to untrusted content and a way to send data out (the lethal trifecta), when tools execute model-written code or shell, or when a server proxies third-party OAuth [MCP ch7].
 
 ## §8 Mandatory steps
 
 Correct selection is never guaranteed: a model may skip a required step, choose the wrong capability or stop early [SYSTEMS ch7]. In one measured case, GPT-4.1 given a document-lookup tool but no instruction almost never called it and scored 47.8% on policy questions, barely above 44.4% with no tool. One system-prompt sentence telling it always to use the tool lifted it to 70.7%, while GPT-4.1-Nano ignored the same sentence in 45 of 232 cases [BUILDAGENTIC ch5].
+
+Ng puts the general point bluntly: an LLM given a tool, a task and a turn cap is "highly autonomous, moderately capable, and highly unreliable", and reliable agents need scaffolding, code that guides their steps [NG Build an Autonomous Agent Using This Simple Recipe!, 2025-12-10].
 
 Enforce, in order of strength:
 1. **Run it in code** before or after the model turn (fetch the policy and put it in context; check the order before exposing the refund tool).
@@ -197,7 +211,7 @@ Definition the model sees (Claude API spelling `input_schema`; MCP uses `inputSc
 Runtime gates, in order (handler sketch):
 
 ```python
-def run_refund(raw: dict, ctx) -> dict:          # ctx: caller identity, task_id, services
+def run_refund(raw: dict, ctx) -> dict:          # ctx: caller identity, run_id, services
     args = RefundArgs.model_validate(raw)          # 1 shape and ranges -> tool error naming the field
     order = ctx.billing.get_order(args.order_id)
     if not order or not ctx.user.may("refund", order):   # 2 authorization from identity, not args
@@ -205,13 +219,15 @@ def run_refund(raw: dict, ctx) -> dict:          # ctx: caller identity, task_id
     if order.status != "delivered" or args.amount_cents > order.total_cents:   # 3 business rules
         return tool_error(f"Order is '{order.status}', total {order.total_cents} cents; "
                           "only delivered orders, up to the total.")
-    key = idempotency_key(ctx.task_id, "billing_refund_order", raw)          # 4 same refund, same key
+    key = idempotency_key(ctx.run_id, "billing_refund_order", args.order_id)  # 4 one refund per order per run
     try:
         r = ctx.billing.refund(args.order_id, args.amount_cents, idempotency_key=key, timeout=10)  # 5 bounded
     except TimeoutError:
         return tool_error("Billing timed out; the refund may still complete. "
                           "Call billing_get_order to check before retrying.")
-    return tool_ok({"refund_id": r.id, "status": r.status, "order_id": args.order_id})
+    return tool_ok({"status": "committed", "receipt": {                          # 6 a receipt, not "done"
+        "refund_id": r.id, "url": r.url, "status": r.status, "idempotency_key": key,
+        "applied": {"order_id": args.order_id, "amount_cents": r.amount_cents}}})
 ```
 
-What it shows: the intent-level name with a namespace, a description that says when not to use it and points to siblings, bounds that live in the schema and are enforced again in code, authorization from identity, business rules a schema cannot express, an idempotency key from the task and the operation, bounded execution, and a timeout message that prevents a blind retry. Approval for large refunds sits in the runtime or in an elicitation step, not in this schema.
+What it shows: the intent-level name with a namespace, a description that says when not to use it and points to siblings, bounds that live in the schema and are enforced again in code, authorization from identity, business rules a schema cannot express, an idempotency key from the run, the action and the target, bounded execution, a timeout message that prevents a blind retry, and a receipt with the fields as applied. Approval for large refunds sits in the runtime or in an elicitation step, not in this schema.

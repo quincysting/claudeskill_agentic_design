@@ -2,7 +2,7 @@
 
 Citation keys such as [ILLUSTRATED ch6] point to the book list under Sources in SKILL.md.
 
-How each agent step decides: how it plans, how long it thinks, whether it tries several candidates, whether it reflects. The loop around these choices is control-loop.md; model choice per role is agent-model-selector's job.
+How each agent step decides: how it plans, how long it thinks, whether it tries several candidates, whether it reflects. The loop around these choices is in the agent-harness-designer skill (references/control-loop.md); model choice per role is agent-model-selector's job.
 
 ## Three dials, each needs a signal
 
@@ -18,6 +18,8 @@ No signal → set the dial to its minimum. Extra compute without a signal mostly
 
 SYSTEMS's three strategies [SYSTEMS ch8]: **static** (steps fixed up front; simple, brittle when inputs vary), **dynamic** (agent picks each step; adaptive, harder to test and control), **hybrid** (fixed skeleton, a few dynamic steps; the usual production choice). In many practical systems "planning" means choosing the best next action and repeating, not writing a roadmap [SYSTEMS ch8].
 
+**Plan only when the steps cannot be listed ahead of time.** An agent that reflects on and revises its output a fixed number of times follows a fixed, deterministic sequence, so it is not planning; build and test a reflect-N or retry loop as a workflow. Planning means the model decides the steps, and it is worth its unpredictability only for tasks whose decomposition cannot be specified in advance [NG Agentic Design Patterns Part 4, Planning, 2024-04-10]. Ng ranks planning, with multi-agent collaboration, below reflection and tool use for reliability (pattern-catalog.md, "Ng's four patterns"). If you can list the steps, put them in code and let the model fill them in.
+
 Pick with two questions: does the next step depend on the last observation, and can code or a test tell a good output from a bad one?
 
 | | Output verifiable (tests, schema, rules) | Output not verifiable |
@@ -31,7 +33,7 @@ Pick with two questions: does the next step depend on the last observation, and 
 |---|---|---|
 | One-call decomposition (least-to-most, plan-and-solve) | Subproblems follow from the question; no tools needed [ILLUSTRATED ch6] | Steps depend on tool results |
 | ReAct with native tool calling | Next action depends on what the last one revealed | Path predictable; tight latency |
-| Plan-and-execute | Plan reviewable; strong model plans, cheaper ones execute [BUILDAPPS ch5] | Most observations invalidate the plan |
+| Plan-and-execute | Plan reviewable; strong model plans, cheaper ones execute [BUILDAPPS ch5] | Most observations invalidate the plan; the steps could be listed in advance (put them in code) |
 | Plan, execute, replan | Long research-style tasks where steps become unnecessary or impossible [BUILDAGENTIC ch5] | Short tasks where a replan per step costs more than it saves |
 | Query decomposition (self-ask) | Multi-hop factual questions answered by search [BUILDAPPS ch5] | Single-hop lookups |
 
@@ -92,7 +94,7 @@ Tune `explore_below` on the eval set; it encodes problem difficulty.
 
 ## Depth: reflection
 
-The dividing line is the source of the feedback. Reflect on evidence; do not run unprompted "are you sure?" passes on correctness questions. Models struggle to correct their own reasoning without external feedback and sometimes get worse (Huang et al., ICLR 2024). DLLMA calls reflection's effectiveness overstated and harmful when invoked too often [DLLMA ch10].
+The dividing line is the source of the feedback. Reflect on evidence; do not run unprompted "are you sure?" passes on correctness questions. Models struggle to correct their own reasoning without external feedback and sometimes get worse (Huang et al., ICLR 2024). DLLMA calls reflection's effectiveness overstated and harmful when invoked too often [DLLMA ch10]. Ng counts reflection among the patterns he can make work reliably [NG Agentic Design Patterns Part 4, Planning, 2024-04-10]; the evidence here narrows that to reflection on a concrete signal.
 
 | Variant | Use when | Mechanism |
 |---|---|---|
