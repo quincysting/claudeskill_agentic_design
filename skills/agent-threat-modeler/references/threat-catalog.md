@@ -99,7 +99,8 @@ Count these as legs even when they look harmless:
   sent to third-party APIs, logs or traces shipped to an external vendor. Also: creating or updating a calendar event
   with attendees (the provider emails them the title, description and attachments), sharing a file or folder, push,
   SMS or chat notifications, and opening a link at all (the GET itself reaches the attacker's server, and one-click
-  links perform actions).
+  links perform actions). The model provider is a channel too: every prompt, document and screenshot sent to the model
+  API leaves your environment, so its retention, residency and contract terms apply to all of it.
 
 Worked case [MCP ch7]: a malicious issue in a public repository told a coding agent to read the user's private
 repositories and publish them in a pull request. All three legs were present in one run. The demonstrated fix cut the
@@ -158,7 +159,8 @@ default-deny visibility, progressive access.
 
 ### T6 Data exfiltration
 Private data leaves through an external channel (list above). Often the payoff of T2. **Look for:** any trifecta flow;
-markdown rendering of model output with remote images; URL-fetch tools without a domain allowlist. A fetch tool that
+markdown rendering of model output with remote images; URL-fetch tools without a domain allowlist; screenshots or
+documents of internal systems sent to a model provider whose retention, residency and contract nobody checked. A fetch tool that
 follows redirects is also an SSRF path to internal services and cloud metadata endpoints. **Control:** cut a leg;
 egress proxy with allowlist; block private IP ranges and metadata endpoints; no remote image rendering; recipient
 allowlists.
@@ -167,7 +169,8 @@ allowlists.
 Secrets reach the context window, tool output, logs, or an inherited environment. A "get secret" tool returns the secret
 to the model, which can log it, repeat it or send it to the wrong place [MESH ch11]. A local stdio MCP server inherits the
 client's environment variables unless you restrict them [MCP ch8]. **Look for:** keys in prompts, `os.environ` passed
-wholesale to subprocesses, tokens in tool results, secrets in traces. **Control:** credential broker; minimal env per
+wholesale to subprocesses, tokens in tool results, secrets in traces, credentials printed to logs or the console, keys
+in URLs (query parameters, WebSocket URLs) and keys written to saved state. **Control:** credential broker; minimal env per
 server; log scrubbing; short-lived scoped tokens.
 
 ### T8 Confused deputy and token pass-through
@@ -241,22 +244,28 @@ configurations and policy files outside the agent's write path ([controls-catalo
 
 ### T17 Improper output handling
 Model output flows into SQL, HTML, shell, templates or another system without encoding, so the model becomes an
-injection vector for classic bugs (XSS in the chat UI, SQL injection in a reporting tool). **Control:** treat model
-output as untrusted input to every downstream system: parameterise, escape, validate against schema.
+injection vector for classic bugs (XSS in the chat UI, SQL injection in a reporting tool). Any UI that renders model
+or page text as raw HTML (a framework's allow-HTML flag, say) is this bug. **Control:** treat model output as
+untrusted input to every downstream system: parameterise, escape, validate against schema; render as text unless a
+sanitiser runs first.
 
 ### T18 Sensitive information and hidden context exposure
 System prompts, retrieved documents, memory, tool responses or another tenant's data surface in answers. A memory leak
 is a behavioural failure: protected data resurfaces in the wrong conversation [SYSTEMS ch9]. Two routes are easy to miss: a
 conversation or thread ID the caller chooses, with a shared fallback such as `"default"`, so callers who send none share
 one conversation [BUILDAGENTIC repo: sdr_multi_agent/flask_app/app.py]; and one context pooled across MCP servers and
-tenants, so a weak server reads what a strong one returned [HARDMCP ch9]. **Control:** no secrets in prompts; tenant
+tenants, so a weak server reads what a strong one returned [HARDMCP ch9]. A third: module-level state in an app
+framework that serves every user from one process (a global client, cache, history list or settings object), which
+every session reads and writes. **Control:** no secrets in prompts; tenant
 filters enforced in retrieval code; PII redaction on output; retention limits; thread IDs issued by the server per
-principal and never defaulted; context scoped per server and tenant and cleared when the task ends.
+principal and never defaulted; context scoped per server and tenant and cleared when the task ends; per-session state
+kept in the framework's session store, not in module globals.
 
 ### T19 Computer-use and browser specifics
 Screen and page text is untrusted content; the agent often holds logged-in sessions (private data) and can type, post or
 buy (external channel), so a browser agent is a trifecta by default. Anthropic's tests of its browser agent measured
-attack success of 23.6% without mitigations and 11.2% with them (2025, external; see [owasp-mapping.md](owasp-mapping.md) sources).
+attack success of 23.6% without mitigations and 11.2% with them (external, 2025-08, updated 2025-12; see
+[owasp-mapping.md](owasp-mapping.md) sources, and use the vendor's latest measurement when quoting).
 **Control:** dedicated VM or profile with no personal sessions, domain allowlist, confirmation for purchases, posting,
 sharing personal data and accepting terms ([sandboxing.md](sandboxing.md)).
 

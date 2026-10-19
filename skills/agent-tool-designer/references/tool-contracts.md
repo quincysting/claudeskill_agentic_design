@@ -43,6 +43,29 @@ Add three fields from the other books:
 
 **Allowed actions.** Pair the contracts with an allowed-actions table (tool, action, default tier, receipt) and deny everything off it. PRODGUIDE also keeps a deny list stable across agents: no deleting, external sending, spending, billing changes or credential handling [PRODGUIDE ch7]. An entry leaves the deny list only through a reviewed contract with an approval tier.
 
+## §2a Retrofitting a context object
+
+Keys from run state, authorization from a verified identity and confinement to a workspace all need facts the model must not supply. Many tool layers call `tool.execute(**model_args)` and have no channel for them. Add one without breaking existing tools:
+1. Define one small context type: the caller's verified identity, the run ID and step, the workspace root, a deadline.
+2. The executor passes it only to tools that declare it, through a reserved keyword parameter found by signature inspection (or a second method whose default calls the old one and drops the context). Existing read tools run unchanged.
+3. The reserved name never appears in the published schema, and the executor rejects a call whose model arguments include it, so the model cannot fill identity or the run ID.
+4. Migrate write tools first. Until a write tool takes the context, it runs draft-only or is refused (fail closed).
+
+```python
+import inspect
+
+def run_tool(tool, model_args: dict, ctx) -> dict:
+    if "ctx" in model_args:                                   # reserved: never model-filled
+        return problem("invalid_input", "Unknown argument 'ctx'.")
+    if "ctx" in inspect.signature(tool.execute).parameters:
+        return tool.execute(**model_args, ctx=ctx)
+    if tool.writes:                                           # unmigrated write tools fail closed
+        return problem("business_rule", f"{tool.name} is not enabled for this agent yet.")
+    return tool.execute(**model_args)                         # unmigrated read tools run as before
+```
+
+In a review, a missing context channel is one P1 seam finding. The defects it causes (no key, no authorization) are rated once, where they occur (SKILL.md, Review mode).
+
 ## §3 Receipts, previews and the result envelope
 
 **Receipt.** A write's success result lets the agent and an auditor confirm what happened without another call: the object's ID and link, the fields as applied (they may differ from the fields requested), a status, the idempotency key echoed back and the contract version. "Done" fails the contract, because a success and a silent no-op look the same. An agent that cannot verify an action must not claim it [PRODGUIDE ch7].
@@ -102,7 +125,7 @@ The retry column follows RESTCOOK: a client error will not succeed if repeated u
 
 In MCP, return it as a tool execution error (`isError: true`), with `detail` as the text and the object in the structured block. Keep `detail` about the interface, not the implementation, and never let an `auth` problem confirm that someone else's record exists.
 
-How that maps onto the MCP Python SDK v2 (current facts): `raise ToolError(detail)` in a high-level `MCPServer` tool returns the text only, with `structured_content` empty. To return both, build the result in a low-level handler: `content` holds the `detail` sentence, `structured_content` holds the envelope with its `problem`, and `is_error` is true. If a tool must stay on the high-level server, the category can travel only as a fixed leading token in the text that the client maps back (`business_rule: Order ord_123456 is ...`), the weaker option. Either way, declare an output schema whose envelope allows the `problem` shape (§3): the SDK's own client rejects structured content that fails the declared schema, and neither the specification nor the SDK documentation says whether error results are exempt.
+How that maps onto the MCP Python SDK v2 (current facts): `raise ToolError(detail)` in a high-level `MCPServer` tool returns the text only, with `structured_content` empty. To return both, build the result in a low-level handler: `content` holds the `detail` sentence, `structured_content` holds the envelope with its `problem`, and `is_error` is true. If a tool must stay on the high-level server, the category can travel only as a fixed token in the text that the client maps back, the weaker option. The SDK puts its own prefix in front of the message (`Error executing tool <name>: business_rule: Order ord_123456 is ...`, as of 2026-10; confirm against the installed version), so the client matches the category token after that prefix, never as the first token of the text. Either way, declare an output schema whose envelope allows the `problem` shape (§3): the SDK's own client rejects structured content that fails the declared schema, and neither the specification nor the SDK documentation says whether error results are exempt.
 
 ## §4a Wrapping a backend whose errors are unstructured
 
@@ -123,6 +146,15 @@ The write column prevents double charges. `unavailable` is retried with backoff,
 
 **The category must survive every hop.** The MCP book's example client drops both the error flag and the structured content, and its agent joins the remaining text [MCP repo: ch3/12_make_tool_calls/client.py], [MCP repo: ch3/12_make_tool_calls/agent.py]. A server that answers a timed-out create with "Please try again" in plain text, and no flag, invites exactly the duplicate a contract prevents [BUILDAGENTIC repo: sdr_multi_agent/mcp_servers/hubspot_server/mcp_server.py]. A contract test forces each category and asserts that it reaches the harness and the model through the real client (§9).
 
+## §4b Read why the turn stopped before running a call
+
+The contract assumes a tool receives the arguments the model meant to send. A client loop that runs every tool call in a response breaks that in three cases:
+- **Cut off by the output limit.** The last tool call can be incomplete. Running it sends a write half its arguments, or a file tool half its content. Run no call from that turn; re-request with a higher limit, or ask for less output.
+- **Paused by provider-hosted tools.** A turn that ran server-side tools (web search, code execution) can pause with no client call in it. Continue it the way the provider documents. Never return it as the final answer, and never read "no client calls" as "done" without checking why the turn stopped.
+- **Refused.** A refusal is neither a success nor an empty answer. Record it and follow the refusal or fallback policy.
+
+So the loop reads the stop reason first and runs tool calls only from a turn that stopped in order to call tools. In a review, running truncated arguments against a write tool is P1, and P0 when the write is irreversible. The stop values per provider are in current facts, "Stop reasons"; the loop itself belongs to agent-harness-designer.
+
 ## §5 Idempotency: make writes safe to retry
 
 Repeating an operation must have no further effect. There are three mechanisms; a write uses whichever fits.
@@ -142,7 +174,7 @@ Repeating an operation must have no further effect. There are three mechanisms; 
 - **Width.** Run, action and target allow one such action per target per run. If a plan legitimately refunds one order twice, add the plan step or a line-item ID. A hash of all the arguments is too narrow: a rephrased `reason` produces a new key and a second refund.
 - **Backend behaviour.** Write it into the contract. The IETF Idempotency-Key draft returns the first result for a completed repeat, 422 for a reused key with a different payload, 409 while the first request is still running and 400 for a missing key, and asks the server to publish an expiry. The draft expired without becoming an RFC, so these are convention, not standard (current facts).
 
-**Verify before retry.** A write that timed out or lost its reply is `outcome_unknown`: it may or may not have happened. The safe next step is to check whether it completed, by reading the target, looking the request up by its key or reconciling, with capped attempts and a "needs human" state at the end [PRODGUIDE ch16]. Retry only if verification finds nothing, and with the same key, so a request still in flight meets the backend's 409 instead of creating a twin. A send that cannot be looked up afterwards needs provider-side idempotency, or a draft that a person sends.
+**Verify before retry.** A write that timed out or lost its reply is `outcome_unknown`: it may or may not have happened. The safe next step is to check whether it completed, by reading the target, looking the request up by its key or reconciling, with capped attempts and a "needs human" state at the end [PRODGUIDE ch16]. Retry only if verification finds nothing, and with the same key, so a request still in flight meets the backend's 409 instead of creating a twin. A send that cannot be looked up afterwards needs provider-side idempotency, or a draft that a person sends. The same holds in client code that calls tools across a process or network boundary, such as an MCP client: a timeout or transport error on any tool that is not read-only maps to `outcome_unknown`, never to a plain failure with the error flag set, because the model reads a plain failure as permission to call again.
 
 **Duplicates also arrive from outside the loop.** Stateless MCP transports re-send a broken request instead of resuming it [MCP ch4 §Following Best Practices]; event-driven agents get at-least-once delivery [PRODGUIDE ch16]; and a durable-workflow step that wraps a model call and its tool calls repeats every tool call in it when retried [BUILDAPPS repo: src/frameworks/langgraph_agents/supply_chain/temporal_supply_chain_multi_agent.py]. Keep one keyed side effect per retried unit. Where the harness records the key, checkpoints and replays is agent-harness-designer's subject.
 

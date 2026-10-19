@@ -42,7 +42,8 @@ Entry points: <every endpoint, alias and deployed version that can invoke the ag
 holds invoke rights>
 
 Ambient capabilities (one row each in the table above): <environment variables and secrets, mounted sockets, inherited
-credentials and metadata endpoints, network position, repository paths whose change triggers CI>
+credentials and metadata endpoints, network position, repository paths whose change triggers CI, every bind mount with
+its mode, local listeners and how each authenticates>
 
 ### 3b. Inputs and trust levels
 

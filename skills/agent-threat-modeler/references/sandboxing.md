@@ -43,6 +43,7 @@ A complete design names its choice in all three.
 | Hardened container | Process and filesystem | Hundreds of ms | Internal tasks on trusted data; local MCP servers | Not a hard security boundary on its own [DEFGUIDE ch6] |
 | Syscall sandbox (gVisor) or microVM (Firecracker) | Kernel surface or hardware boundary | Higher; both integrate with Kubernetes | Untrusted or user-supplied code, package installs, code influenced by untrusted content | Route only risky workloads through hardened nodes to control cost |
 | Cloud sandbox (E2B, Daytona, Runloop and similar) | Ephemeral VM per run, off your infrastructure | Per-run provisioning | Dependency-heavy code, parallel runs | Code and data leave your environment; vendor dependency |
+| Hosted browser or desktop (a third-party cloud browser service) | Browser session on the vendor's infrastructure | Per-session provisioning | Browser agents without running your own fleet | The vendor is a data processor holding logged-in sessions: cover the data agreement, residency, isolation between the vendor's customers, who can see session recordings, and how cookies and credentials are stored and deleted. Its API key belongs to the broker, never to the agent's context or URLs |
 
 Quick pick:
 
@@ -51,15 +52,24 @@ Quick pick:
 | Model composes your own governed tools, no file or network access | Capability-scoped interpreter, each host function through the policy gate |
 | Model-written analysis code on internal, non-sensitive data, no untrusted input in the run | Hardened container, network off |
 | Code shaped by untrusted content, user-uploaded code, or `pip install` at runtime | gVisor or microVM, or a cloud sandbox if data may leave |
-| Regulated or customer data that must not leave | Self-hosted gVisor or microVM; never a third-party sandbox without a data agreement |
+| Regulated or customer data that must not leave | Self-hosted gVisor or microVM; never a third-party sandbox or hosted browser without a data agreement |
 | Browser or desktop computer use | Dedicated VM or container with a separate browser profile (below) |
 | Running model code with `exec`/`eval` on the host | Never acceptable, whatever the approval flow |
 
 ## Baseline hardening for any tier
 
 - Non-root user; read-only root filesystem; exactly one writable work directory.
-- No mounts of the home directory, SSH keys, cloud credentials or the Docker socket.
+- No host mounts by default, and never the home directory, SSH keys, cloud credentials or the Docker socket. Check
+  every bind mount's mode: a writable mount of a host path lets the agent write to the host and persist there, for
+  example through credential configs whose helper commands the host runs later, shell start-up files, or prompt and
+  config files that later sessions reload. If a host path must be shared, mount it read-only; credential and config
+  folders are better not mounted at all, with the broker injecting what a step needs.
+- Nothing the agent can write is later loaded by a more privileged component as code, configuration or instructions:
+  the app's own source when its framework reloads on change, hooks, project settings, prompt files. Keep those paths
+  outside the agent's write path, or record each one as a finding rated by what it reaches.
 - CPU, memory, process-count, disk and wall-time limits; output size caps before results return to the model.
+- A command timeout kills the whole process group (or the container), not only the shell. A timed-out command that
+  keeps running is a finding.
 - Network off by default. If needed, egress through a proxy with a domain allowlist; block cloud metadata endpoints
   and private IP ranges.
 - Egress isolation is deny by default and covers the quiet routes: public DNS resolution, arbitrary package installs,
@@ -72,6 +82,24 @@ Quick pick:
 - Logs of commands and file writes, kept outside the sandbox.
 - Put agent execution in the locked-down container and the UI in a more permissive one, joined by a small internal
   API, rather than loosening the execution container to suit a UI framework [DEFGUIDE ch6].
+
+## Local listeners: loopback is not authentication
+
+Binding a listener to loopback keeps other hosts out, not the user's own browser. A page open in any tab can reach
+`localhost` through a cross-site WebSocket connection or DNS rebinding, so an unauthenticated local listener answers
+any site the user visits. Every local HTTP or WebSocket listener (a VNC or remote-desktop proxy, the agent's web UI, a
+development server, an MCP server over HTTP, a code-execution service):
+
+- authenticates every request and every WebSocket upgrade with a token the page must present, not with an ambient
+  cookie alone;
+- checks Origin against an allowlist on every request and upgrade, and refuses unknown Host headers;
+- for VNC and remote-desktop servers, keeps its own password or token even behind a proxy;
+- for debug and development servers (auto-reload, interactive debugger consoles), is never reachable from the network
+  and is off in anything shipped.
+
+A proxy with single sign-on in front of the desktop must apply the Origin check on the WebSocket upgrade too. Test with
+the exposure probes in [red-team-test-plan.md](red-team-test-plan.md) §Exposure probes. MCP specifics:
+[mcp-hardening.md](mcp-hardening.md) §7.
 
 ## Paths: resolve first, then check
 
@@ -109,7 +137,7 @@ injection from a misrouted tool call into code execution [DEFGUIDE ch6]. It is o
 |---|---|
 | Read, list, search files | Allowed, size-capped, inside the workspace |
 | Write or edit files | Inside the workspace root only; auto inside a sandbox, approval if on a developer's machine |
-| Run commands | Allowlist (test runner, linter, build); timeout; truncated output. The allowlist limits what starts, not what runs: a test runner, build tool or package manager executes repository and dependency code, so contain the run itself (below) |
+| Run commands | Allowlist (test runner, linter, build); timeout; truncated output. The allowlist limits what starts, not what runs: a test runner, build tool or package manager executes repository and dependency code, and allowed interpreters (`node -e`, `python -c`), package scripts and scripts the agent wrote run anything by name. It is a convenience, not a control, so contain the run itself (below) |
 | Network | Off; allowlist package mirrors if installs are needed |
 | `git push`, deploy, publish, change CI or secrets | Irreversible tier: goes out as a pull request for human review |
 
@@ -148,13 +176,17 @@ require code-owner review and dismiss stale approvals on new pushes.
 ## Computer use and browser agents
 
 A browser agent is a lethal trifecta by default: page text is untrusted, logged-in sessions are private data, and
-typing, posting and buying are external channels. Measured residual (external, Anthropic, 2025): browser-agent attack
-success fell from 23.6% to 11.2% with mitigations; one in nine is not acceptable for an agent holding real sessions.
+typing, posting and buying are external channels. Measured residual (external, Anthropic's Claude for Chrome post,
+2025-08, updated 2025-12): browser-agent attack success fell from 23.6% to 11.2% with mitigations; one in nine is not
+acceptable for an agent holding real sessions. Figures like this date quickly: quote the date and source, and use the
+vendor's latest measurement when there is one. Every screenshot also goes to the model provider (threat-catalog.md T6).
 
 - Dedicated VM or container per session; a separate browser profile with **no personal or production sessions**.
   Never attach the agent to someone's everyday browser.
 - No credentials unless the task needs them; for logins, prefer a human step (or an out-of-band URL flow) so the
-  password never passes through the model.
+  password never passes through the model. Act as a dedicated agent account with a narrow role, not as the employee
+  ([controls-catalog.md](controls-catalog.md) §3, "Logged-in web apps").
+- Gate pixel actions as well as tool calls ([controls-catalog.md](controls-catalog.md) §2, "Computer use").
 - Domain allowlist enforced by proxy, plus blocked site categories.
 - Human confirmation before purchases, posting or sending, sharing personal data, accepting terms of service, and
   changing account settings.
@@ -174,6 +206,10 @@ success fell from 23.6% to 11.2% with mitigations; one in nine is not acceptable
 - A code-execution service listening on all interfaces, without authentication or a per-call timeout.
 - A path check in the file tools that a code or shell tool can bypass.
 - Docker socket mounted into the agent container; container running as root; `--privileged`.
+- A writable bind mount of a host path, above all a home, credential or config folder.
+- A local listener (VNC proxy, web UI, development or debug server) with no token or Origin check, on loopback too.
+- An app that reloads its own code or config on change, where the agent can write that code or config.
+- A command timeout that kills the shell but not the processes it started.
 - The whole host environment passed to a child process or MCP server.
 - Path checks with `startswith` or a `".." in path` test.
 - One long-lived sandbox shared across users or sessions.

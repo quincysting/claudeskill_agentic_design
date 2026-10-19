@@ -151,6 +151,21 @@ Sources: https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-to
 - **Parameters asking "why":** ask for a short explanation or evidence, not reasoning. Asking for step-by-step reasoning can trigger a refusal.
 - **Tool result errors:** return `is_error: true` in the `tool_result`.
 
+**Stop reasons** (as of 2026-10; page fetched 2026-10-20; confirm against the installed SDK version). Every Messages API response carries `stop_reason`, and a client loop reads it before running any tool call (tool-contracts §4b). Source: https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons
+
+| `stop_reason` | Run client tool calls? | What the loop does |
+|---|---|---|
+| `tool_use` | Yes | Return one `tool_result` per `tool_use` block. A `server_tool_use` block with no result block is unfinished: send only the `tool_result` blocks (nothing after them) with the same tools array, and the API completes it |
+| `max_tokens` | No | A trailing `tool_use` block may be incomplete: re-request with a higher `max_tokens` |
+| `model_context_window_exceeded` | No | Treat the response as truncated |
+| `pause_turn` | No | A server-tool loop reached its iteration limit: send the assistant content back to continue |
+| `refusal` | No | Not a success: read `stop_details` and follow the fallback policy |
+| `end_turn`, `stop_sequence` | No calls | Final answer. An empty `end_turn` after tool results usually means text was added after the `tool_result` blocks |
+
+OpenAI equivalents (as of 2026-10; confirm against the installed version): Chat Completions sets `finish_reason` to `tool_calls`, `stop`, `length` (cut off) or `content_filter`; the Responses API marks a cut-off response `incomplete`, with a reason such as `max_output_tokens`.
+
+**Server tools** (run on Anthropic's side). Web search takes `max_uses` (a search over the cap returns a `max_uses_exceeded` error result) and `allowed_domains` or `blocked_domains`, not both. Several dated versions exist, so pin one. An organisation administrator can also disable web search or restrict its domains in the Console. Source (fetched 2026-10-20): https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool
+
 ## OpenAI function calling
 
 Source: https://developers.openai.com/api/docs/guides/function-calling, and the `name` field docstring in the openai-python SDK types.

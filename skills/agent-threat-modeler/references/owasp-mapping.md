@@ -116,7 +116,9 @@ through tool content; those remain the host's responsibility.
 - CoSAI Risk Map data: https://github.com/cosai-oasis/secure-ai-tooling (commit of 2026-10-16)
 - MCP Security Best Practices: https://modelcontextprotocol.io/specification/latest/basic/security_best_practices (spec 2026-07-28; checked 2026-10-19)
 - Design Patterns for Securing LLM Agents against Prompt Injections: https://arxiv.org/html/2506.08837 (2025-06)
-- Claude for Chrome (browser-agent injection measurements): https://claude.com/blog/claude-for-chrome (2025-08, updated 2025-12)
+- Claude for Chrome (browser-agent injection measurements): https://claude.com/blog/claude-for-chrome (2025-08, updated 2025-12).
+  Attack-success figures are dated snapshots: quote each with its source and date, and prefer the vendor's latest
+  measurement (system card or security post) over an older one.
 - Claude Code sandboxing: https://www.anthropic.com/engineering/claude-code-sandboxing (2025-10)
 - Anthropic computer use tool docs: https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool (fetched 2026-10)
 - Measuring AI agent autonomy in practice: https://www.anthropic.com/research/measuring-agent-autonomy (2026-02)

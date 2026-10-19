@@ -1,12 +1,16 @@
 # Harness design: <agent name>
 
-<!-- Design mode: fill every section and delete the Status lines. Review mode: Summary and Confirm first, then the findings table, then the sections, each with its Status line filled. Delete these comments. -->
+<!-- Design mode: fill every section and delete the Status lines. Review mode: Summary and Confirm first, then the findings table, then the sections, each with its Status line filled; a section whose Status is "add" and which says nothing beyond its findings is one line pointing to them. Delete these comments. -->
 
 ## 0. Summary
 
 <4 to 6 sentences: what the agent does, how it is triggered and served, where state lives, the framework decision, the controls an operator has, and the riskiest open point.>
 
 **First actions:** <the three changes or decisions to make first; in review mode, the top Critical fixes>
+
+**Review input** (review mode): <code only / code with traces, logs or owners>; shipping candidate: <variant reviewed, if there are several>; stubs or missing components: <each, with the wiring assumed>
+
+**Minimal version** (review mode): <what ships in about a week for the stated use; what waits for a later phase>
 
 **Confirm first**
 1. <assumption that most changes the design, e.g. "the AP system's webhook retries on timeout for 24 hours">
@@ -15,9 +19,9 @@
 
 ## Findings (review mode only)
 
-Severity follows the consequence if the finding's fact holds; mark it "(inferred)" when the fact is inferred, and list that fact under Confirm first.
+Severity follows the consequence if the finding's fact holds; mark it "(inferred)" or "(assumed)" when the fact is, and list that fact under Confirm first. Tag a finding that rests on an absent component "depends on missing <component>". Cite credentials by file:line and kind, never by value.
 
-| # | Severity | Finding | Evidence: stated / inferred / confirmed (file:line, config key, run ID) | Fix | Test that catches it |
+| # | Severity | Finding | Evidence: seen / observed / told / inferred / assumed (file:line, config key, run ID) | Fix | Test that catches it |
 |---|---|---|---|---|---|
 
 ## 1. Runtime frame
@@ -122,7 +126,8 @@ Status (review mode): keep / change / add
 - Streaming: <SSE / WebSocket / none>; disconnect policy per run type: <...>; output check before release: <...>
 - Limits per client: <rate, concurrent streams>
 - Shutdown and drain: <...>
-- Leases (queued runs longer than the visibility timeout): <lease expiry, heartbeat, sweeper interval>
+- Broker facts: <when a message is acknowledged; what a killed worker does to an in-flight message; redelivery timeout; who can read results>
+- Leases (queued runs that can outlast the redelivery timeout or lose their worker): <lease expiry, heartbeat, sweeper interval>
 
 ## 9. Harness tests and run-record contract
 

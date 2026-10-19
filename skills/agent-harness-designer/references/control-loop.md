@@ -101,6 +101,7 @@ A budget that exists but is checked in the wrong place does not hold. Five rules
 - **Use a ladder and share it.** Warn at about 80% of any ceiling (stop creating new tasks, alert the operator) and stop at 100% (end the task, revoke its capabilities). The budget is shared across delegated work: a handoff to another agent cannot reset it. Detect repeats of the same worker, capability and input digest [AISEC repo: part8_multi-agent_harness_spec/safety-governance.md]. That specification's defaults (20 agent turns, 30 tool calls, one retry per task, 30 minutes) are one team's numbers [AISEC repo: part8_multi-agent_harness_spec/agents.yaml]; the ladder and the shared budget are what transfer.
 - **One ledger for delegated work.** Sharing means one budget ledger per run in checkpointed state, not a number copied to each child: three parallel children each handed "what remains" can spend three times that. A child reserves a slice by conditional decrement before it spawns and before each of its calls, and returns what it did not use when it exits; cap the number of children and the depth. A reservation that fails ends the child with a budget reason. (This mechanism is this skill's; the specification above states only that the budget is shared.)
 - **Leave headroom for the call you cannot price.** A pre-call check cannot know the call's cost, and accounting after each response overshoots by up to one response plus whatever running subagents spend before they stop (one vendor SDK documents this, as of 2026-10; framework-vocabulary-2026-10.md). Set the hard cap one maximum call below the real limit.
+- **Under a vendor agent loop, split the budgets.** The SDK runs the loop, so the harness guards only what the SDK lets it intercept. A pre-tool hook can refuse a tool call before it runs, so tool-call budgets, kill flags and cancel can be checked before each tool call. Model calls, tokens and cost are usually counted only after each response, against the SDK's own turn and budget caps. Write down which budgets fall in which group. For the after-response group, set the SDK cap as a backstop one maximum call below the real limit. When the job runs several sessions from an outer loop of your own, guard the session count and the job's total spend there, before each session starts (`budget:sessions`, `budget:cost`). Confirm what the installed SDK version can intercept (framework-vocabulary-2026-10.md, "Where the guard runs").
 
 When a budget is hit, PRODGUIDE's safe fallback applies: downgrade to draft-only, return the minimum useful output, and ask only the questions needed to continue [PRODGUIDE ch17 §Budget Guardrails and Context Discipline]. The status is `partial` with the budget named as the reason.
 
@@ -182,6 +183,14 @@ Two correction loops, kept separate [DEFGUIDE ch5]: the **inner loop** re-asks t
 - Human waits use the same mechanism: interrupt + checkpointer, resume when input arrives [BUILDAGENTIC ch2]. Pause in one step and execute in the next: on resume a framework node reruns from its start, so a write placed before the pause happens twice [DEFGUIDE ch2 §Designing Human-in-the-Loop Workflows].
 - When new input arrives for a stored case, restart from the first phase whose inputs changed and reuse the checkpoints before it.
 
+### When the state is a working tree
+
+A coding agent keeps much of its state in files and version control rather than in a store the harness writes. Treat the repository as part of the checkpoint:
+- Record a session-start and a session-end event with the commit hash at each point, so the run record says which tree each session saw and which it left.
+- On resume, if the tree is dirty (changes left uncommitted when the last session died), snapshot it to a branch named after the run and session, then reset to the last recorded commit. Nothing is lost, and the next session starts from a known tree.
+- Put the run ID and the step key in commit trailers (lines such as `Run-Id:` and `Step-Key:` at the end of the message), so "was this step already done?" is a lookup in the history, not a question for the model.
+- Progress files and task lists in the tree are agent-writable. The harness decides completion with its own check (harness-components.md §1, row 19).
+
 ### One writer per run
 
 Two writers can hold the same run: a retry and a resume, two replicas, a redelivered event. With unconditional writes the last writer wins and the other write is lost without an error. Either:
@@ -197,11 +206,24 @@ def save(store, run_id, state, read_version):     # read_version is 0 for a new 
 
 ### Leases for long runs on a queue
 
-A queue hides a message for a visibility timeout and then delivers it again. A run that lasts longer than that timeout is redelivered while its first worker is still busy. Dropping that redelivery is right only if something recovers the run when the busy worker dies; otherwise the run stays `running` for ever. Give each run a lease:
+Before designing the lease, write down four facts about the queue or task broker in use, from its documentation for the installed version:
+1. When a message is acknowledged: on delivery (before the work) or after the work.
+2. What a killed worker does to an in-flight message: lost, redelivered, or acknowledged as failed.
+3. The redelivery timeout (a visibility timeout, an acknowledgement deadline) and what happens to a message still unacknowledged when it passes.
+4. Where results are visible: to any reader, or only to the process that published the task.
+
+Celery, a Python task queue, shows the common traps (documentation read 2026-10-20; confirm against your version):
+- Early acknowledgement is its default, so a worker killed mid-task loses the task.
+- Late acknowledgement alone does not redeliver everything. A task that fails or times out is still acknowledged by default, and so is the message of a task whose child process was killed, unless the worker-lost rejection setting is on (which can loop a poison task). Late acknowledgement also lets a task run more than once, so idempotency comes first.
+- Its soft time limit raises an exception the task can catch, so a broad exception handler can swallow the limit and carry on; only the hard limit kills the process.
+- On its Redis and SQS transports, a task not acknowledged within the visibility timeout (one hour by default on Redis) goes to another worker while the first may still be running it.
+- Its RPC result backend hands a result over once, and only to the client that published the task, and keeps it in transient messages by default; a status endpoint in another process cannot read it.
+
+Whatever the broker, a run that can outlast its redelivery timeout or lose its worker needs a lease and a sweeper, as below. A visibility-timeout queue hides a message for that timeout and then delivers it again. A run that lasts longer than that timeout is redelivered while its first worker is still busy. Dropping that redelivery is right only if something recovers the run when the busy worker dies; otherwise the run stays `running` for ever. Give each run a lease:
 - The worker that starts or resumes a run takes the lease with a conditional write (owner, expiry), and renews it on a heartbeat. The same heartbeat extends the message's visibility.
 - A redelivery for a run whose lease is live is acknowledged and dropped. A redelivery for a run whose lease has expired takes the lease and resumes from the last checkpoint.
 - A sweeper runs on a schedule and re-enqueues every non-terminal run whose lease expired, so a run whose worker died after a redelivery was dropped still resumes, once. A run in `awaiting_approval` holds no lease and is not swept; its decision event resumes it.
-- Set the lease expiry to a few heartbeat intervals, and the heartbeat well inside the visibility timeout.
+- Set the lease expiry to a few heartbeat intervals, and the heartbeat well inside the redelivery timeout.
 
 Tests: harness-tests.md, "Lease, redelivery" and "Lease, dead holder".
 

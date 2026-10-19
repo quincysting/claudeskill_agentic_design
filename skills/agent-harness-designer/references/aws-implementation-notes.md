@@ -4,7 +4,7 @@ AWS mapping for this skill's principles. As of 2026-10; services change, verify 
 
 The (lab) rows are anonymised observations from the author's own hands-on labs, with no client data; treat them as unverified unless they are also tagged (docs).
 
-The principles live in the other reference files and stay vendor-neutral. This file says which AWS feature or setting carries each one and where hands-on labs tripped. Tags: **(docs)** confirmed against AWS documentation (2026-10-11 for rows moved from agent-architect, 2026-10-19 for the rest; pages listed at the end); **(established)** long-standing documented behaviour the labs did not exercise; **(lab)** seen in practitioner labs only; **(unverified)** not confirmed, check before relying on it. Identity and policy enforcement on AWS: agent-threat-modeler's AWS notes. Hosting choice, tracing and runtime release mechanics (versions, endpoints, canary): agent-ops-reviewer's. Peer version pinning, partitioning and A2A deployment: agent-architect's.
+The principles live in the other reference files and stay vendor-neutral. This file says which AWS feature or setting carries each one and where hands-on labs tripped. Tags: **(docs)** confirmed against AWS documentation (2026-10-11 for rows moved from agent-architect, 2026-10-19 for the rest; pages listed at the end); **(established)** long-standing documented behaviour the labs did not exercise; **(lab)** found in practitioner labs only; **(unverified)** not confirmed, check before relying on it. Identity and policy enforcement on AWS: agent-threat-modeler's AWS notes. Hosting choice, tracing and runtime release mechanics (versions, endpoints, canary): agent-ops-reviewer's. Peer version pinning, partitioning and A2A deployment: agent-architect's.
 
 ## Mapping
 

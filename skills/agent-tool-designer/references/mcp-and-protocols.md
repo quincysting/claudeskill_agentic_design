@@ -104,6 +104,8 @@ The MCP book's verdict: for production there is no real alternative to Streamabl
 
 ## §5 Authorization (remote servers)
 
+This section applies to HTTP transports. A stdio server has no bearer token: it authorises through its launch configuration and the environment it is given (which binary, which arguments, which credentials). Per-tool scopes therefore need an HTTP transport. On stdio, split read and write tools into separate servers or launch profiles with different credentials, and keep token checks out of stdio handlers and their tests.
+
 Server, as an OAuth resource server:
 - Publish protected-resource metadata. Answer unauthenticated requests with 401 and a pointer to that metadata, plus the scopes needed.
 - Validate every inbound token in this order, and fail closed when a claim is **missing**, not only when it is wrong:
@@ -142,13 +144,33 @@ The protocol identifies the client application and binds tokens to a server. It 
 - [ ] Treat descriptions, annotations and results as untrusted input. Never base trust decisions on annotations from servers you do not control.
 - [ ] Show tool inputs to the user before calling the server, confirm sensitive operations, and keep a person able to deny any call (spec); confirmation UI names the server that is asking.
 - [ ] Elicitation duties under the 2026-07-28 spec: name the requesting server; offer decline and cancel and handle all three answers; let the user review and edit form answers before they are sent; in URL mode show the full URL and its domain, never pre-fetch it, and open it only after explicit consent; never collect secrets, payments or credentials through form mode. Servers bind each elicitation to the client and user it was issued for (current facts). A 2026-07-28 server can elicit only inside a result for a client request; with 2025-11-25 servers, which send `elicitation/create` themselves, drop prompts no request asked for [HARDMCP ch9].
-- [ ] Carry `isError` and `structuredContent` through to the model API and the harness; test it with a forced failure (tool-design-rules §5).
+- [ ] Map every result without loss (sketch below): carry `isError` onto the model API's error flag; keep `structuredContent` for the harness; join every content block, not only the first; serialise structured data as JSON, never as the language's default string form; cap the size and say in the text that it was cut; pass annotations to the harness as hints only, never as a permission tier. Test it with a forced failure through the real client (tool-design-rules §5).
+- [ ] Read a category from error text only after the SDK's prefix. In the Python SDK v2 a `ToolError` reaches the client as `Error executing tool <name>: <message>` (as of 2026-10; confirm against the installed version), so a category token sits after the prefix, never first. When the harness must act on the category, the server returns it in `structuredContent` from a low-level handler (tool-contracts §4).
+- [ ] Read the model's stop reason before running any tool call from its turn (tool-contracts §4b).
 - [ ] Fetch server-supplied URLs, OAuth metadata included, only through an allowlist [HARDMCP ch8]; the controls are agent-threat-modeler's.
-- [ ] Timeouts on every call. On a lost connection, retry with backoff and resend; dedupe non-idempotent calls, because a resend redoes the action [MCP ch4].
+- [ ] Timeouts on every call. On a lost connection, retry with backoff and resend; dedupe non-idempotent calls, because a resend redoes the action [MCP ch4]. A timeout or transport error on any tool that is not read-only maps to `outcome_unknown` (tool-contracts §5), never to a plain failure with the error flag set.
 - [ ] Budget the tool list: count definition tokens per server and apply the selection ladder (scoping, tool search) when it grows.
 - [ ] One translator per model family from MCP tool types to the provider's format, to stay model-agnostic [MCP ch4].
 - [ ] Pin local server versions; prefer servers from a trusted registry or your own subregistry of approved servers [MCP ch4], [MCP ch9].
+- [ ] A server that fails to connect at start-up stops the agent, or the agent runs marked degraded with the missing tools named; it is never skipped silently. Log the server's name and transport, never its environment, headers or arguments, which can carry secrets.
 - [ ] Log every call with server, tool, arguments, outcome and latency; propagate trace context.
+
+A result-mapping sketch for a Python client on SDK v2 that feeds the Claude Messages API (attribute names as of 2026-10; confirm against the installed version):
+
+```python
+import json
+
+def map_result(call_id: str, r, cap_chars: int = 20_000):
+    """MCP CallToolResult -> (tool_result block for the model, structured envelope for the harness)."""
+    parts = [b.text if b.type == "text" else f"[{b.type} content not shown]" for b in r.content]
+    text = "\n".join(parts) or (json.dumps(r.structured_content)  # every block; JSON, never str()
+                                if r.structured_content is not None else "(no content)")
+    if len(text) > cap_chars:
+        text = text[:cap_chars] + f"\n[truncated: {len(text) - cap_chars} more characters]"
+    block = {"type": "tool_result", "tool_use_id": call_id, "content": text,
+             "is_error": bool(r.is_error)}                         # the flag survives the hop
+    return block, r.structured_content                             # category and receipt for the harness
+```
 
 **Gateways.** A gateway puts many servers behind one authenticated endpoint, can expose a subset of tools, and can enforce per-request policy no single server sees. In a 2025 researcher demonstration against the GitHub MCP server, a malicious issue in a public repository told an agent to copy private repository data into a public one (the MCP book describes the planted text as a pull request). A gateway rule refusing cross-repository access within one request blocked it [MCP ch7]. Use a gateway or a private subregistry once you have many servers, one auth story to enforce, or a vetted-server policy [MCP ch9].
 

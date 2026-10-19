@@ -11,9 +11,14 @@
 ## Findings
 Severity: **P0** leaks data across users or tenants, loses a safety constraint, or persists secrets or untrusted content · **P1** measurable answer-quality loss (missed retrieval, forgetting, contradictions, stale facts) · **P2** cost or latency waste.
 
-| ID | Sev | Layer | Finding (evidence: file:line / trace) | Why it matters | Fix | Verify by |
+Evidence label per fact: **seen** (code, config or document read; file:line) · **observed** (logs, traces, metrics, test run) · **told** (owner or user said so, unchecked) · **inferred** (seen code plus an unchecked library or platform behaviour; name it and its version) · **assumed** (no evidence). Severity follows the consequence if an inferred or assumed fact holds.
+
+| ID | Sev | Layer | Finding (evidence: file:line / trace, with label) | Why it matters | Fix | Verify by |
 |---|---|---|---|---|---|---|
 | F1 | P0 | retrieval / memory / assembly | | | | |
+
+## Confirm first
+<Every inferred or assumed fact a finding rests on, with what would confirm it.>
 
 ## Fix order
 1. <P0s, in dependency order; a data-handling P0 includes the clean-up of what is already stored (purge or re-mask, cache invalidation, backfill) with a deletion log>

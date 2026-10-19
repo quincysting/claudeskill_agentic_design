@@ -34,6 +34,8 @@ A catalogue entry holds the SYSTEMS registry fields (owner, contracts, risk clas
 4. The other servers' overlapping tools are retired through §5, with the authoritative tool as the replacement.
 5. Until they are gone, hosts resolve every tool as `server::name` and pin definitions, and the consuming agents' tool-choice evals run with all the overlapping servers loaded, confusable pairs across servers included.
 
+**Same name, different contract.** Count definitions, distinct names and servers separately. When two servers publish one tool name, compare their result shapes and behaviour (fields, units, side effects, errors). If they differ, what the model gets depends on which server answered. Record that as a finding even before a host connects both (P2 until a failure is shown), and resolve it through steps 2 to 4 above.
+
 **Supply chain, contract side.** Each entry records whether releases are signed, the one supported install path, and a disclosure contact. HARDMCP's 2026 scan of nearly 11,700 servers found no signed releases and 86% with no disclosure channel (as of 2026-10) [HARDMCP ch10 §Recipe 3: Knowing and Trusting What We Run]. Dependency pinning, signature checks at launch and sandboxing are hardening work for agent-threat-modeler.
 
 ## §3 Names and permissions come from the catalogue
@@ -91,3 +93,4 @@ PRODGUIDE treats its deny list as non-negotiable [PRODGUIDE ch7], while APIMGMT 
 5. Does each entry record release signing, the install path and a disclosure contact?
 6. Is each deprecation dated, flagged in results and in the registry, measured by per-version usage, and finished by removing the instance?
 7. Is there a written decision map of what is centralized, and is each centralized rule enforced in CI or at registration?
+8. Are definitions, distinct names and servers counted separately, and does any name appear on two servers with a different result shape or behaviour?

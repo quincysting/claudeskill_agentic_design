@@ -135,7 +135,7 @@ check that the user who finishes the flow is the one who started it (elicitation
 |---|---|---|---|
 | Containment | Read-only filesystem, capabilities dropped, non-root; set in the deployment manifest, not left to operator habit | Manifest review shows the flags on every environment | [HARDMCP ch10] |
 | Bind address | Loopback unless a remote endpoint is genuinely needed; stdio for local servers | A request from another host times out | [HARDMCP ch10], [MCP ch8] |
-| Reach | Host header allowlist and Origin validation against DNS rebinding | A request with a foreign Host header is refused | [HARDMCP ch10], [MCP ch8] |
+| Reach | Host header allowlist, Origin validation against DNS rebinding, and authentication, on every local HTTP or WebSocket listener the deployment runs, not only the MCP server. Loopback is not authentication: pages in the user's own browser can reach localhost ([sandboxing.md](sandboxing.md) §Local listeners) | A request with a foreign Host header, a request from another origin and an unauthenticated request are each refused | [HARDMCP ch10], [MCP ch8] |
 | Wire | Encryption on every hop, server to server included. HARDMCP asks for encryption on every hop, not specifically mutual TLS; mTLS is one way to meet it and also authenticates the peer | A plaintext hop found in a traffic review is a finding | [HARDMCP ch10] |
 | Provenance | Signed releases verified before launch; inventory; a published disclosure contact (`security.txt`) | An unsigned build fails to launch | [HARDMCP ch10] |
 | Audit | Structured record of actor, tool, arguments and request ID; redaction runs in the logging path itself and covers tool outputs | A logged call that carried a token shows the event without the secret | [HARDMCP ch10] |

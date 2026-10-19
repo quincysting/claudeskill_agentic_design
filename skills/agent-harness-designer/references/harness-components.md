@@ -31,6 +31,8 @@ One row per component. "Pass when" is what the design or code must show; "red fl
 | 15 | Framework boundary | You can name what the framework owns, read the exact prompt and every transition, set every budget, swap the provider (framework-vocabulary-2026-10.md) | Nobody can say where state is stored or which caps are set | Harness bake-off |
 | 16 | Harness tests | Resume, stop, budget, cancel, kill and duplicate-delivery tests run in CI against an out-of-process store (harness-tests.md) | Only end-to-end "it answered" tests | n/a |
 | 17 | Trace hooks | Every event carries run ID, step, versions, tokens, cost, latency, status; tracing backend and dashboards are agent-ops-reviewer's | Trace IDs unrelated to run IDs | n/a |
+| 18 | Containment | Every process the agent can drive (shell, browser, MCP servers, hooks, child agents) sits inside a named boundary; no path the agent can write is later loaded by the runtime or a privileged component as configuration, instructions or code (§7, "Containment inventory") | A sandbox on the shell tool only, with a browser or MCP server spawned beside it; the agent's working directory is also where the runtime reads settings, hooks or prompt files | Containment |
+| 19 | Who decides done | Completion is decided by a check the harness runs and the agent cannot write (tests the harness executes, a state the backend reports) | Completion counted from a file or field the agent can write; "all items pass" read from the agent's own notes or task list | Completion claim |
 
 **Declared is not enforced.** A status value or a `requires_approval` label does nothing unless the harness acts on it. One open-source toolkit labels shell tools as needing approval, and nothing blocks them unless a policy is passed in [RELATED repo: aisuite/aisuite/toolkits/shell.py]; the same library declares a `max_turns_exceeded` status and returns an exhausted run like a finished one [RELATED repo: aisuite/aisuite/agents/types.py] [RELATED repo: aisuite/aisuite/client.py]. Refuse to start when a tool needs approval and no approval policy is wired, and test every label by forcing it.
 
@@ -157,13 +159,32 @@ The commonest harness failure is good teaching code deployed as is. None of the 
 
 None of this makes the repositories bad teaching code. It means the step from prototype to service is a harness project with its own checklist and its own tests.
 
+**Containment inventory.** A coding or browsing agent drives more processes than its shell tool, and reference code often sandboxes only the shell. In review mode, list each process and the boundary that contains it:
+
+| Process the agent can drive | Usual boundary | Gap to look for |
+|---|---|---|
+| Shell commands | OS sandbox, container, command allowlist | An allowlist that lets interpreters or agent-written scripts run by name is a convenience, not a control (agent-threat-modeler) |
+| A browser or other MCP server the SDK spawns | Its own process, often outside the shell sandbox | Network egress and reach into internal networks that neither the allowlist nor the shell sandbox governs |
+| Hooks and plugins | Run by the runtime, with the runtime's rights | Hook definitions in files the agent can write |
+| Child agents and subprocesses | Whatever the parent passes on | Credentials and scopes inherited by default |
+
+Then list every path the agent can write that something later loads: project settings, hook definitions, instruction or prompt files, test and scorer files (harness-tests.md §1), and the task list the harness reads progress from (§1, row 19). Whether a runtime loads project-level settings from its working directory by default depends on the SDK and its version, and has changed between releases of at least one vendor SDK (as of 2026-10). Confirm against the pinned version and tag the finding inferred until then. Each uncontained process or loaded writable path is a finding, rated by what it reaches. One container per run with no push or write credentials bounds most of the processes at once; writable paths the runtime loads still need their own check.
+
 ## 8. Severity for review findings
 
 | Severity | Harness examples |
 |---|---|
-| Critical | A write can run twice after a retry, resume or redelivered event; an approval executes changed arguments; an approval link or GET that approves or executes; no way to stop side effects without a redeploy; one caller can read or cancel another's runs; a run can be left `running` for ever with nothing to recover it (no lease expiry or sweeper) |
-| High | Forced stops reported as `completed`; budgets checked per turn or reset on restart; in-memory state behind several workers; blocking inference on the event loop; loop inside a webhook handler |
+| Critical | A write can run twice after a retry, resume or redelivered event; an approval executes changed arguments; an approval link or GET that approves or executes; no way to stop side effects without a redeploy; one caller can read or cancel another's runs; a run can be left `running` for ever with nothing to recover it (no lease expiry or sweeper); no terminal condition or no spend cap on an unattended job or on shared infrastructure |
+| High | Forced stops reported as `completed`; a failure reported as success (an exception caught and returned as a successful task or an HTTP 200); no terminal condition or no spend cap on an attended run; budgets checked per turn or reset on restart; in-memory state behind several workers; blocking inference on the event loop; loop inside a webhook handler; a debug or development server reachable from the network; a credential printed to logs, or a hard-coded fallback secret (these last two also go to agent-threat-modeler) |
 | Medium | No safe-mode replay; disconnect policy accidental; checkpoints without a schema version; no per-client limits |
 | Low | Event names inconsistent; stop reasons free text instead of a fixed list |
 
-Severity follows the consequence if the finding's fact holds. When that fact is inferred from a description rather than seen in code, config or traces, write the severity with "(inferred)", for example "Critical (inferred)", and put the fact in "Confirm first". Never downgrade a finding because its trigger is inferred. agent-threat-modeler writes the same convention as "P0 (assumed)".
+**Evidence labels, in every review.** Tag each fact a finding rests on: **seen** (read in code, config or a document supplied for this review; cite file:line or section), **observed** (logs, traces, metrics or a test run), **told** (an owner or user said so; not checked), **inferred** (follows from seen code plus a library, platform or language behaviour not checked here; name the behaviour and the version it depends on), **assumed** (no evidence). Severity follows the consequence if an inferred or assumed fact holds: write it as "Critical (inferred)" or "High (assumed)" and put the fact under "Confirm first". Never downgrade a finding because its trigger is inferred. The sibling review skills use the same five labels.
+
+**A control that can be bypassed is not a boundary.** When the only thing between the agent and an action is a control the agent can get around (a rule in the prompt, an allowlist that runs interpreters or scripts the agent wrote), rate the finding as if no control were there, by what the bypass reaches.
+
+**Entry points.** Map which entry points real callers use: the UI's calls, scheduled jobs, documented routes. A finding on a path no current caller reaches keeps its severity by consequence and says so ("reached only by direct API callers"); removing the path is one of its fixes. A fix that removes or changes an entry point names every caller that must move in the same change, such as a UI that must switch to the asynchronous route.
+
+**Missing components.** When a finding depends on a component that is absent from the input (an empty submodule, a service the code calls but the folder does not hold), keep the severity by consequence, tag the finding "depends on missing <component>", and put that component first under "Confirm first".
+
+**Count each harm once.** When a finding's worst consequence (a duplicate send, say) is already its own finding, rate the second finding by what it adds.

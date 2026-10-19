@@ -10,10 +10,14 @@
 
 Severity: **Critical**: the suite can pass while the agent fails. **High**: the numbers cannot support the decisions made on them, or a judge is untrusted. **Medium**: maintainability, cost, coverage gaps. **Low**: style.
 
-Evidence: **stated** (the user said so), **inferred** (from a description; name the artefact that would confirm it) or **confirmed** (from code, data or reports read). Severity follows the consequence if an inferred finding holds.
+Evidence label per fact: **seen** (code, config, data or a document read; file:line or section) · **observed** (logs, traces, metrics, a report's per-task results or a test run) · **told** (the user or owner said so, unchecked) · **inferred** (seen code plus an unchecked library or platform behaviour; name it and its version) · **assumed** (no evidence). Severity follows the consequence if an inferred or assumed fact holds.
 
-| # | Severity | Location | Finding | Evidence (stated / inferred / confirmed) | Impact | Fix |
+| # | Severity | Location | Finding | Evidence (seen / observed / told / inferred / assumed) | Impact | Fix |
 |---|---|---|---|---|---|---|
+
+## Confirm first
+
+<Every inferred or assumed fact a finding rests on, with the artefact that would confirm it.>
 
 ## What the current numbers mean
 

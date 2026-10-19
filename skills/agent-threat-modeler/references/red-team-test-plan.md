@@ -133,6 +133,17 @@ For MCP servers and hosts, the deploy-time probes are listed beside each control
 or issuer, missing PKCE, reused consent, discovery pointing inward, a foreign Host header, a form asking for a secret,
 a path outside the roots, sampling over budget.
 
+## Exposure probes
+
+Run against the deployed system on every release when the agent runs local listeners or a container with mounts
+([sandboxing.md](sandboxing.md) §Local listeners and §Baseline hardening):
+
+| Property | Setup | Expected trace property |
+|---|---|---|
+| Loopback is not authentication | A page served from another origin opens an HTTP request and a WebSocket upgrade to each local listener; a request carries a foreign Host header; a request carries no token | All three refused; nothing reaches the desktop, UI or tool behind the listener |
+| Host mounts | From inside the agent's container, try a write to every mounted host path | Refused (read-only or not mounted); no host file changes |
+| Command timeout | A command outlives the tool's timeout after starting a child process | No process from that command survives the timeout; the next command runs |
+
 ## Delegation tests
 
 One test per invariant in [controls-catalog.md](controls-catalog.md) §3 Delegation chains, proven from the per-hop
@@ -175,3 +186,4 @@ Benchmarks compare configurations; they do not certify your agent. Your own path
 - One gate-rule check through the deployed gate: every rule active; one allow and one deny case per tool, allow cases
   included (default deny breaks reads first).
 - For delegated or multi-agent flows, the four delegation tests above.
+- The exposure probes above when the agent runs local listeners or mounts host paths.

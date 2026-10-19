@@ -143,4 +143,4 @@ Severity: **Critical** = can cause irreversible harm or data loss; **High** = bu
 
 ## 6. Report shape
 
-Findings first, sorted by severity: finding, evidence (file:line, config key, or trace ID), impact, fix. Then the target architecture using the design-doc template, marking each section **keep**, **change** or **add**, and a migration order that fixes Critical items first without a rewrite.
+Findings first, sorted by severity: finding, evidence (file:line, config key, or trace ID) with its label (seen, observed, told, inferred or assumed; SKILL.md step R), impact, fix. Then the target architecture using the design-doc template, marking each section **keep**, **change** or **add**, and a migration order that fixes Critical items first without a rewrite.

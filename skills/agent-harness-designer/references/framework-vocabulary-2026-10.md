@@ -19,6 +19,14 @@ Dated facts, kept out of the vendor-neutral procedure. Read from the vendors' do
 
 What still belongs to you in all three: the run record header, budget counters in checkpointed state, the approval digest and expiry, the kill switch levels, the disconnect policy and the harness tests. Map each row of harness-components.md §1 to "framework does it", "framework helps", or "we build it" before you adopt one.
 
+## Where the guard runs
+
+The guard (cancel, kill flags, budgets) must run before every model and tool call. Where each kind of framework lets you put it, as of 2026-10; confirm every point against the installed version:
+- **Agent factories with middleware or hooks.** LangChain's `create_agent` takes middleware: `before_model` runs before every model call and can end the run by returning `jump_to` set to `"end"` (the hook declares that target with `@hook_config(can_jump_to=...)`); `wrap_model_call` and `wrap_tool_call` wrap every model and tool call and can decline to call the handler, which skips the call. Put the guard there, not in a node or a prompt. Whether a skipped tool call must return a `ToolMessage` in your version was not on the page read (2026-10-20).
+- **A graph you write.** A guard node, or a check at the top of every node that calls a model or a tool, with the counters in graph state.
+- **Claude Agent SDK.** A `PreToolUse` hook can deny a tool call before it runs, so tool-call budgets, kill flags and cancel are checked per tool call. Model calls and spend are compared with `max_turns` and `max_budget_usd` after each response (as of 2026-10, `max_turns` 0 means no turn limit and `max_budget_usd` 0 is rejected at start-up; confirm against the installed version) (control-loop.md, "Where budgets bite").
+- **OpenAI Agents SDK.** Not on the fetched pages; check its hooks and guardrails for a refusal before each call before relying on one.
+
 ## Defaults to watch
 
 - Both SDKs leave turn and budget caps unset unless you set them. Set them explicitly and test the forced exit.
@@ -67,3 +75,4 @@ The LangGraph code in DEFGUIDE and BUILDAGENTIC and the framework list in [BUILD
 - MCP 2026-07-28, cancellation (2026-10-19): https://modelcontextprotocol.io/specification/2026-07-28/basic/utilities/cancellation
 - Claude Agent SDK, agent loop: https://code.claude.com/docs/en/agent-sdk/agent-loop
 - OpenAI Agents SDK, running agents: https://openai.github.io/openai-agents-python/running_agents/
+- LangChain custom middleware (2026-10-20): https://docs.langchain.com/oss/python/langchain/middleware/custom

@@ -37,6 +37,9 @@ These tests target the runtime, not the model. No book tests resume, stop, budge
 | Disconnect | Drop the client mid-stream, for an interactive run and for a background run | Interactive: cancelled and recorded. Background: continues; reconnect with the last event ID gets the gap |
 | Output check before release | A slow output check and a fast model | No text reaches the client before the verdict |
 | Declared labels | Register a tool labelled as needing approval with no approval policy wired | The harness refuses to start |
+| Limit edge values | Set each limit (steps, sessions, calls, cost, time) to 0, to 1, and leave it unset | 0 stops before the first call or is refused at start; 1 allows exactly one; unset falls back to a declared default. None of them means unlimited |
+| Completion claim | Script the model to mark every item done in a file it can write, while the harness's own check fails | The run does not end `completed`; the harness's check decides |
+| Containment | From each process the agent can drive (shell, browser, MCP server), check whether it can reach the network beyond its allowlist and write a file the runtime later loads (settings, hooks, prompt files) | Each is blocked by a named boundary, or listed as an accepted risk in the design |
 | Deletion | Clear a conversation, or let retention expire a run | Its state and checkpoints are gone from the store, not just hidden. One tutorial clears a conversation by writing an empty message list through an appending reducer, which likely deletes nothing (read, not run), so assert on the store [BUILDAGENTIC repo: sdr_multi_agent/flask_app/agent_builder.py] |
 | Faults at the edge | Inject 50% HTTP 500s, then a fixed delay, at the network layer, in a test namespace or through a local proxy only, never on a shared or production mesh | Retries within budget, timeout fires, failures carry their category, no duplicate write |
 
@@ -99,7 +102,7 @@ Scorers read only fields the harness writes. Without a contract they read fields
 |---|---|---|
 | `completed` | none | Goal met and output validated, including a draft or pack delivered to a person's queue (control-loop.md, "Exit statuses") |
 | `awaiting_approval` | none | A pause, not an exit; the pending approval record says what the run waits for |
-| `partial` | `max_steps`, `no_progress`, `budget:<name>` (`budget:model_calls`, `budget:tool_calls`, `budget:tokens`, `budget:cost`), `wall_time` | A forced stop before the goal; a framework's recursion or turn-limit error also maps to `max_steps` |
+| `partial` | `max_steps`, `no_progress`, `budget:<name>` for any budget the design declares (`budget:model_calls`, `budget:tool_calls`, `budget:tokens`, `budget:cost`, or another such as `budget:sessions` for an outer loop over sessions), `wall_time` | A forced stop before the goal; a framework's recursion or turn-limit error also maps to `max_steps` |
 | `cancelled` | `caller_cancel`, `kill_switch` | Stopped by the caller, or by the abort level of the kill switch |
 | `handed_off` | `draft_only`, `external_decision` | Draft-only or safe mode recorded a preview and executed nothing; or a pending action went to another system that decides on its own timeline |
 | `escalated` | `approval_expired`, `approval_denied`, `outcome_unknown`, `retries_exhausted`, `invalid_output`, `needs_human` | A person must act: an approval lapsed or was refused and the run cannot go on without it; a write's outcome is still unknown after the lookup; retries ran out; closed-vocabulary output stayed invalid after one re-ask; low confidence or a blocked path |

@@ -15,8 +15,10 @@ Per step: name, model (a tier in prices), p (share of requests that trigger it),
 when triggered), max_calls (cap the runtime enforces; null = no cap, so the ceiling is UNBOUNDED),
 tok_in / tok_out (avg tokens per call), cached / written (share of input read from / written to the
 provider prompt cache), memo (share of triggers answered by your own result cache).
-Optional: max_tok_in / max_tok_out (tokens per call at the cap; warned when missing on looping steps),
-p95_calls / p95_tok_in (from traces; defaults 2x calls and 1.5x tok_in, flagged as assumed),
+Optional: max_tok_in / max_tok_out (tokens per call at the cap the code sets; absent or null = no cap, so the
+ceiling is UNBOUNDED: a framework or model default is not a cap you chose),
+p95_calls / p95_tok_in / p95_tok_out (from traces; defaults 2x calls, 1.5x tok_in and tok_out unchanged, flagged as
+assumed; none may exceed its cap),
 latency_s (avg seconds per call), parallel (true: the step's calls run concurrently),
 stage (steps that share a stage value run concurrently; others run in sequence).
 Top level: requests_per_day, peak_requests_per_day (the busiest day's volume; default: requests_per_day;
@@ -61,7 +63,7 @@ EXAMPLE = {
     "value_per_minute": 0.6667, # $40 an hour; rough is fine if it stays consistent
     "steps": [
         {"name": "router", "model": "small", "p": 1.00, "calls": 1, "max_calls": 1,
-         "tok_in": 3_000, "tok_out": 50, "cached": 0.8, "latency_s": 0.6},
+         "tok_in": 3_000, "tok_out": 50, "cached": 0.8, "max_tok_in": 4_000, "max_tok_out": 100, "latency_s": 0.6},
         {"name": "retrieval", "model": "small", "p": 0.80, "calls": 1, "max_calls": 2,
          "tok_in": 2_000, "tok_out": 100, "cached": 0.5, "memo": 0.25, "max_tok_in": 3_000,
          "max_tok_out": 300, "latency_s": 0.8},
@@ -79,6 +81,17 @@ EXAMPLE = {
 
 
 SUCCESS_KEYS = ("success_rate", "review_minutes", "value_per_minute")
+INHERITED = ("requests_per_day", "retry_rate", "worst_retries", "other_per_request", "peak_hour_factor")
+
+
+
+
+def inherited(user):
+    """Top-level numbers a user spec left out, so the example's values were used; [] for the example itself."""
+    peak = ["peak_requests_per_day"] if user and not {"requests_per_day", "peak_requests_per_day"} & set(user) else []
+    return [k for k in INHERITED if user and k not in user] + peak
+
+
 LONG_PROMPT = 100_000  # tokens; a tier with a "<tier>_long" price (small -> small_long) is priced by prompt length
 
 
@@ -95,6 +108,9 @@ def merge(base, user):
         spec["peak_requests_per_day"] = user["requests_per_day"]  # never inherit the example's peak
     if "prices" in user and "prices_as_of" not in user:
         spec["prices_as_of"] = "UNDATED: you edited prices; add prices_as_of"
+    if isinstance(spec.get("steps"), list):  # null means "not set", except max_calls, where null means "no cap"
+        spec["steps"] = [{k: v for k, v in s.items() if v is not None or k == "max_calls"} if isinstance(s, dict) else s
+                         for s in spec["steps"]]
     return spec
 
 
@@ -132,19 +148,30 @@ def heavy_step(s):
     cap = s["max_calls"] if s["max_calls"] is not None else math.inf
     calls = s.get("p95_calls", min(cap, 2 * s["calls"]))
     tok_in = s.get("p95_tok_in", min(s.get("max_tok_in", math.inf), 1.5 * s["tok_in"]))
-    return {**s, "p": 1.0, "calls": calls, "tok_in": tok_in}
+    return {**s, "p": 1.0, "calls": calls, "tok_in": tok_in, "tok_out": s.get("p95_tok_out", s["tok_out"])}
 
 
 def heavy(spec):
     return expected(spec, [heavy_step(s) for s in spec["steps"]])
 
 
+def uncapped(spec):
+    """Steps missing a hard maximum on calls, input tokens or output tokens, e.g. ['router (output)']."""
+    out = []
+    for s in spec["steps"]:
+        miss = [w for k, w in (("max_calls", "calls"), ("max_tok_in", "input"), ("max_tok_out", "output"))
+                if s.get(k) is None]
+        if miss:
+            out.append(f"{s['name']} ({', '.join(miss)})")
+    return out
+
+
 def ceiling(spec):
-    """Every step fires at its cap, no cache, every call retried to the policy limit. A bound, not a forecast."""
-    if any(s["max_calls"] is None for s in spec["steps"]):
+    """Every step fires at its cap, no cache, every call retried to the policy limit. A bound, not a forecast.
+    None (UNBOUNDED) unless every step caps calls, input and output tokens."""
+    if uncapped(spec):
         return None
-    model = sum(s["max_calls"] * call_cost(spec, s, 0.0, 0.0, s.get("max_tok_in", s["tok_in"]),
-                                           s.get("max_tok_out", s["tok_out"])) for s in spec["steps"])
+    model = sum(s["max_calls"] * call_cost(spec, s, 0.0, 0.0, s["max_tok_in"], s["max_tok_out"]) for s in spec["steps"])
     return model * (1 + spec["worst_retries"]) + spec.get("other_per_request", 0.0)
 
 
@@ -187,16 +214,17 @@ def what_ifs(spec):
         churn = {"prompt cache churning (every cached token written, none read)": expected(spec, churned(steps))}
     else:  # nothing cached yet: show the stable-prefix case, 80% of input read and 5% written
         cache = ("prompt cache on (80% read, 5% written)", [{**s, "cached": 0.8, "written": 0.05} for s in steps])
-    cheapest = min(spec["prices"], key=lambda m: spec["prices"][m]["in"] + spec["prices"][m]["out"])
+    used = sorted({s["model"] for s in steps})  # only tiers this system uses: never a tier the user did not define
+    cheapest = min(used, key=lambda m: spec["prices"][m]["in"] + spec["prices"][m]["out"])
     top = max(steps, key=lambda s: step_cost(spec, s))
-    return {
-        cache[0]: expected(spec, cache[1]),
-        **churn,
-        f"BOUND, not a plan: all steps on '{cheapest}' (no quality or repair cost)":
-            expected(spec, [{**s, "model": cheapest} for s in steps]),
-        f"'{top['name']}' calls halved": expected(spec, [{**s, "calls": s["calls"] / 2} if s is top else s
-                                                      for s in steps]),
-    }
+    out = {cache[0]: expected(spec, cache[1]), **churn}
+    if len(used) > 1:
+        bound = f"BOUND, not a plan: all steps on '{cheapest}' (no quality or repair cost)"
+        out[bound] = expected(spec, [{**s, "model": cheapest} for s in steps])
+    if top["calls"] > 1:  # halving a single call is not a lever
+        out[f"'{top['name']}' calls halved"] = expected(spec, [{**s, "calls": s["calls"] / 2} if s is top else s
+                                                               for s in steps])
+    return out
 
 
 def number(value, where, lo=0.0, hi=None, above=False):
@@ -208,7 +236,7 @@ def number(value, where, lo=0.0, hi=None, above=False):
 
 
 STEP_KEYS = {"name", "model", "p", "calls", "max_calls", "tok_in", "tok_out", "cached", "written", "memo", "max_tok_in",
-             "max_tok_out", "p95_calls", "p95_tok_in", "latency_s", "parallel", "stage"}
+             "max_tok_out", "p95_calls", "p95_tok_in", "p95_tok_out", "latency_s", "parallel", "stage"}
 
 
 def validate_types(spec):
@@ -216,6 +244,9 @@ def validate_types(spec):
     unknown = set(spec) - set(EXAMPLE)  # a misspelled key would otherwise silently keep the example's value
     if unknown:
         sys.exit(f"unknown keys {sorted(unknown)}: check the spelling (known: {sorted(EXAMPLE)})")
+    nulls = [k for k, v in spec.items() if v is None]
+    if nulls:
+        sys.exit(f"{', '.join(nulls)}: null is not a value; leave the key out to use the default")
     if not isinstance(spec.get("prices"), dict) or not all(isinstance(v, dict) for v in spec["prices"].values()):
         sys.exit("prices: need an object of tiers, each an object with in, out, cache_read, cache_write")
     if not isinstance(spec.get("steps"), list) or not spec["steps"] or not all(isinstance(s, dict) for s in spec["steps"]):
@@ -238,7 +269,7 @@ def validate_types(spec):
         for k in ("p", "cached", "written", "memo"):
             if s.get(k) is not None:
                 number(s[k], f"{where}.{k}", 0, 1)
-        for k in ("tok_in", "tok_out", "max_tok_in", "max_tok_out", "p95_calls", "p95_tok_in", "latency_s"):
+        for k in ("tok_in", "tok_out", "max_tok_in", "max_tok_out", "p95_calls", "p95_tok_in", "p95_tok_out", "latency_s"):
             if s.get(k) is not None:
                 number(s[k], f"{where}.{k}")
         if s.get("calls") is not None:
@@ -258,6 +289,9 @@ def validate(spec):
             sys.exit(f"step {s['name']}: model '{s['model']}' has no entry in prices")
         if not 0 <= s["p"] <= 1 or (s["max_calls"] is not None and s["calls"] > s["max_calls"]):
             sys.exit(f"step {s['name']}: need 0 <= p <= 1 and calls <= max_calls")
+        for p95, cap in (("p95_calls", "max_calls"), ("p95_tok_in", "max_tok_in"), ("p95_tok_out", "max_tok_out")):
+            if s.get(p95) is not None and s.get(cap) is not None and s[p95] > s[cap]:
+                sys.exit(f"step {s['name']}: {p95} ({s[p95]}) is above {cap} ({s[cap]}); a p95 cannot exceed its cap")
         if s.get("cached", 0) + s.get("written", 0) > 1:
             sys.exit(f"step {s['name']}: cached + written must be <= 1")
     for tier, pr in spec["prices"].items():
@@ -270,12 +304,7 @@ def validate(spec):
 
 
 def warnings(spec):
-    loops = [s for s in spec["steps"] if s["max_calls"] is None or s["max_calls"] > 1]
     out = []
-    for key, what in (("max_tok_in", "input"), ("max_tok_out", "output")):
-        miss = [s["name"] for s in loops if key not in s]
-        if miss:
-            out.append(f"ceiling uses AVERAGE {what} tokens for {', '.join(miss)}: set {key} (it understates the cap)")
     guessed = [s["name"] for s in spec["steps"] if "p95_calls" not in s or "p95_tok_in" not in s]
     if guessed:
         out.append(f"likely high uses default p95 (2x calls, 1.5x input) for {', '.join(guessed)}: take p95 from traces")
@@ -295,21 +324,28 @@ def warnings(spec):
     if long:
         out.append(f"prompts can pass {LONG_PROMPT:,} tokens on {', '.join(long)}: priced here at the short-prompt "
                    "rate; move the step to the long tier, or split it")
-    uncapped = [s["name"] for s in spec["steps"] if s["max_calls"] is None]
-    if uncapped:
-        out.append(f"no cap on {', '.join(uncapped)}: ceiling is UNBOUNDED; rerun with proposed caps and report both")
+    unnamed = [t for t in sorted({s["model"] for s in spec["steps"]})
+               if not spec["prices"][t].get("model") or "stand-in" in str(spec["prices"][t]["model"]).lower()]
+    if unnamed:
+        out.append(f"tier {', '.join(unnamed)} names no real model or is a stand-in: dollar totals are order of "
+                   "magnitude only; base findings on shares, ratios and what-ifs, or add the model's list price")
+    if uncapped(spec):
+        out.append(f"no hard cap on {', '.join(uncapped(spec))}: ceiling is UNBOUNDED (a framework or model default "
+                   "is not a cap you set); rerun with proposed caps and report both")
     return out
 
 
 def report(spec):
     validate(spec)
     exp, hv, ceil = expected(spec), heavy(spec), ceiling(spec)
+    if exp <= 0:
+        sys.exit("expected cost is $0: check prices, token counts and p (there is nothing to share out)")
     peak_day = spec.get("peak_requests_per_day", spec["requests_per_day"])
-    cap_calls = "none" if ceil is None else sum(s["max_calls"] for s in spec["steps"])
+    cap_calls = "none" if any(s["max_calls"] is None for s in spec["steps"]) else sum(s["max_calls"] for s in spec["steps"])
     out = [f"prices as of {spec.get('prices_as_of', 'UNDATED: add a date')} (recheck before use)",
            f"model calls/request   expected {sum(exp_calls(s) for s in spec['steps']):.1f}   cap {cap_calls}",
            f"cost/request          expected ${exp:.4f}   likely high ${hv:.4f} (every step at its p95; above a true p95)",
-           "capped ceiling        " + ("UNBOUNDED (no cap on at least one step)" if ceil is None else
+           "capped ceiling        " + (f"UNBOUNDED (no cap on: {', '.join(uncapped(spec))})" if ceil is None else
                                       f"${ceil:.4f} ({ceil / max(exp, 1e-12):.0f}x expected): every step at its cap, "
                                       "no cache, max retries; a bound, not a forecast"),
            f"per month (30 days)   ${exp * spec['requests_per_day'] * 30:,.0f} at {spec['requests_per_day']:,}/day; "
@@ -319,6 +355,8 @@ def report(spec):
         review = ps - exp / spec["success_rate"]
         out.append(f"cost/successful run   ${ps:.4f} at {spec['success_rate']:.0%} success: model and tools "
                    f"${exp / spec['success_rate']:.4f}, human review ${review:.4f} ({review / ps:.0%})")
+    out.append("tiers: " + "; ".join(f"{t} = {spec['prices'][t].get('model', 'UNNAMED: add the model')}"
+                                     for t in sorted({s["model"] for s in spec["steps"]})))
     out.append("share of expected cost:")
     for s in spec["steps"]:
         share = step_cost(spec, s) * (1 + spec["retry_rate"]) / exp
@@ -360,15 +398,28 @@ def selftest():
     spec = json.loads(json.dumps(GUIDE_SPEC))
     assert abs(sum(exp_calls(s) for s in spec["steps"]) - 6.2) < 1e-9
     assert abs(expected(spec) - 0.03707) < 1e-4, expected(spec)
-    assert abs(ceiling(spec) - 1.2704) < 1e-4, ceiling(spec)
-    assert expected(spec) < heavy(spec) < ceiling(spec)
+    assert ceiling(spec) is None and uncapped(spec)[0] == "router (input, output)"  # no token caps: no ceiling
+    capped = {**spec, "steps": [{**s, "max_tok_in": s["tok_in"], "max_tok_out": s["tok_out"]} for s in spec["steps"]]}
+    assert abs(ceiling(capped) - 1.2704) < 1e-4, ceiling(capped)
+    assert expected(spec) < heavy(spec) < ceiling(capped)
     off = expected(spec, [{**s, "cached": 0.0} for s in spec["steps"]])
     assert off > 2 * expected(spec)
     assert abs(expected(spec, churned(spec["steps"])) - 0.092001) < 1e-6  # hand-checked: input x (1 + 0.25 x cached)
     assert expected(spec, churned(spec["steps"])) >= off  # write multiplier >= 1: churn costs at least cache-off
     assert len(what_ifs(spec)) == 4 and len(what_ifs({**spec, "steps": [{**s, "cached": 0.0} for s in spec["steps"]]})) == 3
-    spec["steps"][2]["max_calls"] = None
-    assert ceiling(spec) is None and any("UNBOUNDED" in w for w in warnings(spec))
+    capped["steps"][2]["max_calls"] = None
+    assert ceiling(capped) is None and any("UNBOUNDED" in w for w in warnings(capped))
+    nul = merge(EXAMPLE, {"steps": [{**EXAMPLE["steps"][0], "max_tok_out": None, "p95_tok_in": None}]})
+    validate(nul)  # null token cap = no cap: never a traceback, never a "capped ceiling"
+    assert ceiling(nul) is None and "UNBOUNDED (no cap on: router (output))" in report(nul)
+    assert ceiling(merge(EXAMPLE, {})) is not None and not uncapped(merge(EXAMPLE, {}))
+    assert any("stand-in" in w for w in warnings(merge(EXAMPLE, {"prices": {"small": {"model": "stand-in for X"}}})))
+    one = merge(EXAMPLE, {"steps": [{**EXAMPLE["steps"][2], "calls": 1, "model": "large", "p95_tok_out": 900}]})
+    validate(one)  # one tier, one call: no cheapest-tier bound on an unused tier, no "calls halved"
+    assert list(what_ifs(one)) == ["prompt cache off", "prompt cache churning (every cached token written, none read)"]
+    assert heavy_step(one["steps"][0])["tok_out"] == 900
+    assert inherited({}) == [] and inherited({"steps": []}) == [*INHERITED, "peak_requests_per_day"]
+    assert "retry_rate" not in inherited({"retry_rate": 0}) and "peak_requests_per_day" not in inherited({"requests_per_day": 5})
     merged = merge(EXAMPLE, {"prices": {"mid": {"in": 3.0}}})
     assert merged["prices"]["mid"]["in"] == 3.0 and merged["prices"]["mid"]["out"] == 10.0 and "small" in merged["prices"]
     assert merged["prices_as_of"].startswith("UNDATED")
@@ -386,7 +437,8 @@ def selftest():
     assert latency([{**a, "p": 0.5, "parallel": True}], 0.0) == 1.0
     for bad in ({"request_per_day": 500}, {"steps": [{**GUIDE_SPEC["steps"][0], "tok_inn": 10}]},
                 {"requests_per_day": -5}, {"requests_per_day": "lots"}, {"steps": []}, {"retry_rate": True},
-                {"prices": {"mid": {"in": -1.0}}}, {"steps": [{**GUIDE_SPEC["steps"][0], "cached": 1.5}]}):
+                {"prices": {"mid": {"in": -1.0}}}, {"steps": [{**GUIDE_SPEC["steps"][0], "cached": 1.5}]},
+                {"retry_rate": None}, {"steps": [{**EXAMPLE["steps"][1], "p95_tok_in": 9_000}]}):
         try:
             validate(merge(EXAMPLE, bad))
         except SystemExit as e:
@@ -427,3 +479,6 @@ if __name__ == "__main__":
     else:
         user = load_spec(sys.argv[1]) if sys.argv[1:] else {}
         print(report(merge(EXAMPLE, user)))
+        if inherited(user):
+            print(f"WARNING: {', '.join(inherited(user))} not in your spec: the example's values were used; "
+                  "set them from your traces and retry policy")

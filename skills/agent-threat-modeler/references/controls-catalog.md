@@ -167,6 +167,23 @@ whenever it acts on its own scope instead of the user's. The gate enforces four 
 Test each rule by making the same call under two identities (and A, then B, then A for escalation):
 [red-team-test-plan.md](red-team-test-plan.md) §Authorization tests.
 
+### Computer use: gating pixel actions
+
+A click on coordinates carries nothing the gate can judge, so the gate rebuilds the meaning from outside the model:
+
+- **Prefer a structured surface.** Where the app has an API, CLI or DOM tool, expose that instead; those calls pass
+  the normal checks. Pixels are the fallback.
+- **Read the focused origin from the browser,** not from the model or the screenshot. The URL or window the action
+  lands in sets the tier, and an action on an origin outside the allowlist is refused.
+- **Classify the action in code.** Read the element under the pointer from the accessibility tree or DOM (role and
+  label). Scrolling, hovering and screenshots act and log; anything that submits, sends, buys, shares, changes
+  settings or accepts terms asks.
+- **Refuse credential typing.** The agent never types into a password or one-time-code field; logins happen out of
+  band (§3, "Logged-in web apps").
+- **Bind the approval to what the person saw.** The digest covers the action, its arguments, the focused origin and a
+  hash of the screenshot shown to the reviewer ([human-oversight.md](human-oversight.md) §3). If the origin or the
+  screen changed before execution, ask again.
+
 AWS mapping: [aws-implementation-notes.md](aws-implementation-notes.md).
 
 ## 3. Credentials and identity
@@ -211,6 +228,11 @@ AWS mapping: [aws-implementation-notes.md](aws-implementation-notes.md).
   one OAuth scope. Then keep the token in a proxy service that exposes only intent-level operations (create draft,
   reply in thread X) and enforces recipients and rates there; the agent never holds the token. An agent running on the
   user's own full-scope token is a finding, not a premise.
+- **Logged-in web apps.** An agent acting in web apps through a person's logged-in session holds every right that
+  person has. Alternatives, best first: a dedicated agent account with a narrow role in each app; read-only roles where
+  the task only reads; a pre-established session for that account with the narrowest scope the app offers, created out
+  of band and expiring; a login done out of band by a person, so the password never reaches the model. Running on an
+  employee's own session or browser profile is a premise finding (SKILL.md Step 3).
 - **Tenant-wide delegation is ambient authority.** A grant that lets one identity act on every user's data (Google
   Workspace domain-wide delegation; Microsoft 365 application permissions not limited to named mailboxes) is P0 when the
   agent reads untrusted content. Replace it with per-user delegated tokens, or application access scoped to named

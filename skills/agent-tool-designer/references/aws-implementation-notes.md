@@ -4,7 +4,7 @@ AWS mapping for this skill's principles. As of 2026-10; services change, verify 
 
 The principles live in the other reference files and stay vendor-neutral. This file only says where each one lands on
 AWS (Amazon Bedrock AgentCore Gateway, Policy, Runtime and Identity, plus IAM, Lambda, DynamoDB and Neptune) and what
-went wrong in practice. Tags: **(docs)** confirmed in AWS documentation on 2026-10-11; **(lab)** seen in hands-on
+went wrong in practice. Tags: **(docs)** confirmed in AWS documentation on 2026-10-11; **(lab)** found in hands-on
 practice only; **(unverified)** neither, so check it before relying on it. The (lab) items are anonymised observations from
 the author's own practice labs, with no client data; treat them as unverified unless a row also carries (docs).
 

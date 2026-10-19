@@ -166,7 +166,7 @@ Keep the one-page table to one page.
 
 **Mode B**: templates/governance-plan.md filled in, sized to the estate, plus assumptions and open questions.
 
-**Review of someone else's case or ROI claim**: grade each figure, run the add-back test, list missing cost lines, missing control and missing kill criteria, and give a verdict: fundable as is, fundable as a pilot only, or not fundable, with reasons.
+**Review of someone else's case or ROI claim**: grade each figure, run the add-back test, list missing cost lines, missing control and missing kill criteria, and give a verdict: fundable as is, fundable as a pilot only, or not fundable, with reasons. Tag each fact a finding rests on: **seen** (read in the case, model or a document supplied for this review; cite the section or cell), **observed** (shown by logs, metrics, system exports or a test run), **told** (stated by the sponsor or vendor and not checked), **inferred** (follows from what was seen plus an outside behaviour not checked here, such as a price list or platform limit; name it and the version or date it depends on) or **assumed** (no evidence). Weigh each finding by its consequence if an inferred or assumed fact holds, and list every inferred or assumed fact under "Confirm first" at the top of the review. These labels say how the review knows a fact; the A-E grade says how strong the method behind a figure is, and measured / assumed says whether a model input rests on the organisation's own data, so a figure can be seen in the case and still be grade E and assumed.
 
 ## Quality bar
 
@@ -191,6 +191,7 @@ Before returning, check:
 - [ ] EU AI Act dates come from the reference file (Annex III from 2 Dec 2027, Annex I from 2 Aug 2028, Art. 50 from 2 Aug 2026), each marked "applies now" or "from <date>"; regulated sectors list their sector regimes; the "not legal advice" note is present.
 - [ ] The four Decide gate items are reported pass, open or fail.
 - [ ] Sibling skills are named where their work starts.
+- [ ] Credentials are cited by file:line and kind (for example "messaging app secret literal"), never by value or any fragment of it; the same holds for keys in URLs, logs and saved state, and public vendor defaults may be named. Before returning, the draft is searched for every credential literal found in the input and each one is removed.
 
 ## Common mistakes
 

@@ -75,3 +75,17 @@ Bedrock counts quota differently from billing, so the peak capacity check (cost-
 - Each AgentCore Runtime update creates a version, and the default endpoint follows it, so callers on the default endpoint get every update at once. Keep production callers on a named endpoint pinned to the released version, and point a canary share at a second endpoint on the candidate (whether the platform can weight traffic across endpoints natively is unverified; otherwise split in your gateway).
 - An update must read the current configuration, merge the change and write the whole map back; a partial update drops the rest. Propose the merged configuration to the user and apply it only after they confirm.
 - Release the prompt the same way when it lives in a parameter: new parameter version, then gate, then canary.
+
+## Repo-only reviews of AWS-hosted agents
+
+A repository shows the build spec and the code, not the console. In a code-only review (checklist, "Missing evidence"), tag what lives only in the account as inferred or list it in the discovery plan: environment variables set in the console, IAM policies attached outside the repo, log retention, and the hosting service's own timeouts.
+
+- **Log retention.** A CloudWatch Logs log group created on first write keeps its data with no expiry until someone sets a retention period (as of 2026-10). A group that receives prompts, retrieved chunks or answers and has no retention in the repo's infrastructure code keeps customer text indefinitely (checklist C1, C4).
+- **Execution timeout.** Managed web hosting that runs server-side routes has its own request timeout, often far shorter than Lambda's 15 minutes; read the current limit on the service's quota page and compare it with the capped latency ceiling (checklist J5; per-service limits unverified here).
+- **Secrets at build time.** A build step that writes secrets into a `.env` file puts them into the build artifact. Read them at runtime from Secrets Manager or Parameter Store instead, and cite any found by file:line and kind only.
+
+## Managed RAG services
+
+- **Knowledge base ID from config.** The knowledge base or index ID passed to the retrieval call comes from server configuration, never from the request body (checklist K9). Scope the IAM policy to that knowledge base and the model ARNs the agent calls; a full-access managed policy turns a client-supplied ID into access to every knowledge base in the account.
+- **Empty retrieval.** When retrieval returns nothing, report "no context found" so the answer path can refuse or hand off instead of answering ungrounded.
+- **Cost.** Retrieved chunks are input tokens on the generating call; count them in `tok_in`. The vector store behind a managed knowledge base can carry a minimum hourly capacity charge that bills at zero traffic (unverified for current minimums; check the store's pricing page); count it as fixed cost, outside `cost_model.py`.

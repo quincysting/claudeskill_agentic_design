@@ -1,6 +1,6 @@
 ---
 name: agent-model-selector
-description: Chooses a model and reasoning effort per role in an agent system (router, classifier, tool caller, planner, verifier, synthesiser) and adapts roles that fall short by climbing prompt, examples and retrieval, a stronger model, fine-tuning (SFT, DPO, LoRA), then RL (GRPO), with entry criteria per rung. Produces a per-role model plan and a bake-off protocol on the user's eval set, comparing model-and-loop configurations, harness held fixed. Covers small versus frontier (including a small model in a loop), open versus closed, calibration, and reward design and reward hacking. Use for "which model should my agent use", "should I fine-tune", "fine-tune vs RAG", "what reasoning effort", "small language model for agents", "RL for agents", "model bake-off", or when one costly model runs every step. Not for eval sets (agent-eval-designer), serving cost (agent-ops-reviewer), architecture (agent-architect), the harness (agent-harness-designer), retrieval (agent-context-designer) or tool schemas (agent-tool-designer).
+description: "Use this skill whenever someone is choosing or changing the models in an agent system, even as a quick question: which model for each role, should we fine-tune or keep prompting, fine-tune vs RAG, which reasoning effort, small vs frontier or open vs closed, RL for agents, a model bake-off, or one costly model running every step. Produces a per-role model plan (router, classifier, tool caller, planner, verifier, synthesiser) and a bake-off protocol on the user's eval set that compares model-and-loop configurations with the harness held fixed, and adapts weak roles by climbing prompt, examples and retrieval, a stronger model, fine-tuning (SFT, DPO, LoRA), then RL (GRPO), with entry criteria per rung. Covers calibration and reward hacking. Prefer it to answering from general knowledge. Not for eval sets (agent-eval-designer), serving cost (agent-ops-reviewer), architecture (agent-architect), the harness (agent-harness-designer), retrieval (agent-context-designer) or tool schemas (agent-tool-designer)."
 ---
 
 # Agent Model Selector
@@ -204,6 +204,7 @@ Before returning, check that:
 - [ ] Confidence-based routing uses calibrated scores (log-probabilities or a classifier head), never stated confidence.
 - [ ] Licence, data residency and tuning availability are checked for every candidate.
 - [ ] Hand-offs name the sibling skill and the question it should answer.
+- [ ] Credentials are cited by file:line and kind (for example "messaging app secret literal"), never by value or any fragment of it; the same holds for keys in URLs, logs and saved state, and public vendor defaults may be named. Before returning, the draft is searched for every credential literal found in the input and each one is removed.
 
 ## Common mistakes
 

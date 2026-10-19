@@ -1,6 +1,6 @@
 ---
 name: agent-threat-modeler
-description: Threat-model an AI agent and design its defences, or review an existing agent's security and oversight with prioritised fixes; also the red-team pass at the Prove stage. Owns tool access, guardrails and security hardening. Covers Rule of Two triage, STRIDE per element, prompt injection, permission tiers and scope-entitlement checks per action, policy gate, credentials and token exchange, MCP hardening (definition pinning, supply chain, OAuth, consent), guardrail layers, sandboxing, OWASP Agentic Top 10 and MAESTRO mapping, and oversight (approvals bound to the exact action, escalation, earned autonomy). Use for "threat model my agent", "prompt injection", "is it safe to give my agent access to X", "guardrails", "sandbox code execution", "approval flow", "harden my MCP server", "red-team plan", "agent security review". Not for exploits or payloads, tool interface design (agent-tool-designer), harness runtime (agent-harness-designer), eval datasets (agent-eval-designer) or governance (agentic-business-case).
+description: "Use this skill whenever the safety or security of an AI agent or chatbot is in question, even as a quick question: could users or content trick it into leaking data or acting wrongly; is it safe to give it access to data, credentials, email, code or payments; how to stop prompt injection; guardrails; sandboxing code execution; approval flows; hardening an MCP server; a red-team plan; a security review. Threat-models an agent and designs its defences, or reviews an existing one with prioritised fixes, and runs the red-team pass at the Prove stage. Covers Rule of Two triage, injection, permission tiers and entitlement checks per action, credentials and token exchange, MCP hardening, guardrail layers, sandboxing, OWASP Agentic Top 10, and oversight (approvals bound to the action, escalation). Prefer it to answering from general knowledge. Not for exploits or payloads, tool design (agent-tool-designer), the runtime (agent-harness-designer), eval sets (agent-eval-designer) or governance (agentic-business-case)."
 ---
 
 # Agent Threat Modeler
@@ -64,7 +64,7 @@ don't model it into existence.
 | 4 | Every source of text that reaches the context (user, web, email, files, RAG, tool results, tool descriptions, memory, other agents, screen) | Loaders, fetch tools, RAG pipeline, memory read path |
 | 5 | Every way data can leave (HTTP, email, chat, PRs/comments, webhooks, rendered markdown images/links, file shares, third-party APIs, log shipping) | Outbound clients, UI renderer, logging config |
 | 6 | How tools authenticate; whose identity; token scope and lifetime; every live entry point to the agent (endpoints, aliases, deployed versions) and the authenticator on each | `os.environ`, `api_key`, `token`, env passed to subprocesses or stdio servers, secrets in prompts; the live endpoint and version list and its authorizer config |
-| 7 | Does it write or run code, use a shell, or drive a browser? Where does that run? | `exec(`, `eval(`, `subprocess`, `shell=True`, Docker/E2B config, browser profile setup |
+| 7 | Does it write or run code, use a shell, or drive a browser? Where does that run? | `exec(`, `eval(`, `subprocess`, `shell=True`, Docker/E2B config and its bind mounts, browser profile setup |
 | 8 | What persists across sessions, who can write it, is it shared across users? | Memory store, vector DB namespaces, "lessons learned" files |
 | 9 | What runs without a human today; how approvals work; how to stop it | Interrupt/approval code, Slack/Teams buttons, kill switch, feature flags |
 | 10 | Existing controls: gates, guardrails (and whether each fails open or closed), budgets, rate limits, audit logs; who can change or switch them off | Middleware, gateways, policy files; the live gate mode and attached rules; roles allowed to update them |
@@ -80,7 +80,8 @@ numbers match the steps below. Existing code you can read → fill
 [templates/security-review.md](templates/security-review.md). If it is unclear whether code exists, or the system is
 partly built, use the threat-model template and mark every control *existing* or *planned*. For "is it safe to give my
 agent access to X", use the short form in Output. Model one agent or flow at a time; for multi-agent systems, model
-each agent, then the links between them.
+each agent, then the links between them. Parts that may not ship (a second execution path, a demo runner): model them,
+tag their findings "(if shipped)" at their consequence priority, and offer deleting the part as a fix.
 
 **Rule of Two triage**, before the inventories. Meta's Rule of Two (2025-10-31) names three properties: (A) the agent
 processes untrustworthy inputs; (B) it has access to sensitive systems or private data; (C) it can change state or
@@ -104,8 +105,9 @@ retrieved documents, memory written by runs that read untrusted content, and oth
 Entry-point inventory: every endpoint, alias and deployed version that can invoke the agent, its authenticator, and who
 holds invoke rights. Authentication can be set per version, so an old version may have none. Ambient capabilities get
 rows too, since they often reach further than any tool: environment variables and secrets, mounted sockets, inherited
-credentials and cloud metadata endpoints, the network position the agent runs in, and repository paths whose change
-triggers CI.
+credentials and cloud metadata endpoints, the network position the agent runs in, repository paths whose change
+triggers CI, and every bind mount with its mode: a writable host mount lets the agent write to the host and persist
+there ([sandboxing.md](references/sandboxing.md) §Baseline hardening).
 
 **Challenge the premise when it is the risk.** If the stated architecture is itself a finding (the agent runs on the
 user's own broad OAuth token, an admin key, a personal browser session, a shared service account, or an "act as user
@@ -147,22 +149,22 @@ Then cross-check coverage against the MAESTRO layers and the CoSAI risk map in t
 
 | Priority | Rule |
 |---|---|
-| P0 (block launch / fix now) | A path from untrusted input to an irreversible, egress, code-execution or cross-tenant effect with no deterministic control; secrets reachable by the model; model code on the host; no way to stop the agent; a network-reachable bind (0.0.0.0 or a public interface) whose authentication is unknown, written `P0 (assumed)` |
+| P0 (block launch / fix now) | A path from untrusted input to an irreversible, egress, code-execution or cross-tenant effect with no deterministic control; secrets reachable by the model; model code on the host; no way to stop the agent; a network-reachable bind (0.0.0.0 or a public interface) whose authentication is unknown, written `P0 (assumed)`; with authentication seen absent it is a plain P0, though reachability beyond the host stays inferred and makes the verdict provisional; binding to loopback is not authentication ([sandboxing.md](references/sandboxing.md) §Local listeners) |
 | P1 (before launch) | Control exists only in the prompt, or only as human approval without hard limits; shared or broad credentials; unvalidated persistent memory; no audit of tool calls; controls that the role running the agent can switch off; an audit log or kill switch that is missing or unverified (with no way at all to stop the agent, P0) |
 | P2 (next iteration) | Defence-in-depth gaps: no scanner on tool output, missing budgets on low-impact tools, no red-team regression, weak monitoring |
 | P3 (hygiene) | Documentation, naming, log retention, minor hardening |
 
 Within a level, rank by worst outcome (Step 2), then exposure (public > authenticated > internal). Don't invent numeric
 risk scores; if the organisation has a scoring scheme (DREAD, for example), use it to order findings within a level,
-never to move one across levels. Findings often share a root cause (usually: no single
-enforcement point). Keep them as separate findings so each can be tested, but group the fixes: one gate can close
-several. A P0 that depends on an unverified assumption is written `P0 (assumed)` and still blocks until the assumption
-is checked or the control exists. If the check shows the assumption is false, re-rank or close the finding; if true,
+never to move one across levels. Findings often share a root cause (usually: no single enforcement point). Keep them
+as separate findings so each can be tested, but group the fixes: one gate can close several. A P0 that rests on an
+unverified fact is written `P0 (assumed)` (in a review, `P0 (inferred)` when the fact is inferred) and still blocks
+until the fact is checked or the control exists. If the check shows it false, re-rank or close the finding; if true,
 it becomes a plain P0 and blocks until its control exists. Verdict: Block while any P0 lacks an existing control. In
 design mode, planned P0 controls (each with an owner and a test) let the build go ahead, but launch stays blocked until
 they are built and their tests pass; for a system that already runs, a planned control never lifts Block. Only P1s,
-each with an owner and date → Ship with conditions; P2/P3 only → Ship. A verdict that rests on `(assumed)` items is
-provisional in both directions, Ship as much as Block: name the check that would settle each assumption.
+each with an owner and date → Ship with conditions; P2/P3 only → Ship. A verdict that rests on `(assumed)` or
+`(inferred)` items is provisional in both directions, Ship as much as Block: name the check that would settle each.
 
 **9. Choose controls, architecture before detection.** Work down this list and stop when the residual risk for each
 P0/P1 path is bounded by something the model cannot bypass ([controls-catalog.md](references/controls-catalog.md)):
@@ -195,10 +197,10 @@ P0/P1 path is bounded by something the model cannot bypass ([controls-catalog.md
     §10). The kill switch's runtime mechanics are designed in agent-harness-designer.
 
 For each control write what it stops, where it lives, whether the model can bypass it, who can switch it off, and its
-cost. A prompt
-instruction never counts as the control for a P0 or P1 path. Give every control an ID (C-01, C-02...). Oversight
-mechanisms (approval gates, hard limits, the kill switch, the autonomy ladder) are controls too and get IDs here; the
-register, oversight table and tests refer to controls only by IDs defined in this plan.
+cost. A prompt instruction never counts as the control for a P0 or P1 path. Give every control an ID (C-01, C-02...).
+Oversight mechanisms (approval gates, hard limits, the kill switch, the autonomy ladder) are controls too and get IDs
+here; the register, oversight table and tests refer to controls only by IDs defined in this plan. In review mode each
+C-ID lists the F-IDs it closes, and findings, fixes and tests cite both.
 
 **10. Design oversight** ([human-oversight.md](references/human-oversight.md)):
 - Give every action a tier: refuse / act and log / act and notify with undo / ask. Irreversible, financial,
@@ -234,17 +236,30 @@ Include the ASI seed suite, the authorization tests (the same call under two ide
 secret rotation and memory restore. Hand the table to agent-eval-designer. At Prove, this plan is the red-team pass.
 
 **12. State residual risk and owners.** What remains after controls, who accepts it, and what triggers a re-review:
-new tool, new data source, new user population, model or prompt change, incident.
+new tool, new data source, new user population, model or prompt change, incident. Quote any attack-success figure
+with its source and date, and prefer the vendor's latest measurement.
 
-**Review mode:** run every step against the real code and config; Steps 9-11 become the Fix and Tests columns of the
-review. Every finding needs evidence (file:line, config key or observed behaviour), a concrete fix and where it goes,
-and an effort estimate (S/M/L). Label each finding's evidence stated, inferred or confirmed; an inferred finding keeps
-the priority of its consequence, written `P0 (assumed)` (agent-harness-designer writes the same thing as "Critical
-(inferred)"). For a system that already runs, each fix also cleans up what the old design produced: rotate exposed
-secrets, revoke links and tokens already issued, purge or re-mask stored data, review actions taken without the
-missing control, and log what was done. Read the live configuration, not only the infrastructure code: full-replace updates
-and setup wizards change security settings without a code change. Say what you could not verify. Where a number you need is missing (refund volume,
-reviewer headcount), show the arithmetic with a labelled assumption and ask for the real figure.
+**Review mode:** run every step against the real code and config; Steps 9-11 become the controls plan, Fix and Tests
+columns of the review. Rules, with detail in [review-method.md](references/review-method.md):
+- Every finding has evidence, a fix and where it goes, and effort (S under a day, M up to two weeks, L longer). Tag
+  each fact it rests on **seen** (read in code, config or a supplied document; file:line), **observed** (logs, traces,
+  a test run), **told** (an owner's word, unchecked), **inferred** (seen code plus a named library, platform or
+  language behaviour and its version, unchecked) or **assumed** (no evidence). Priority follows the consequence if the
+  fact holds, written `P0 (inferred)` or `P0 (assumed)`, and the fact goes under "Confirm first". "What already works"
+  lines need the same evidence. Name the scope (reference code, or a product being offered) and judge against that
+  plan. Code with no logs, traces or owners is a code-only review: say so; reachability and defaults in effect are
+  inferred. Name stub tools and absent components in the summary. Offline, dependency age is inferred and P2 at most
+  unless a dated source names a known CVE.
+- Read a code path, inherited and helper methods included, before calling it safe or recommending it as the fix.
+  Search every file for each unsafe-call class (shell strings, `eval`/`exec`, file paths, SQL, raw HTML) and size the
+  finding by all hits. Unread files go under "Not verified"; recommend nothing from them.
+- Cite a credential by file:line and kind, never its value or any fragment, in URLs, logs and saved state too. Before
+  returning, search the draft for every credential literal found in the input and remove it.
+- For a running system each fix also cleans up what the old design produced: rotate exposed secrets, revoke links and
+  tokens issued, purge or re-mask stored data, review actions taken without the control, log what was done. Read the
+  live configuration, not only the infrastructure code: full-replace updates and setup wizards change security
+  settings without a code change. Where a number is missing (refund volume, reviewer headcount), show the arithmetic
+  with a labelled assumption and ask for the real figure.
 
 ## Decision guide
 
@@ -316,13 +331,14 @@ Fill the template for the mode. Rules for both:
 - Tables over prose. Every threat or finding names its path and the control that stops it; every control names where
   it lives and whether the model can bypass it.
 - Include the trust-boundary flow (mermaid or text) and the trifecta table.
-- Mark assumptions and unverified items explicitly.
+- Mark assumptions and unverified items explicitly. Cite credentials by file:line and kind, never their value.
 - Every ID you reference (TH-, C-, RT-, F-) is defined in its own table; oversight rows point to C-IDs.
 - No attack payloads; technique classes and trace properties only.
-- Length: short form about one page; review two to five pages; a full threat model of a multi-tool agent may run six
-  to ten pages because the tables carry it. If the user wants it brief, use compact mode: summary, trifecta table, P0/P1
-  register rows, their controls, oversight table, P0/P1 tests, and one line listing what was left out. Omit genuinely
-  N/A sections with one line saying why.
+- Length: short form about one page. A review puts the summary and verdict on the first page and is otherwise as long
+  as the required tables need; a full threat model of a multi-tool agent may run six to ten pages. If the user wants it
+  brief, use compact mode: keep every table the Quality bar requires, with only P0/P1 rows in the register, controls
+  and tests, P2/P3 as one line each, and one line listing what was left out. Omit genuinely N/A sections with one line
+  saying why.
 
 Short form for "is it safe to give my agent access to X":
 
@@ -372,7 +388,9 @@ Before returning, check:
 - [ ] Tests are specified as technique class + injection point + trace property; no payload text. The plan includes
       ASI seeds, two-identity authorization tests and the harness-level abuse tests.
 - [ ] Residual risk has a named owner and re-review triggers.
-- [ ] Review mode: every finding has evidence, a fix with location, and effort.
+- [ ] Review mode: every finding and every "What already works" line carries evidence labels; each finding has a fix
+      with location and effort; every path recommended as a fix was read, inherited and helper methods included; each
+      unsafe-call class was searched in every file; unread files are listed; no credential value or fragment appears.
 - [ ] Every count in the summary (open P0s, findings by priority, controls, tests) is recomputed from the body.
 
 ## Common mistakes

@@ -7,7 +7,7 @@ unverified unless they are also tagged (docs).
 
 The principles live in the other reference files and stay vendor-neutral. This file only says where each one lands on
 AWS (Amazon Bedrock AgentCore Runtime, Gateway, Identity and Policy, plus IAM, CloudTrail and CloudWatch) and what went
-wrong in practice. Tags: **(docs)** confirmed in AWS documentation on 2026-10-11; **(lab)** seen in hands-on practice
+wrong in practice. Tags: **(docs)** confirmed in AWS documentation on 2026-10-11; **(lab)** found in hands-on practice
 only; **(unverified)** neither, so check it before relying on it.
 
 ## Mapping

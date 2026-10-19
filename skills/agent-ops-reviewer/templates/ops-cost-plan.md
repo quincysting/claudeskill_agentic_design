@@ -20,7 +20,7 @@ At the limit: <partial result with what was done, what was not, the receipts and
 
 ## 3. Cost model
 
-- Tiers: <small = model, mid = model, …>, prices as of <date>
+- Tiers: <small = model, mid = model, …>, prices as of <date>, source per tier; a tier with no looked-up price is "stand-in for <model>" and its dollar figures are order of magnitude
 - Per request: expected <$>, likely high (every step at its p95; above a true p95) <$>, capped ceiling <$> (<ratio>x; a bound, not a forecast). With no caps: "UNBOUNDED now; <$> with proposed caps <list>".
 - Per successful run: <$> = (expected + <review minutes> × <$ per minute>) / <success rate>; human review <share>
 - Per month: <$> at expected volume; <$> at peak (expected × busiest day's volume × 30)
