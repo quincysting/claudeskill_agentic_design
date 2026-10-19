@@ -9,7 +9,7 @@ Load this for Mode B. One agent is a project. Fifty agents built by different te
 - **Protect the controls.** Whoever may switch the gate to log-only, detach its rules or replace an entry point's authorizer can disable every control at once, with no code change. Governance decides who holds that right: a small, separately held role and an alarm on every change from day one, then a second person to approve each change and a periodic review of the holders as the estate grows (table below). The technical controls (gate modes, rollout, drift checks) belong to agent-threat-modeler.
 - **Prove.** The control plane writes a trace of plan, tool calls, approvals, version and owner into tamper-evident storage. The evidence goes back to owners and certifiers, who recertify, restrict or revoke [MESH ch12], [ENTERPRISE ch7]. Tamper-evident means write-once storage, records hash-chained to the previous one, or a keyed MAC whose key the writers don't hold. A hash stored next to each row only shows the row agrees with itself. For accountability the trail must also show who acted for whom: under one trace ID per request, each hop names the user, the acting agent and its version, and the credential it was issued. agent-threat-modeler specifies the record fields.
 
-Principles to open the operating model with: humans remain accountable; autonomy is earned, not given; logs are the source of truth [MESH ch13]. Policies "unless translated into machine-enforceable rules, are insufficient" [MESH ch13].
+MESH opens its operating model with three principles: accountability stays with people, an agent gains autonomy by earning it, and the logs, not anyone's recollection, are the record of what happened [MESH ch13]. Policies "unless translated into machine-enforceable rules, are insufficient" [MESH ch13].
 
 **When to start.** When the first agent writes to a system of record, or when a second team starts building agents. Aim for "directionally correct and incrementally improvable" [ENTERPRISE ch8], not the full apparatus on day one.
 
@@ -181,6 +181,7 @@ At intake, reject tasks a plain program does better, such as anything needing ex
 2. Put the gateway and catalog in front without touching business logic. That buys observability and policy enforcement at once.
 3. Migrate tools, prompts and data access to governed, portable formats one agent at a time, highest risk first.
 4. Retire point-to-point integrations as governed services appear.
+5. Clean up what the old agents already stored. Moving an agent behind the gateway governs what it does next, not the memory, logs, traces and copies of customer data it wrote before. Inventory them per agent, purge or re-mask what the new rules forbid, keep a deletion log, and send any question about data already exposed to the privacy or legal owner, who decides it (not legal advice).
 
 ## 9. Cost governance
 
@@ -188,7 +189,7 @@ Runtime cost limits per agent and unit economics per task [MESH ch13]; cost ceil
 
 ## 10. Workforce transition
 
-BUILDAPPS cites Klarna replacing roughly 700 customer-service roles with a chatbot in 2024 and rehiring by mid-2025 after complaints rose [BUILDAPPS ch13]. MESH's transition practices [MESH ch13]:
+BUILDAPPS cites Klarna's 2024 move to replace roughly 700 customer-service roles with a chatbot, and its return to hiring people by mid-2025 after complaints rose [BUILDAPPS ch13]. Klarna's own February 2024 announcement put it differently: the assistant did the equivalent work of 700 full-time agents ([Klarna press release, 2024-02-27](https://www.klarna.com/international/press/klarna-ai-assistant-handles-two-thirds-of-customer-service-chats-in-its-first-month/), external, fetched 2026-10-19), a measure of workload, not a count of people let go. MESH's transition practices [MESH ch13]:
 - augmentation first;
 - human review and appeal for any agent decision affecting a worker's role, pay or career, with audit logs;
 - advance notice, coaching, redeployment paths;
@@ -201,7 +202,7 @@ In the EU, deployers of high-risk systems at work must inform workers' represent
 
 ## 11. AWS mapping (as of 2026-10)
 
-AWS mapping for this file's identity and control-plane duties. As of 2026-10; services change, verify before use. Technical depth (gate rollout, token exchange, audit record fields) stays with agent-threat-modeler.
+AWS mapping for this file's identity and control-plane duties. As of 2026-10; services change, verify before use. Technical depth (gate rollout, token exchange, audit record fields) stays with agent-threat-modeler. "In the labs" marks anonymised observations from the author's own hands-on labs, with no client data; treat them as unverified unless a linked AWS page confirms them.
 
 - **Ownership by tag (§2 owner row).** AgentCore Identity workload identities and credential providers take tags and support tag-based IAM conditions ([AgentCore Identity tagging](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/identity-tagging.html), external). Set the owning-team tag at creation and allow operator actions only where the resource's team tag equals the principal's.
 - **Protect the controls (§1).** `bedrock-agentcore:UpdateGateway` alone can switch a gateway's policy engine from ENFORCE to LOG_ONLY or detach it; no separate action or condition key guards the mode ([policy enforcement modes](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/policy-enforcement-modes.html), external). Grant it only to the separately held role and alarm on every `UpdateGateway` event in CloudTrail. LOG_ONLY still logs "would deny", so dashboards can look normal while nothing is enforced.

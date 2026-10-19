@@ -64,9 +64,13 @@ Rules the agent must follow. Only signed-off rules become hard checks; open ones
 | Multi-turn (simulated persona) | ≥ 20 | | N/A for single-turn agents |
 | Safety: misuse / manipulation through data / benign-task harm | | | attack design: agent-threat-modeler |
 | Harness slice: resume after crash, stop rules, budget exhaustion, cancel, kill switch, kill while paused, edge faults | n/a | | scripted model, hard checks; harness side: agent-harness-designer |
-| **Total (dev / held-out)** | | | slice counts must sum to this total |
+| **Total (dev / held-out)** | | | |
+
+Slices are tags and may overlap. Give each task one primary slice so the primary-slice counts sum to the total, and list tag counts separately (they may add up to more than the total).
 
 **Schema:** id, scenario_id, version, clock, prompt or turns, initial_state, success predicates, hard_rules, expected_tools / expect_no_tool, expected_exit, reference (optional), tags (type, tool, difficulty, source, risk, split).
+
+**Real user data:** de-identified by <method and who checks it>; eval use and the judge's provider and region allowed by <data owner, terms>; access <who>; retention <period>; deletion requests reach the sets by <process>.
 
 **Versioning and maintenance:** immutable versions with changelog, including fixtures and recordings; validation before each run; expected tools checked against the live registry; quarterly review; incident → task within <1 day>.
 
@@ -74,7 +78,7 @@ Rules the agent must follow. Only signed-off rules become hard checks; open ones
 
 - Fresh environment per trial: <fixture / sandbox / mock API>
 - Clock fixed per task; live read data from <synthetic fixtures / versioned recordings> per read tool; live vendor sandbox only as a non-gating smoke run
-- Write tools: <sandbox or recorder per tool>; attempted and executed calls recorded; idempotency key or status lookup available: <yes/no per tool>
+- Write tools: <sandbox or recorder per tool>, test credentials only, CI on `pull_request` with no production secrets; attempted and executed calls recorded; idempotency key or status lookup available: <yes/no per tool>
 - Fault injection: <which tasks, which faults, incl. ack lost after commit>
 - User simulator: <model, persona prompts version>; validated against <n> real or dogfood conversations on turns, clarifications, volunteered information
 - Recorded per trial: transcript (calls, args, results, errors, latency), tokens, cost, stop reason, final state
@@ -120,7 +124,7 @@ Rules the agent must follow. Only signed-off rules become hard checks; open ones
 
 | Tier | Trigger | Runs | Blocks when |
 |---|---|---|---|
-| Pre-merge | PR touching prompts/tools/models/data | Critical subset, deterministic scorers, 1 trial (cached transcripts when only scorers or data changed); harness slice when harness code changed | Any hard regression or harness-slice failure |
+| Pre-merge | PR touching prompts/tools/models/data | Critical subset, deterministic scorers, 1 trial (cached transcripts only when expectations, labels or scorer code changed); harness slice when harness code changed | Any hard regression or harness-slice failure |
 | PR judge run (few PRs/week) or nightly (many) | <choose one> | Dev split, judges, k trials | Confirmed (rerun) regressions with sign test p < 0.05, or net Δ < −tolerance |
 | Release | | Hard checks on dev + held-out; rates from held-out; consensus judging | As above, tolerance <2–3%>; critical hard checks 100% on every trial; non-critical floors <x%> with listed limitations; human reads lowest-scoring passes; full harness slice passes |
 

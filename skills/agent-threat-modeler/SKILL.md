@@ -82,11 +82,15 @@ partly built, use the threat-model template and mark every control *existing* or
 agent access to X", use the short form in Output. Model one agent or flow at a time; for multi-agent systems, model
 each agent, then the links between them.
 
-**Rule of Two triage**, before the inventories: does the job need private data, untrusted content and the ability to
-act externally at the same time? If no run ever holds all three, name the leg that is absent by design and keep it
-absent in code. If the job needs all three, every such flow needs a leg cut per request, or human oversight backed by
-controls that hold without the reviewer ([controls-catalog.md](references/controls-catalog.md) §4). Record the answer
-in the scope table; Step 5 repeats the check per flow.
+**Rule of Two triage**, before the inventories. Meta's Rule of Two (2025-10-31) names three properties: (A) the agent
+processes untrustworthy inputs; (B) it has access to sensitive systems or private data; (C) it can change state or
+communicate externally. In one session an agent should hold at most two of them without human review. Does the job
+need all three at once? If no run ever holds all three, name the leg that is absent by design and keep it absent in
+code. If the job needs all three, every such flow needs a leg cut per request, or human oversight backed by controls
+that hold without the reviewer ([controls-catalog.md](references/controls-catalog.md) §4). Read (B) and (C) as
+written, not as "private data" and "act externally": an agent with no secrets that can still merge, deploy, change
+configuration or permissions, or move money holds all three, because the system it changes is the sensitive asset.
+Record the answer in the scope table; Step 5 repeats the check per flow.
 
 **2. Write the worst outcomes.** Three to seven concrete "must never happen" statements tied to assets: "customer PII
 reaches a third party", "refund over the cap without a person", "production rows deleted", "agent acts as another
@@ -98,7 +102,10 @@ its output brings untrusted content, and the gate today. Input inventory: source
 your code and config; semi: authenticated users; untrusted: everything else, including tool results, tool descriptions,
 retrieved documents, memory written by runs that read untrusted content, and other agents). Unknown → riskier class.
 Entry-point inventory: every endpoint, alias and deployed version that can invoke the agent, its authenticator, and who
-holds invoke rights. Authentication can be set per version, so an old version may have none.
+holds invoke rights. Authentication can be set per version, so an old version may have none. Ambient capabilities get
+rows too, since they often reach further than any tool: environment variables and secrets, mounted sockets, inherited
+credentials and cloud metadata endpoints, the network position the agent runs in, and repository paths whose change
+triggers CI.
 
 **Challenge the premise when it is the risk.** If the stated architecture is itself a finding (the agent runs on the
 user's own broad OAuth token, an admin key, a personal browser session, a shared service account, or an "act as user
@@ -117,6 +124,9 @@ that can be called without passing through it ([controls-catalog.md](references/
 
 **5. Run the lethal trifecta check per flow.** For each flow ask: private data? untrusted content? external channel
 (including URLs, rendered images, created artefacts)? All three in one run means one injected instruction can exfiltrate.
+The trifecta is the confidentiality case of the Rule of Two; check the integrity case beside it: can untrusted input in
+this flow change state in a sensitive system (merge, deploy, configuration, permissions, payments)? If it can, that
+path needs a leg cut, or human review backed by hard limits, even when no private data is present.
 Choose which leg to cut for that flow and how, in code. See [threat-catalog.md](references/threat-catalog.md) §The
 lethal trifecta and [controls-catalog.md](references/controls-catalog.md) §4. When the product's purpose needs all three
 legs (an inbox or browser assistant), keep the cut and use the prompt-reduction patterns in the same section; count the
@@ -148,8 +158,11 @@ never to move one across levels. Findings often share a root cause (usually: no 
 enforcement point). Keep them as separate findings so each can be tested, but group the fixes: one gate can close
 several. A P0 that depends on an unverified assumption is written `P0 (assumed)` and still blocks until the assumption
 is checked or the control exists. If the check shows the assumption is false, re-rank or close the finding; if true,
-it becomes a plain P0 and blocks until its control exists. Verdict, in both modes: any open P0 → Block (design mode: don't build or launch until
-the P0 controls are in the plan); only P1s, each with an owner and date → Ship with conditions; P2/P3 only → Ship.
+it becomes a plain P0 and blocks until its control exists. Verdict: Block while any P0 lacks an existing control. In
+design mode, planned P0 controls (each with an owner and a test) let the build go ahead, but launch stays blocked until
+they are built and their tests pass; for a system that already runs, a planned control never lifts Block. Only P1s,
+each with an owner and date → Ship with conditions; P2/P3 only → Ship. A verdict that rests on `(assumed)` items is
+provisional in both directions, Ship as much as Block: name the check that would settle each assumption.
 
 **9. Choose controls, architecture before detection.** Work down this list and stop when the residual risk for each
 P0/P1 path is bounded by something the model cannot bypass ([controls-catalog.md](references/controls-catalog.md)):
@@ -202,6 +215,10 @@ register, oversight table and tests refer to controls only by IDs defined in thi
   the exact action and arguments, an expiry and a nonce, and the executor refuses a changed, expired or reused one.
   Irreversible actions get a payload preview and a confirm question naming action and target; an agent unsure of the
   target asks instead of offering to act.
+- Approvals sent as links: opening the link shows the review view and decides nothing; the approver signs in and must
+  be entitled to approve that action; forwarding the link transfers nothing; the recorded approver is the
+  authenticated identity ([human-oversight.md](references/human-oversight.md) §3; the mechanics, including retiring
+  links already sent, are agent-harness-designer's).
 - Escalation triggers: deterministic first; uncertainty only once calibrated. Route to a qualified reviewer and
   compute approvals per day against reviewer time (method in §4 of the same file).
 - Earned autonomy per action class: current rung, promotion metric and threshold, automatic demotion, re-certification
@@ -221,7 +238,11 @@ new tool, new data source, new user population, model or prompt change, incident
 
 **Review mode:** run every step against the real code and config; Steps 9-11 become the Fix and Tests columns of the
 review. Every finding needs evidence (file:line, config key or observed behaviour), a concrete fix and where it goes,
-and an effort estimate (S/M/L). Read the live configuration, not only the infrastructure code: full-replace updates
+and an effort estimate (S/M/L). Label each finding's evidence stated, inferred or confirmed; an inferred finding keeps
+the priority of its consequence, written `P0 (assumed)` (agent-harness-designer writes the same thing as "Critical
+(inferred)"). For a system that already runs, each fix also cleans up what the old design produced: rotate exposed
+secrets, revoke links and tokens already issued, purge or re-mask stored data, review actions taken without the
+missing control, and log what was done. Read the live configuration, not only the infrastructure code: full-replace updates
 and setup wizards change security settings without a code change. Say what you could not verify. Where a number you need is missing (refund volume,
 reviewer headcount), show the arithmetic with a labelled assumption and ask for the real figure.
 
@@ -318,14 +339,19 @@ Tests to run first: <2-3 technique classes with trace properties>
 
 Before returning, check:
 - [ ] Every tool and every untrusted source from the inventories appears in the analysis; nothing generic like "the API".
-- [ ] The Rule of Two triage is recorded for the job, and the trifecta is checked per flow, with the cut named and
-      enforced in code.
+- [ ] The Rule of Two triage is recorded for the job with Meta's three properties (untrustworthy inputs; sensitive
+      systems or private data; change state or communicate externally). Per flow, both the trifecta (confidentiality)
+      and the integrity case (untrusted input changing state in a sensitive system) are checked, with the cut or the
+      review named and enforced in code.
 - [ ] Every action has a permission tier and is authorised as granted scope ∩ user entitlements; recommend, prepare
       and execute use separate identities.
 - [ ] Every guardrail names its layer and declares fail open or fail closed; no output is released before its
       verdicts; no P0/P1 path relies on the prompt layer.
 - [ ] At least one propagation path is traced hop by hop, plus one no-attacker path.
 - [ ] Each P0/P1 has a control the model cannot bypass; none rely solely on prompt text, a classifier or a human click.
+      Where a P0/P1 path must end in human review (code written from untrusted requests, say), the control set is
+      review plus hard limits plus provenance, and what remains is residual risk accepted by a named owner, not
+      "covered".
 - [ ] Credentials never pass through the context window, tool output or inherited environment.
 - [ ] User identity comes from a verified token; delegated or multi-agent flows state and test the four delegation
       invariants; every entry point has a named authenticator.
@@ -335,7 +361,7 @@ Before returning, check:
       exchange, consent rules and deploy probes are specified.
 - [ ] Every action has an oversight tier; irreversible actions have hard limits that hold after approval.
 - [ ] The approval gate covers deadline, silence, edits, idempotent execution, binding (digest, expiry, nonce) and
-      reviewer view order.
+      reviewer view order; an approval link only opens the view, and a signed-in, entitled approver decides.
 - [ ] Every send says draft-first, delayed send or approval; calendar invites, shares and notifications count as egress.
 - [ ] Approvals per day are computed against reviewer time; promotion thresholds are stated.
 - [ ] Every referenced TH-, C-, RT- or F- ID is defined.
@@ -347,6 +373,7 @@ Before returning, check:
       ASI seeds, two-identity authorization tests and the harness-level abuse tests.
 - [ ] Residual risk has a named owner and re-review triggers.
 - [ ] Review mode: every finding has evidence, a fix with location, and effort.
+- [ ] Every count in the summary (open P0s, findings by priority, controls, tests) is recomputed from the body.
 
 ## Common mistakes
 
@@ -366,6 +393,9 @@ Before returning, check:
 | Trusting a tool definition because it was approved once | Hash it per `server::name` and recheck every session; halt on drift |
 | Authorising on the agent's scope alone | Granted scope ∩ user entitlements, per object and function; test the same call under two identities |
 | Approving the thread, not the action | Bind a digest of the exact arguments, an expiry and a nonce; the executor recomputes the digest |
+| An approval link that approves when opened, or that anyone holding it can use | The link shows a read-only view; a signed-in, entitled approver decides; retire the links already sent |
+| Clearing an agent once its secrets are removed | Run the integrity case: untrusted input that can change a sensitive system still needs a cut or review |
+| Running a pull request's code with a write token or secrets, or letting the coding agent merge | The PR's code never runs in a privileged context; the agent never merges or approves ([sandboxing.md](references/sandboxing.md), "Forge and CI") |
 | Quoting one autonomy threshold as the books' rule | State the spread; gate promotion on case counts as well as rates |
 | Confusing jailbreak with injection | Jailbreak attacks the vendor's policy; injection attacks your tools' authority. Different controls |
 | Routing escalations on the model's stated confidence | Deterministic consequence triggers first; calibrated uncertainty second |
@@ -384,7 +414,8 @@ Before returning, check:
 
 ## Sources
 
-Distilled from these books (chapter numbers), cited in the reference files by key:
+Independent notes, not affiliated with or endorsed by the authors or publishers cited. Distilled from these books
+(chapter numbers), cited in the reference files by key:
 - DEFGUIDE: *AI Agents: The Definitive Guide*, ch. 2 (human-in-the-loop interrupts), 6 (tool governance, sandboxing,
   code mode), 8 (OWASP agentic red-teaming), 10 (memory hygiene), 12 (threat modeling, runtime scanner).
 - SYSTEMS: *Systems Thinking for Agentic AI*, ch. 7, 9, 10, 11 (guardrail layers, trust boundaries, approvals, safe
@@ -397,6 +428,7 @@ Distilled from these books (chapter numbers), cited in the reference files by ke
 - ILLUSTRATED: *An Illustrated Guide to AI Agents*, ch. 7, 10 (code tools, coding-agent attack surface).
 - DLLMA: *Designing Large Language Model Applications*, ch. 10 (guardrails and verifiers).
 - AGENTICAI: *Agentic Artificial Intelligence*, ch. 5, 10 (trust dial).
+- BUILDAGENTIC: *Building Agentic AI* (companion code only: code-execution service, text-to-SQL connection).
 - ENTERPRISE: *The Agentic Enterprise*, ch. 6, 7 (calibrated trust, inbox-deletion incident).
 - HARDMCP: *Hardening MCP Servers*, ch. 1 to 10 (scan data, sinks, supply chain, rug pulls, authentication, prompt-layer
   controls, tokens, consent, agent-layer boundaries, operational defaults).
@@ -410,7 +442,7 @@ Distilled from these books (chapter numbers), cited in the reference files by ke
   function-level authorization, scopes versus entitlements).
 - FASTGENAI: *Building Generative AI Services with FastAPI*, ch. 6 (streaming), 9 (input and output guardrails).
 
-Andrew Ng, The Batch letters (deeplearning.ai):
+Andrew Ng, The Batch letters (deeplearning.ai), cited as NG with title and date:
 - Blenders Versus Bombs, or Why California's Proposed AI Law is Bad for Everyone (2024-06-05),
   https://www.deeplearning.ai/the-batch/blenders-versus-bombs-or-why-californias-proposed-ai-law-is-bad-for-everyone
 - Agentic Coding and Agentic Software Testing Go Together (2025-09-17),
@@ -422,17 +454,23 @@ Andrew Ng, The Batch letters (deeplearning.ai):
   https://www.deeplearning.ai/the-batch/open-models-open-harnesses-open-security
 - Who's Responsible for Irresponsible AI? (2026-09-18), https://www.deeplearning.ai/the-batch/whos-responsible-for-irresponsible-ai
 
-Code read for patterns and gaps (read 2026-10-18, not run): github.com/Nicolepcx/ai-agents-the-definitive-guide,
-github.com/kylestratis/ai_agents_mcp_examples, github.com/PacktPublishing/AI-Evals-in-Practice,
-github.com/HandsOnLLM/An-Illustrated-Guide-To-AI-Agents, github.com/sinanuozdemir/building-agentic-ai,
-github.com/santosomar/AI-agents-for-cybersecurity, github.com/Ali-Parandeh/building-generative-ai-services,
-github.com/andrewyng/aisuite, github.com/humanlayer/12-factor-agents, github.com/cosai-oasis/secure-ai-tooling.
+Code read for patterns and gaps (read 2026-10-18, not run), cited as `[KEY repo: path]`: companion code
+github.com/Nicolepcx/ai-agents-the-definitive-guide (DEFGUIDE), github.com/kylestratis/ai_agents_mcp_examples (MCP),
+github.com/PacktPublishing/AI-Evals-in-Practice (EVALS), github.com/HandsOnLLM/An-Illustrated-Guide-To-AI-Agents
+(ILLUSTRATED), github.com/sinanuozdemir/building-agentic-ai (BUILDAGENTIC), github.com/santosomar/AI-agents-for-cybersecurity
+(AISEC), github.com/Ali-Parandeh/building-generative-ai-services (FASTGENAI); related repositories, key RELATED:
+github.com/andrewyng/aisuite, github.com/humanlayer/12-factor-agents, github.com/cosai-oasis/secure-ai-tooling
+(cited as `cosai-secure-ai-tooling/`).
 
-External (dated list in [owasp-mapping.md](references/owasp-mapping.md)): OWASP Top 10 for Agentic Applications 2026;
+External (dated list in [owasp-mapping.md](references/owasp-mapping.md)): Meta, Agents Rule of Two (2025-10-31,
+checked 2026-10-19), https://ai.meta.com/blog/practical-ai-agent-security/ ; GitHub Actions, events that trigger
+workflows (`pull_request_target`, fork secrets; checked 2026-10-19),
+https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows ; OWASP Top 10 for Agentic Applications 2026;
 OWASP Top 10 for LLM Applications 2026; CoSAI Risk Map; Google Workspace and Microsoft Graph scope documentation
 (provider notes in controls-catalog.md §3, 2026-10-19); MCP Security Best Practices and elicitation (spec 2026-07-28); Beurer-Kellner et al., Design
 Patterns for Securing LLM Agents against Prompt Injections (2025); Anthropic posts on Claude for Chrome, Claude Code
 sandboxing, computer use, and measuring agent autonomy; Xiong et al. (ICLR 2024); EU AI Act Article 14.
 
-Practitioner lab notes (AWS AgentCore and data labs, 2026-10). The AWS documentation pages confirmed against them are
+Practitioner lab notes (the author's own hands-on AWS AgentCore and data labs, 2026-10; anonymised, no client data).
+The AWS documentation pages confirmed against them are
 listed in [aws-implementation-notes.md](references/aws-implementation-notes.md) §Sources.

@@ -50,7 +50,7 @@ Reward hacking is the policy exploiting flaws or ambiguities in the reward to sc
 
 | Hack | What it looks like | Seen in | Defence |
 |---|---|---|---|
-| Lenient matching | Tool name matched by substring in either direction, so an empty name (a substring of every label) earns full reward | A book's companion RLVR example | Exact match after normalisation; adversarial tests |
+| Lenient matching | Tool name matched by substring in either direction, so an empty name (a substring of every label) earns full reward | A book's companion RLVR example (as read 2026-10-18) [BUILDAPPS repo: src/fine_tuning/reinforcement_learning_with_verifiable_rewards.py] | Exact match after normalisation; adversarial tests |
 | Credit farming | Partial credit for format or some arguments lets wrong calls score well | Common in hand-written graders | Gate first; partial credit only after the gate |
 | Grader or test tampering | Editing unit tests, exiting the test harness with a success code, overriding equality checks | Coding RL (Denison et al. 2024; Anthropic 2025-11) | Sandbox; grader outside the policy's write access; check the final state independently |
 | Length and verbosity | Longer reasoning or longer answers rewarded by a judge or a length term | ToolRL length-reward experiments; judge length bias | No length reward; length-controlled judging; cap tokens |
@@ -58,7 +58,7 @@ Reward hacking is the policy exploiting flaws or ambiguities in the reward to sc
 | Tool shortcut | The environment offers a tool that does the task, so the reward measures the tool, not the skill | A book's RL demo gave the agent a search tool for valid answers | Audit the action space against what you mean to teach |
 | Restraint hole | Never rewarding "no call", or always rewarding it | Common | Explicit no-call cases in the task mix, scored both ways |
 | Wrong majority | Self-rewarding by majority vote reinforces a confident shared error | Label-free self-improvement research | Programs or labelled data for production training |
-| Noisy null signal | Most groups all-0 or all-1; the few that train are a biased subset | A book's RL demo: two of four steps skipped, the others trained on two trajectories each | Filter tasks by difficulty; track the share of skipped groups |
+| Noisy null signal | Most groups all-0 or all-1; the few that train are a biased subset | A book's RL demo: two of four steps skipped, the others trained on two trajectories each [DEFGUIDE repo: CH03/ch03_ART_RULER.ipynb] | Filter tasks by difficulty; track the share of skipped groups |
 
 The damage can spread beyond the training task. Anthropic reported (2025-11) that a model which learned to hack coding rewards, for example by exiting the test harness early with a success code, generalised to broader misbehaviour: sabotage in 12% of attempts in one evaluation and alignment-faking reasoning in 50% of answers to questions about its goals. Standard safety training afterwards only hid the behaviour in chat-like contexts. Telling the model during training that the hack was acceptable in that environment removed the generalisation. Prevent hacks rather than tolerate them, and evaluate trained agents on behaviour outside the training task.
 

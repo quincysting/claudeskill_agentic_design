@@ -21,21 +21,26 @@ These tests target the runtime, not the model. No book tests resume, stop, budge
 | Kill while paused | Pause for approval, kill the process, load in a new one, approve | The approved action runs once, with the approved arguments |
 | Approval digest | Change an argument after approval, then resume | Execution refused; a new approval requested |
 | Approval expiry | Approve after the expiry | Nothing executed; status records the expiry |
+| Approval link GET | Fetch the approval link with a plain GET, as a mail scanner or link preview would, with and without a session | Nothing is decided or executed; the approval stays `pending` |
+| Link holder without a session | Submit a decision with only the link: no authenticated session, then a session of a user not entitled to approve | Refused both times; the approval stays `pending`; the attempt is logged |
 | Forced stop status | Script the model never to finish; separately exhaust model calls, tool calls, tokens and wall time | Status `partial` with the reason, never `completed`; the output names what was not done |
 | Budget grain | A turn that would make several tool calls with one call of budget left | Stops before the call that would exceed the budget; spend recorded |
+| Parallel children at the limit | With the run's budget nearly spent, spawn several children in parallel | Total spend never exceeds the cap; a child refused a slice ends with a budget reason |
 | Budget across restart | Spend most of a budget, restart the worker, continue | Counters survive the restart; the cap holds |
 | Clock during waits | Leave an approval pending past the run's wall-time budget, then approve | The run is not stopped for time spent waiting |
 | Cancel | Signal cancel mid-run, and during a long tool call | Status `cancelled`; the tool's cleanup ran; no call starts after the signal |
 | Kill switch | Flip draft-only mid-run; then flip abort | Draft-only: previews, no writes. Abort: no further calls, run `cancelled` with reason `kill_switch`, restart refused without a new start approval |
 | Safe-mode replay | Replay a recorded run with safe mode on | Zero side-effecting calls; unchanged components give the same previews |
 | Duplicate delivery | Deliver one event twice, concurrently | One run, one set of writes |
+| Lease, redelivery | Redeliver a run's message while its lease is live | No second worker starts; the redelivery is dropped |
+| Lease, dead holder | Kill the lease holder after a redelivery was dropped | Once the lease expires the sweeper re-enqueues the run, and it resumes exactly once |
 | Disconnect | Drop the client mid-stream, for an interactive run and for a background run | Interactive: cancelled and recorded. Background: continues; reconnect with the last event ID gets the gap |
 | Output check before release | A slow output check and a fast model | No text reaches the client before the verdict |
 | Declared labels | Register a tool labelled as needing approval with no approval policy wired | The harness refuses to start |
 | Deletion | Clear a conversation, or let retention expire a run | Its state and checkpoints are gone from the store, not just hidden. One tutorial clears a conversation by writing an empty message list through an appending reducer, which likely deletes nothing (read, not run), so assert on the store [BUILDAGENTIC repo: sdr_multi_agent/flask_app/agent_builder.py] |
-| Faults at the edge | Inject 50% HTTP 500s, then a fixed delay, at the network layer | Retries within budget, timeout fires, failures carry their category, no duplicate write |
+| Faults at the edge | Inject 50% HTTP 500s, then a fixed delay, at the network layer, in a test namespace or through a local proxy only, never on a shared or production mesh | Retries within budget, timeout fires, failures carry their category, no duplicate write |
 
-The fault rows need no change to tool code: the APIARCH companion repository injects 500s on half the calls, or a fixed delay, with service-mesh rules [APIARCH repo: operations/istio/half-broken-gateway.yaml] [APIARCH repo: operations/istio/delayed-gateway.yaml]. A local proxy does the same in a laptop setup.
+The fault rows need no change to tool code: the APIARCH companion repository injects 500s on half the calls, or a fixed delay, with service-mesh rules [APIARCH repo: operations/istio/half-broken-gateway.yaml] [APIARCH repo: operations/istio/delayed-gateway.yaml]. A local proxy does the same in a laptop setup. Apply such rules only in a test namespace or a local proxy, never on a shared or production mesh.
 
 ## 3. A minimal resume test
 
@@ -108,7 +113,11 @@ Rules for both sides:
 
 ## 5. Harness bake-off
 
-When choosing between harnesses (a framework against your own loop, a vendor harness against a neutral one), hold the model fixed and vary only the harness: same tasks, same budgets, several trials per task, pass rate with intervals by task family, and cost per solved task (defined in the agent-model-selector skill's role-model-mapping.md §7; when the harnesses differ in human review time, compare agent-ops-reviewer's cost per successful run instead). The evidence on how much this matters is thin. Public coding leaderboards rank a model and a harness as one entry, and entries also differ in prompts, budgets and versions, so gaps between rows are observational. The one controlled comparison found so far (one author, 80 private tasks, two frontier models) found no reliable average difference, a gap that varied by task family, and a neutral harness that cost 1.2 to 1.6 times as much per solved task (Arjmandi, arXiv 2609.11987, 2026-09). So the harness may matter as much as a model upgrade on some of your tasks, or not at all, and it reliably moves cost. A provider-swap layer also changes behaviour: one injects a default output-token limit and maps unknown stop reasons, a refusal among them, onto an ordinary stop [RELATED repo: aisuite/aisuite/providers/anthropic_provider.py]. Log the effective request parameters and the provider's own stop reason, and rerun the full suite after any swap. The bake-off protocol itself belongs to agent-model-selector.
+The bake-off protocol belongs to the agent-model-selector skill (its bakeoff-protocol.md, sections 4 and 5): hold the model fixed and vary only the harness, with the same tasks and budgets, several trials per task, pass rate with intervals by task family, and cost per solved task. This skill supplies what goes into it when choosing between harnesses (a framework against your own loop, a vendor harness against a neutral one):
+- **The harness variants**, each fully specified: loop, tool dispatch, state store, stop rules, prompt version, provider layer and its effective request parameters. All run under the same budgets, so the comparison measures the harness, not the spend.
+- **The harness tests** (section 2). Each variant passes them before it enters the bake-off; a variant that duplicates a write or resumes wrongly is out, whatever its pass rate.
+
+When the harnesses differ in human review time, compare agent-ops-reviewer's cost per successful run instead of cost per solved task. The evidence on how much the harness matters is thin. Public coding leaderboards rank a model and a harness as one entry, and entries also differ in prompts, budgets and versions, so gaps between rows are observational. The one controlled comparison found so far is a single-author preprint (80 private tasks, two frontier models). It found no reliable average difference, a gap that varied by task family, and a neutral harness that cost 1.2 to 1.6 times as much per solved task (Arjmandi, arXiv 2609.11987, 2026-09: https://arxiv.org/abs/2609.11987). Its cost ratio comes from observed usage rather than billed cost, and its task-family split was chosen after seeing the data. So the harness may matter as much as a model upgrade on some of your tasks, or not at all, and it can change cost; measure both on your own tasks. A provider-swap layer also changes behaviour: one injects a default output-token limit and maps unknown stop reasons, a refusal among them, onto an ordinary stop [RELATED repo: aisuite/aisuite/providers/anthropic_provider.py]. Log the effective request parameters and the provider's own stop reason, and rerun the full suite after any swap.
 
 ## 6. Scaffolding review at each model upgrade
 

@@ -6,7 +6,15 @@ Date: <YYYY-MM-DD> · Reviewer: <name> · Scope: <launch | scale-up to N/day | p
 
 **<Ready | Ready with conditions | Not ready>**: <one sentence: the deciding blockers or gaps>. Run gate: <pass | fails on rows …>.
 
-<When evidence is missing (checklist, "Missing evidence"): **Provisional <verdict>**. Floor <x%> (unverified items at 0) gives <verdict>; ceiling <y%> (unverified items at 2) gives <verdict>. Unverified blockers: <IDs>. A blocker seen at 0 keeps "Not ready" firm.>
+<When evidence is missing (checklist, "Missing evidence"): **Provisional <verdict>**. Floor <x%> (unverified items at 0) gives <verdict>; ceiling <y%> (unverified items at 2) gives <verdict>. Unverified blockers: <IDs>. A blocker seen at 0, or stated absent by its owner, keeps "Not ready" firm.>
+
+**P0 first** (the full table is under "Prioritised fixes"):
+
+| # | Fix | Due | Owner |
+|---|---|---|---|
+| 1 | <top P0, e.g. purge and re-mask stored payloads; privacy owner told> | <date or week N> | |
+
+<Three to five rows. Questions for the privacy or legal owner (for example, whether data already exposed must be reported) go here as open items: the review flags them and does not decide them; not legal advice.>
 
 ## Discovery plan
 
@@ -66,7 +74,7 @@ Before rollout stage: <internal | limited beta | monitored scale>. A row passes 
 | K. Servers and supply chain | | | | |
 | **Total** | | | | |
 
-<N/A items are left out of Max, with the reason in the item table (J4 on managed APIs; G1 with no write tools; K1 when nothing listens locally).>
+<N/A items are left out of Max, with the reason in the item table (J4 on managed APIs; G1 with no write tools; K1 when nothing listens locally; K8 only when every server is on stdio or loopback and traces stay on the host).>
 
 <details><summary>Item scores</summary>
 
@@ -78,7 +86,7 @@ Before rollout stage: <internal | limited beta | monitored scale>. A row passes 
 ## Cost and latency snapshot
 
 Prices as of <date>, source <URL>; tiers: <small = model, mid = model, …>.
-- Per request: expected <$>, likely high (~p95) <$>, capped ceiling <$> (<ratio>x expected; a bound, not a forecast). With no caps: "UNBOUNDED now; <$> with proposed caps <list>".
+- Per request: expected <$>, likely high (every step at its p95; above a true p95) <$>, capped ceiling <$> (<ratio>x expected; a bound, not a forecast). With no caps: "UNBOUNDED now; <$> with proposed caps <list>".
 - Per successful run: <$> at <success rate> success, <review minutes> of review at <$ per minute> (human review <share>), or "not computed: <missing inputs>".
 - Per month: <$> at <N>/day expected; <$> at peak (expected × busiest day's volume × 30).
 - Per-step share: <top steps>. Latency: <p50/p95 measured or estimated>. Gap to target: <…>.

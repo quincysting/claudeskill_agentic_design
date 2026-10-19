@@ -53,7 +53,7 @@ This is the minimum every tool design ships with. The full program (judges, stat
 - Expected outcome per case: tool name, or one of `ask | none | decline`, plus key argument values where they matter.
 - A held-out 20-30% that you do not look at while tuning descriptions, so the descriptions do not overfit (Writing tools for agents, 2025-09).
 
-**Runs.** Use the real definitions, loaded from the running server or the agent's own registry rather than copied by hand (a hand-copied list never notices a server change), and the real system prompt, at production settings. Run each case at least 3 times with tool order shuffled each run [BUILDAGENTIC ch5]. Use stub tool handlers that return realistic results, so multi-step cases can proceed.
+**Runs.** Use the real definitions, loaded from the running server or the agent's own registry rather than copied by hand (a hand-copied list never notices a server change), and the real system prompt, at production settings. Run each case at least 3 times with tool order shuffled each run [BUILDAGENTIC ch5]. Use stub tool handlers that return realistic results, so multi-step cases can proceed. Write, send and spend tools always run against stubs, a recorder or a sandbox with test credentials, never against production systems: each case runs several times, so a real handler would repeat the action.
 
 **Metrics.**
 - Selection accuracy, overall and per tool.

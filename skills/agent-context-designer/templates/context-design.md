@@ -24,7 +24,8 @@ Include a section marked *(optional)* only when its condition holds. Otherwise w
 - **Sources and indexes:** one line per index: content, trust tier (official / derived / community), ACL, owner. Mixed records (tickets, email, chat): what goes into a sanitised index and what stays a live lookup.
 - **Index time:** parsing checks per format; chunking rule; chunk context prepended; metadata schema incl. `tenant_id`, `acl_groups`, `version` or derived `status` and `last_modified`; re-index and deletion triggers; idempotent upsert key; post-ingest checks (per-source counts, canary query, backfill or reconcile).
 - **Staleness:** version source, or for undated documents the detection signals, age limits per document type, and the owner review queue.
-- **Query time:** query handling (split instructions, rewriting yes/no and why); BM25 ∥ dense, fused with RRF (k=…); ACL pre-filter from the session; candidates …; reranker …; floor …; chunks passed …; per-source quotas and trust order; evidence item format with IDs, date and status; not-found behaviour; error routing.
+- **Query time:** query handling (split instructions, rewriting yes/no and why); BM25 ∥ dense, fused with RRF (k=…); ACL pre-filter from the session, allow groups and deny scopes (walls, barriers, holds); candidates …; reranker …; floor …; chunks passed …; per-source quotas and trust order; evidence item format with IDs, date, status and section role; not-found behaviour; error routing.
+- **Citation check:** cited IDs checked against the evidence set; quote check; support check (judge family or human sample); what happens to an unverified claim; labels for non-authoritative sections.
 - **Agentic controls** *(optional: only if the agent controls retrieval)*: mandatory-search rule; first retrieval in code?; budgets (hops / calls / tokens / seconds); stop and abstain rule; what is carried between hops.
 - **Caches:** key (incl. permission scope and ingest generation) and invalidation.
 
@@ -82,7 +83,10 @@ volatile tail:    …   rebuilt every turn (current-task line, ledger, evidence,
 ## 6. Safety and privacy
 - Permission enforcement points; identity source (memory tools bind scope keys and author role server-side); cache scoping; row and column entitlements for table and metric queries; generated graph or SQL queries (role, scope, templates or allowlist, limits).
 - Untrusted-content rule for memory writes and for instructions.
-- Deletion map (every copy, including sanitised cards derived from deleted records).
+- Deletion map (every copy, including sanitised cards derived from deleted records); what a wall or barrier change purges.
+- Clean-up of data already stored by the current system *(optional: reviews and migrations)*: inventory, purge, backfill, deletion log.
+- Test data: how logged questions are de-identified, and who allowed their use.
+- Open questions for the privacy or legal owner (retention, privilege, sending data to a provider); flagged, not decided, not legal advice.
 - Hand-offs: <what goes to agent-threat-modeler>
 
 ## 7. Evaluation

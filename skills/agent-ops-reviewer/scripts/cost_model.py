@@ -1,5 +1,6 @@
-"""Per-request cost and latency model for an agent: expected value, a likely high (about p95) request,
-the capped ceiling, cost per successful run, per-step share, peak load per model tier and three or four
+"""Per-request cost and latency model for an agent: expected value, a likely high request (every step at
+its p95 at once, so it sits above a true p95 request: safe for budgets, not a precise percentile), the
+capped ceiling, cost per successful run, per-step share, peak load per model tier and three or four
 what-ifs. Standard library only.
 
   python cost_model.py               # example spec (self-check runs first)
@@ -33,14 +34,21 @@ import math
 import sys
 
 EXAMPLE = {
-    # List prices read 2026-10-06 from platform.claude.com/docs/en/about-claude/pricing. Recheck before use.
+    # List prices from platform.claude.com/docs/en/about-claude/pricing, read 2026-10-06; small tier and cache
+    # multipliers re-checked 2026-10-19, the same snapshot as agent-model-selector's model-landscape-2026-10.md
+    # (when the two differ, the later date wins). Recheck before use.
     # $/MTok. cache_read and cache_write are multipliers on that tier's own input price.
-    "prices_as_of": "2026-10-06",
+    # Haiku 5.5 is priced by prompt length: "small" holds for prompts up to 100K tokens; put steps whose
+    # prompts can pass 100K on "small_long".
+    "prices_as_of": "2026-10-19",
     "prices": {
-        "small":    {"model": "Claude Haiku 4.5",  "in": 1.00,  "out": 5.00,  "cache_read": 0.10,  "cache_write": 1.25},
-        "mid":      {"model": "Claude Sonnet 5.5", "in": 2.00,  "out": 10.00, "cache_read": 0.10,  "cache_write": 1.25},
-        "large":    {"model": "Claude Opus 5.5",   "in": 4.00,  "out": 20.00, "cache_read": 0.05,  "cache_write": 1.25},
-        "frontier": {"model": "Claude Fable 5.1",  "in": 10.00, "out": 50.00, "cache_read": 0.025, "cache_write": 1.25},
+        "small":      {"model": "Claude Haiku 5.5 (prompts up to 100K tokens)", "in": 0.10, "out": 0.50,
+                       "cache_read": 0.10, "cache_write": 1.25},
+        "small_long": {"model": "Claude Haiku 5.5 (prompts over 100K tokens)", "in": 0.50, "out": 2.50,
+                       "cache_read": 0.10, "cache_write": 1.25},
+        "mid":        {"model": "Claude Sonnet 5.5", "in": 2.00,  "out": 10.00, "cache_read": 0.05,  "cache_write": 1.25},
+        "large":      {"model": "Claude Opus 5.5",   "in": 4.00,  "out": 20.00, "cache_read": 0.05,  "cache_write": 1.25},
+        "frontier":   {"model": "Claude Fable 5.1",  "in": 10.00, "out": 50.00, "cache_read": 0.025, "cache_write": 1.25},
     },
     "requests_per_day": 10_000,
     "peak_requests_per_day": 25_000,
@@ -71,6 +79,7 @@ EXAMPLE = {
 
 
 SUCCESS_KEYS = ("success_rate", "review_minutes", "value_per_minute")
+LONG_PROMPT = 100_000  # tokens; a tier with a "<tier>_long" price (small -> small_long) is priced by prompt length
 
 
 def merge(base, user):
@@ -118,7 +127,8 @@ def per_success(spec, cost):
 
 
 def heavy_step(s):
-    """Heavy request (about p95): the step fires at its p95 calls and input size; cache and memo as normal."""
+    """Likely high: the step fires at its p95 calls and input size; cache and memo as normal. Every step at its
+    p95 together is rarer than a p95 request, so the total sits above a true p95: fine for budgets and alerts."""
     cap = s["max_calls"] if s["max_calls"] is not None else math.inf
     calls = s.get("p95_calls", min(cap, 2 * s["calls"]))
     tok_in = s.get("p95_tok_in", min(s.get("max_tok_in", math.inf), 1.5 * s["tok_in"]))
@@ -189,7 +199,56 @@ def what_ifs(spec):
     }
 
 
+def number(value, where, lo=0.0, hi=None, above=False):
+    """Exit with a clear message unless value is a real number in range (bools and strings rejected)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        sys.exit(f"{where}: need a number, got {value!r}")
+    if value < lo or (above and value == lo) or (hi is not None and value > hi):
+        sys.exit(f"{where}: {value} is out of range ({'>' if above else '>='} {lo}{'' if hi is None else f', <= {hi}'})")
+
+
+STEP_KEYS = {"name", "model", "p", "calls", "max_calls", "tok_in", "tok_out", "cached", "written", "memo", "max_tok_in",
+             "max_tok_out", "p95_calls", "p95_tok_in", "latency_s", "parallel", "stage"}
+
+
+def validate_types(spec):
+    """Types and ranges before any arithmetic, so bad input fails with a message instead of a traceback or a wrong number."""
+    unknown = set(spec) - set(EXAMPLE)  # a misspelled key would otherwise silently keep the example's value
+    if unknown:
+        sys.exit(f"unknown keys {sorted(unknown)}: check the spelling (known: {sorted(EXAMPLE)})")
+    if not isinstance(spec.get("prices"), dict) or not all(isinstance(v, dict) for v in spec["prices"].values()):
+        sys.exit("prices: need an object of tiers, each an object with in, out, cache_read, cache_write")
+    if not isinstance(spec.get("steps"), list) or not spec["steps"] or not all(isinstance(s, dict) for s in spec["steps"]):
+        sys.exit("steps: need a non-empty list of step objects")
+    number(spec.get("requests_per_day"), "requests_per_day", above=True)
+    for key, lo, hi, above in (("peak_requests_per_day", 0, None, True), ("peak_hour_factor", 0, None, True),
+                               ("retry_rate", 0, None, False), ("worst_retries", 0, None, False),
+                               ("other_per_request", 0, None, False), ("review_minutes", 0, None, False),
+                               ("value_per_minute", 0, None, False), ("success_rate", 0, 1, True)):
+        if spec.get(key) is not None:
+            number(spec[key], key, lo, hi, above)
+    for tier, pr in spec["prices"].items():
+        for k in ("in", "out", "cache_read", "cache_write"):
+            if pr.get(k) is not None:
+                number(pr[k], f"prices.{tier}.{k}")
+    for i, s in enumerate(spec["steps"]):
+        where = f"step {s.get('name', i)}"
+        if set(s) - STEP_KEYS:
+            sys.exit(f"{where}: unknown keys {sorted(set(s) - STEP_KEYS)}: check the spelling (known: {sorted(STEP_KEYS)})")
+        for k in ("p", "cached", "written", "memo"):
+            if s.get(k) is not None:
+                number(s[k], f"{where}.{k}", 0, 1)
+        for k in ("tok_in", "tok_out", "max_tok_in", "max_tok_out", "p95_calls", "p95_tok_in", "latency_s"):
+            if s.get(k) is not None:
+                number(s[k], f"{where}.{k}")
+        if s.get("calls") is not None:
+            number(s["calls"], f"{where}.calls", above=True)
+        if s.get("max_calls") is not None:
+            number(s["max_calls"], f"{where}.max_calls", above=True)
+
+
 def validate(spec):
+    validate_types(spec)
     need = ("name", "model", "p", "calls", "max_calls", "tok_in", "tok_out")
     for s in spec["steps"]:
         missing = [k for k in need if k not in s]
@@ -230,6 +289,12 @@ def warnings(spec):
         out.append("no success_rate: cost per successful run not computed; take it from evals or the SLA report")
     elif "review_minutes" not in spec:
         out.append("cost per successful run leaves out human review: set review_minutes and value_per_minute")
+    long = [f"{s['name']} ('{s['model']}' -> '{s['model']}_long')" for s in spec["steps"]
+            if f"{s['model']}_long" in spec["prices"]
+            and max(s["tok_in"], s.get("p95_tok_in", 0), s.get("max_tok_in", 0)) > LONG_PROMPT]
+    if long:
+        out.append(f"prompts can pass {LONG_PROMPT:,} tokens on {', '.join(long)}: priced here at the short-prompt "
+                   "rate; move the step to the long tier, or split it")
     uncapped = [s["name"] for s in spec["steps"] if s["max_calls"] is None]
     if uncapped:
         out.append(f"no cap on {', '.join(uncapped)}: ceiling is UNBOUNDED; rerun with proposed caps and report both")
@@ -243,7 +308,7 @@ def report(spec):
     cap_calls = "none" if ceil is None else sum(s["max_calls"] for s in spec["steps"])
     out = [f"prices as of {spec.get('prices_as_of', 'UNDATED: add a date')} (recheck before use)",
            f"model calls/request   expected {sum(exp_calls(s) for s in spec['steps']):.1f}   cap {cap_calls}",
-           f"cost/request          expected ${exp:.4f}   likely high (~p95 request) ${hv:.4f}",
+           f"cost/request          expected ${exp:.4f}   likely high ${hv:.4f} (every step at its p95; above a true p95)",
            "capped ceiling        " + ("UNBOUNDED (no cap on at least one step)" if ceil is None else
                                       f"${ceil:.4f} ({ceil / max(exp, 1e-12):.0f}x expected): every step at its cap, "
                                       "no cache, max retries; a bound, not a forecast"),
@@ -319,6 +384,38 @@ def selftest():
     assert latency([{**a, "parallel": True}, {**a, "name": "b"}], 0.0) == 10.0
     assert latency([{**a, "stage": 1}, {**a, "name": "b", "stage": 1}], 0.0) == 8.0
     assert latency([{**a, "p": 0.5, "parallel": True}], 0.0) == 1.0
+    for bad in ({"request_per_day": 500}, {"steps": [{**GUIDE_SPEC["steps"][0], "tok_inn": 10}]},
+                {"requests_per_day": -5}, {"requests_per_day": "lots"}, {"steps": []}, {"retry_rate": True},
+                {"prices": {"mid": {"in": -1.0}}}, {"steps": [{**GUIDE_SPEC["steps"][0], "cached": 1.5}]}):
+        try:
+            validate(merge(EXAMPLE, bad))
+        except SystemExit as e:
+            assert isinstance(e.code, str) and e.code  # a message, not a traceback
+        else:
+            raise AssertionError(f"accepted bad spec {bad}")
+    validate(merge(EXAMPLE, {}))  # the example itself is valid
+    assert not any("short-prompt" in w for w in warnings(merge(EXAMPLE, {})))
+    for k in ("tok_in", "p95_tok_in", "max_tok_in"):  # a small step that can pass 100K warns; small_long does not
+        big = {**EXAMPLE["steps"][0], "tok_in": 2_000, k: 150_000}
+        assert any("short-prompt" in w and "small_long" in w for w in warnings(merge(EXAMPLE, {"steps": [big]}))), k
+    assert not any("short-prompt" in w for w in warnings(merge(EXAMPLE, {"steps": [{**big, "model": "small_long"}]})))
+    ex = merge(EXAMPLE, {})  # hand-checked against the 2026-10-19 prices; recompute when the snapshot changes
+    assert abs(expected(ex) - 0.034060) < 1e-5, expected(ex)  # model $0.030533 x 1.05 + $0.002 other
+    assert abs(per_success(ex, expected(ex)) - 0.43225) < 1e-4  # ($0.034060 + 0.5 x $0.6667) / 0.85
+
+
+def load_spec(path):
+    """The user's spec from a JSON file, or a one-line error (never a traceback)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            user = json.load(f)
+    except FileNotFoundError:
+        sys.exit(f"{path}: file not found")
+    except json.JSONDecodeError as e:
+        sys.exit(f"{path}: not valid JSON ({e.msg}, line {e.lineno})")
+    if not isinstance(user, dict):
+        sys.exit(f"{path}: the spec must be a JSON object, not {type(user).__name__}")
+    return user
 
 
 if __name__ == "__main__":
@@ -328,8 +425,5 @@ if __name__ == "__main__":
     elif sys.argv[1:2] == ["--example"]:
         print(json.dumps(EXAMPLE, indent=2))
     else:
-        user = {}
-        if sys.argv[1:]:
-            with open(sys.argv[1], encoding="utf-8") as f:
-                user = json.load(f)
+        user = load_spec(sys.argv[1]) if sys.argv[1:] else {}
         print(report(merge(EXAMPLE, user)))

@@ -11,9 +11,9 @@ The judge receives the task input, the agent's output (or transcript), the rubri
 1. **Ask the workflow's practical questions**, not "rate the quality". For a code-review agent: is the finding real, is it grounded in the changed lines, is the severity justified, should this comment be shown [SYSTEMS ch14]. For a support agent: is every stated fact supported by a tool result, does the reply match what was executed, should a human have been involved. Generic quality prompts reward fluency.
 2. **Three to five criteria**, each tied to the task. More than about seven dilutes focus [EVALS ch5].
 3. **Define every score level**, e.g. 1 = factual errors, 3 = correct but incomplete, 5 = correct and complete [EVALS ch5]. Binary criteria (true/false) are easier to calibrate than 1 to 5 scales; prefer them where the decision is binary anyway. Write the levels for this dimension. A scale copied from a template for another dimension (a faithfulness scale on a tone judge), or one whose top level asks only for a polite, on-topic reply, has no level a fluent wrong answer would land in. Test it before use: a known fluent-but-wrong output must score below the top level.
-4. **Weight so a fluent wrong answer cannot pass.** With correctness weighted 0.4, an answer scoring 5 on clarity and conciseness but 1 on correctness averages 2.5 and fails a 3.0 threshold [EVALS ch5]. Better still, make correctness a gate: fail if correctness < 3, whatever the rest.
+4. **Make correctness a gate, not just a weight.** In EVALS's example the weights are correctness 0.4, completeness 0.3, clarity 0.2 and conciseness 0.1; a fluent wrong answer scoring 1, 2, 5 and 5 averages 2.5 and fails a 3.0 threshold [EVALS ch5]. It fails only because completeness is low too. With three criteria (correctness 0.4, clarity 0.3, conciseness 0.3), the same wrong answer scores 0.4 + 1.5 + 1.5 = 3.4 and passes. A weight alone cannot stop fluent wrong answers, so fail the case if correctness is below 3, whatever the rest.
 5. **Reason before score.** Ask for the reasoning field first; the reason is what makes a failure actionable [EVALS ch5].
-6. **Lowest-variance sampling** for the judge: temperature 0 [EVALS ch5] where the provider accepts it. The newest Claude models reject non-default temperature/top_p/top_k (as of 2026-10), so on those keep the default, pin the prompt and rubric versions, use structured output, and take the majority (or median) of three judge samples. The agent runs at production settings.
+6. **Lowest-variance sampling** for the judge: temperature 0 [EVALS ch5] where the provider accepts it. Claude 4.7 and later models return a 400 error for a non-default temperature, top_p or top_k (Anthropic's deprecations page, checked 2026-10-19), so on those keep the default, pin the prompt and rubric versions, use structured output, and take the majority (or median) of three judge samples. The agent runs at production settings.
 7. **Version the rubric like code.** Store its calibration results with it [SYSTEMS ch14][EVALS ch5].
 
 Example output contract:
@@ -48,6 +48,7 @@ Compute `pass` in code from the criteria (gate criteria all true, soft criteria 
 | Verbosity: longer answers score higher | Criterion for conciseness, length-normalised scoring, calibration cases with long wrong answers [EVALS ch5] |
 | Position: first (or second) option favoured in pairwise | Run both orders; count a win only if it holds in both [ILLUSTRATED ch7] |
 | Self-preference: favours its own family's style | Judge from another family [ILLUSTRATED ch7] |
+| Identity: told which model, prompt or version wrote the output | Strip model names, version tags and provider-specific formatting; randomise order; run both orders. On a past unblinded run, re-score a sample blind once to estimate the bias |
 | Authority: confident tone or citations sway it | Require claims to be checked against provided evidence |
 | Leniency: everything gets 4s and 5s | Tighten upper score levels; positive bias versus humans signals this [EVALS ch5] |
 
@@ -120,7 +121,7 @@ Until a criterion is calibrated, code checks gate and the judge only ranks outpu
 
 ## Human annotation as an operation
 
-People calibrate judges, break ties and judge subjective qualities [EVALS ch9].
+People calibrate judges, break ties and judge subjective qualities [EVALS ch9]. Annotators and judge providers see real user data only after de-identification, and only where the data terms allow it (datasets-and-harness.md, "Real user data").
 - **Budget.** About 50 annotations a month (roughly two expert hours) is a workable minimum [EVALS ch9].
 - **What to annotate.** Cases where scorers disagree (a spread of 0.3 or more): if annotators also disagree, the rubric is ambiguous; if they side with one scorer, the other is off. Sample about 70% failures and 30% passes to catch false passes [EVALS ch9].
 - **Quality controls.** Hide known-answer gold questions in 10 to 20% of each batch and double-annotate at least 20%. Keep batches under 50 and guidelines to one page with three examples [EVALS ch9].

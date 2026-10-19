@@ -4,7 +4,7 @@
 
 ## MCP specification 2026-07-28 (current revision)
 
-Source: https://modelcontextprotocol.io/specification/2026-07-28/changelog
+Source: https://modelcontextprotocol.io/specification/2026-07-28/changelog (re-fetched 2026-10-19; the items below still match)
 
 - **Stateless.** There is no `initialize` handshake and no `Mcp-Session-Id`. Every request carries its protocol version and client capabilities in `_meta`. List results must not vary per connection or as a side effect of other requests, but they may vary by the authorization on the request (for example, only the tools the caller's scopes allow). State-dependent availability therefore goes in tool results.
 - **`server/discover`** must be implemented by servers; clients may call it for up-front version selection.
@@ -81,7 +81,7 @@ Gotcha: the MCP book's error example raises `ValueError` for a model-recoverable
 
 Development: the MCP book runs servers in MCP Inspector with `uv run mcp dev server.py` [MCP ch5].
 
-**Approval gate with elicitation (v2, verified against the SDK's elicitation docs).** A resolver receives the tool's other arguments by name and returns either the value (no prompt) or `Elicit(message, Model)`. The tool always receives an `ElicitationResult`; a value returned directly arrives wrapped as `AcceptedElicitation`. A client without elicitation gets a protocol error ("Elicitation not supported") before the tool body runs. The SDK offers no capability query, so pair the tool with a propose-only path.
+**Approval gate with elicitation (v2, verified against the SDK's elicitation docs).** A resolver receives the tool's other arguments by name and returns either the value (no prompt) or `Elicit(message, Model)`. The resolver runs before the tool body, so it authorises the caller and checks the order before it asks anyone; the body checks again, because the order can change while the person decides. The body looks the key up before its state check, so an exact resend returns the first receipt instead of an error, and the resolver never asks a person about a resend. The tool always receives an `ElicitationResult`; a value returned directly arrives wrapped as `AcceptedElicitation`. A client without elicitation gets a protocol error ("Elicitation not supported") before the tool body runs. The SDK offers no capability query, so pair the tool with a propose-only path.
 
 ```python
 from typing import Annotated
@@ -97,7 +97,14 @@ NO_PROMPT_LIMIT_CENTS = 5_000          # below this, no confirmation; an assumpt
 class Approve(BaseModel):
     approve: bool = Field(title="Issue this refund?")
 
+def refund_key(order_id: str, amount_cents: int) -> str:
+    return f"refund:{order_id}:{amount_cents}"        # natural key (no run ID here), kept for a short window
+
 async def approve_refund(order_id: str, amount_cents: int) -> Approve | Elicit[Approve]:
+    order = await find_order_for_caller(order_id)     # your code: auth + ownership; None if not allowed
+    if (order is None or amount_cents > order.refundable_cents
+            or await find_refund(refund_key(order_id, amount_cents))):
+        return Approve(approve=False)                 # never ask a person about a refusal or a resend
     if amount_cents <= NO_PROMPT_LIMIT_CENTS:
         return Approve(approve=True)
     return Elicit(f"Refund {amount_cents / 100:.2f} on order {order_id}?", Approve)
@@ -110,16 +117,23 @@ async def billing_refund_order(
 ) -> dict:
     """Refund part of a delivered order after the user confirms. Over 200.00, or if this
     client cannot show a confirmation, use billing_request_refund instead."""
+    order = await find_order_for_caller(order_id)        # re-check: state can change while the user decides
+    if order is None:
+        raise ToolError(f"No refundable order {order_id} for this caller.")
+    key = refund_key(order_id, amount_cents)
+    if done := await find_refund(key):                   # your code: key first, so a resend gets its receipt
+        return done
+    if amount_cents > order.refundable_cents:            # state check: stops a new request on a refunded order
+        raise ToolError(f"Only {order.refundable_cents} cents remain refundable on {order_id}.")
     match approval:
         case AcceptedElicitation(data=Approve(approve=True)):
             pass
         case _:
-            return {"status": "not_refunded", "reason": "user declined or cancelled"}
-    order = await load_order_for_caller(order_id)        # your code: auth + ownership
-    if amount_cents > order.refundable_cents:            # state check: the real duplicate guard
-        raise ToolError(f"Only {order.refundable_cents} cents remain refundable on {order_id}.")
-    key = f"refund:{order_id}:{amount_cents}"            # natural key; backend dedupes resends
-    return await issue_refund(order_id, amount_cents, idempotency_key=key)
+            return {"status": "not_refunded", "reason": "not approved (declined or cancelled)"}
+    # Your code. Billing dedupes on the key and refunds only if refundable_cents is still the value read,
+    # in one transaction, so two overlapping calls cannot both pass; on a mismatch, raise a ToolError.
+    return await issue_refund(order_id, amount_cents, idempotency_key=key,
+                              expect_refundable_cents=order.refundable_cents)
 ```
 
 `billing_request_refund` (not shown) is the propose-only companion. It validates the same way, stores a pending refund, and returns a reference for a human to approve in your own UI. It never moves money.
@@ -131,7 +145,7 @@ Sources: https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-to
 - **Names** must match `^[a-zA-Z0-9_-]{1,128}$`. No dots, so translate MCP names that contain them.
 - **Descriptions:** the docs call detailed descriptions the most important factor and suggest at least 3-4 sentences, more for complex tools. They recommend consolidating related operations behind an `action` parameter and namespacing by service.
 - **`input_examples`**: schema-valid example inputs; each costs about 20-50 tokens (simple) to 100-200 (nested). Not supported on server tools.
-- **`tool_choice`**: `auto` (default), `any`, `tool` (named), `none`. `any` and `tool` return a 400 on Claude Opus 5.5, Sonnet 5.5, Fable 5.1 and Mythos 5.1, and with manual extended thinking. On those, use `auto` with strict tool use plus enforcement in code. Forced choice also suppresses text before the tool call. Changing `tool_choice` invalidates cached message blocks.
+- **`tool_choice`**: `auto` (default), `any`, `tool` (named), `none`. `any` and `tool` return a 400 on Claude Opus 5.5, Sonnet 5.5, Fable 5.1 and Mythos 5.1, and with manual extended thinking (define-tools page re-checked 2026-10-19; models such as Haiku 5.5 still accept forced use, which skips thinking). On those, use `auto` with strict tool use plus enforcement in code. Forced choice also suppresses text before the tool call. Changing `tool_choice` invalidates cached message blocks.
 - **Strict tool use** (`strict: true`) constrains decoding to the schema. Reported limits: some JSON Schema keywords are unsupported (numeric bounds and string-length limits among them), there is a cap on strict tools per request (20 when checked), no guarantee on enum capitalisation, and no guarantee when the model refuses or hits the token limit. Keep business validation.
 - **Tool search tool:** `tool_search_tool_regex_20251119` or `tool_search_tool_bm25_20251119`. Set `defer_loading: true` on the other tools, keep the 3-5 most-used non-deferred, and never defer the search tool. It returns 5 tools by default and supports up to 10,000 deferred tools. The docs recommend it at 10 or more tools or over 10k tokens of definitions, and say selection degrades past 30-50 tools. Deferred tools are excluded from the cached prefix, so caching survives. With the MCP connector, set `defer_loading` on the `mcp_toolset` config.
 - **Parameters asking "why":** ask for a short explanation or evidence, not reasoning. Asking for step-by-step reasoning can trigger a refusal.

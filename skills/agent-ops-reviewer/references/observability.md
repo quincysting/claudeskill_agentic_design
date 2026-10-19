@@ -81,11 +81,12 @@ def call_tool(name, args, call_id):
         span.set_attribute("gen_ai.tool.name", name)
         span.set_attribute("gen_ai.tool.call.id", call_id)
         span.set_attribute("app.tool.args_hash", stable_hash(args))   # not the raw args in prod
-        tool = TOOLS[name]
+        tool = TOOLS[name]                                           # unknown name: KeyError, span marked error
+        validate_args(name, args)          # model-supplied: check against the tool's schema before running it
         return tool(**args)                                          # exceptions mark the span as error
 ```
 
-Export over OTLP (default ports 4317 gRPC, 4318 HTTP) and confirm a span arrives end to end before relying on any dashboard. Extend the stack the company already runs; add an LLM-native backend (Langfuse, Phoenix and similar) only for features you will use, such as built-in eval and annotation. Several tools are fine if they correlate by trace ID.
+Export over OTLP (default ports 4317 gRPC, 4318 HTTP) and confirm a span arrives end to end before relying on any dashboard. The collector receives prompts and tool arguments, so treat it as a store of private data: keep it off the internet (loopback, a private network or a sidecar), require authentication and TLS on every exporter connection, and give it the same access control as the payload store (checklist K8). Extend the stack the company already runs; add an LLM-native backend (Langfuse, Phoenix and similar) only for features you will use, such as built-in eval and annotation. Several tools are fine if they correlate by trace ID.
 
 ## 3. What to log, what to redact, how long to keep it
 
@@ -103,11 +104,16 @@ Observability storage turns into a shadow database of private prompts, documents
 - **Volume**: raw completions for every request become an expensive, unsearchable store. Metadata plus sampled payloads answers most investigations; the cost is that the payload for a rare failure may not exist, which is why failures are always captured.
 - **Telemetry never breaks the request.** Any custom log or metric shipper on the request path is best-effort: it has a timeout, swallows its own errors and counts the events it drops, instead of raising into the request.
 
+**When sensitive data is already stored** (C1 at 0 on a running system). Turning masking on stops new leaks; the old ones stay where they landed. The P0 fix has three parts:
+1. **Stop the flow**: mask before export and turn content capture off, as above.
+2. **Clean what is stored**: find every copy (log store, tracing vendor, debug payload store, backups, eval datasets and online-eval samples, exports and tickets that quote traces), then purge it or re-mask it in place, and keep a deletion log (what, where, when, by whom; never the content). Check the vendor's own retention and deletion path, and that backups expire or suppress the data on restore.
+3. **Escalate**: tell the organisation's privacy or legal owner what was exposed, to whom and for how long, with the inventory. Whether anyone must be notified, and by when, is their decision; some notification duties run on a short legal clock, so escalate on the day you find it. The review flags the question; it does not decide it, and it is not legal advice. Don't route the decision to another skill.
+
 **Settings by environment:**
 
 | Environment | Traces | Content capture | Retention |
 |---|---|---|---|
-| dev | 100% | on | days to a week |
+| dev | 100% | on, for test data only | days to a week |
 | staging | 100% | on, for test data only | short |
 | prod | metadata on 100% of runs, or tail-sampled keeping every error, escalation and guardrail hit | off; sampled, masked payloads in a separate store | per record type (audit long, debug payloads short) |
 
@@ -141,14 +147,14 @@ def sampled(request_id: str, rate: float) -> bool:
 
 - **Rate**: score everything below about 100 requests a day; start at 5% above that; **stratify** by task type and risk (a 5% sample of traffic that is 90% simple may contain no complex queries) and always include failures, escalations and guardrail hits.
 - **Size the window, not just the rate.** Half-width of a 95% interval on a pass rate p from n samples ≈ 1.96 × √(p(1−p)/n). At p = 85%: ±12.8 points with 30 samples, ±7.7 with 83, ±3.1 with 500, ±2.2 with 1,000. To resolve a drop of d points you need a half-width well under d; n ≈ 3.84 × p(1−p) / h². Short windows only catch large drops.
-- **Cost**: order scorers cheapest first (deterministic, then embedding, then small judge, then larger judge, then human). Budget eval spend at 5 to 15% of inference spend, with a floor of tens of dollars a month for small systems. Example from the eval literature (mid-2026): 10,000 requests a day at 5% is 500 scored runs, about $30 a month with a small-model judge.
+- **Cost**: order scorers cheapest first (deterministic, then embedding, then small judge, then larger judge, then human). Budget eval spend at 5 to 15% of inference spend, with a floor of tens of dollars a month for small systems. Example from one eval book (mid-2026 prices): 10,000 requests a day at 5% is 500 scored runs, about $30 a month with a small-model judge [EVALS ch11].
 - **Privacy**: scrub at the point of sampling, before the write; delete samples on a schedule.
 - Attach each verdict to its trace as a `gen_ai.evaluation.result` event so a low score leads straight to the run.
 - **Online scorers have no reference.** Live traffic has no expected answer, and reference-free judges (helpfulness, coherence, tone) rate a fluent invented answer highly. Pick online scorers that can still catch confident wrong output: (1) groundedness against the trace's own tool and retrieval results, so every stated fact appears in a result; (2) claim-versus-action checks, so the reply claims nothing that no executed call supports; (3) policy rules in code, for example "states account data although no account tool was called"; (4) precondition flags such as an empty retrieval. Then label a small stratified production sample each week for reference-based correctness, and alert on that rate with wide windows. Helpfulness and tone scores alone are not a quality monitor. Reference-based scorers and judge calibration belong to **agent-eval-designer**.
 
 ## 6. Alerts that people act on
 
-Never alert on a single request. Alert on windows with a minimum sample count, in layers:
+Never alert on a single request for a rate or a quality metric. Alert on windows with a minimum sample count, in layers. The exception is an **invariant alert**, an event that must never happen: a duplicate side effect (the same idempotency key executed twice), sensitive data detected in telemetry, a kill-switch bypass (a write while draft-only or abort is set). One occurrence pages, with no window and no sample floor.
 
 | Layer | Rule (starting point; tune on your data) | Route |
 |---|---|---|
@@ -172,7 +178,7 @@ Never alert on a single request. Alert on windows with a minimum sample count, i
 | Strategy | Use for | Rules |
 |---|---|---|
 | Shadow | Model, prompt or planner changes, seen on real traffic before any user | Same inputs under the same request ID, output logged never shown; compare tool choice, latency, tokens, quality; promote after it matches production over about 200 to 500 sampled requests. **Route write tools to a recorder** that returns the recorded production result or a dry-run response, and score the intended call; a shadow that can call `issue_refund` acts twice. Approvals: replayed or synthetic. Costs extra inference for the shadowed share. |
-| Canary | Promoting a candidate that passed shadow | 1 to 5% of traffic for at least 24 hours; every metric filterable by version tag; automatic rollback if its score falls more than the tolerance below production, or if success under the SLA, p95 latency, duplicate side effects, cost per successful run or review minutes degrade (flip to draft-only or roll back) |
+| Canary | Promoting a candidate that passed shadow | 1 to 5% of traffic for at least 24 hours [EVALS ch10]; every metric filterable by version tag; automatic rollback if its score falls more than the tolerance below production, or if success under the SLA, p95 latency, duplicate side effects, cost per successful run or review minutes degrade (flip to draft-only or roll back) |
 | A/B | Questions about user behaviour (completion, satisfaction) | Enough samples, sticky assignment, no switching mid-session, per-variant state for agents with memory; read transcripts before declaring a loser (a lower completion rate can mean deeper engagement) |
 | Bandit | Many variants, a reward you trust, spare traffic | Only with a validated reward; oversight against chasing short-term trends |
 
@@ -200,4 +206,4 @@ production run (traced) -> hashed sample scored async -> windowed alert
 
 ## 9. Choosing tooling
 
-Choose on principles, not feature grids (which date within months): OTLP ingest, correlation by trace ID across tools, bulk export of traces, datasets, annotations with provenance, per-case results and scorer configs, and a self-host option if data rules require it. Keep scorers in your own code behind small adapters so a platform switch is a configuration change; teams do switch platforms. Build-versus-buy estimate from the eval literature (mid-2026, five engineers): own toolkit about eight engineering hours a month; a platform $200 to $500 a month plus about two hours; if more than half your scoring is custom, building tends to win; multiply migration estimates by three to five. Langfuse, as one example, is open source and self-hostable (MIT core, as of 2026-10).
+Choose on principles, not feature grids (which date within months): OTLP ingest, correlation by trace ID across tools, bulk export of traces, datasets, annotations with provenance, per-case results and scorer configs, and a self-host option if data rules require it. Keep scorers in your own code behind small adapters so a platform switch is a configuration change; teams do switch platforms. Build-versus-buy estimate from one eval book (mid-2026, five engineers): own toolkit about eight engineering hours a month; a platform $200 to $500 a month plus about two hours; if more than half your scoring is custom, building tends to win; multiply migration estimates by three to five [EVALS ch12]. Langfuse, as one example, is open source and self-hostable (MIT core, as of 2026-10).

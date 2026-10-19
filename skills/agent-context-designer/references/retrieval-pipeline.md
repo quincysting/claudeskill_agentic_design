@@ -2,7 +2,7 @@
 
 Depth for Procedure steps 3-4. Citation keys like [SYSTEMS ch5] are expanded in SKILL.md under Sources.
 
-Contents: 0 Source-readiness audit · 1 Mode (1.1 vector, graph or hybrid by query type) · 2 Index time (2.4 embeddings and fine-tuning, 2.5 stale documents and idempotent indexing, 2.6 mixed or sensitive sources, 2.7 ingest checks) · 3 Query time (3.2 rank fusion or weighted scores, 3.4 several indexes, 3.7 chunk order) · 4 Agentic retrieval · 5 Graph and structured retrieval (metric catalog, entitlements; 5.1 one store per access pattern; 5.2 building a graph with an LLM; 5.3 model-written graph and SQL queries) · 6 Caching · 7 Debug order
+Contents: 0 Source-readiness audit · 1 Mode (1.1 vector, graph or hybrid by query type) · 2 Index time (2.3 metadata, allow and deny rules, 2.4 embeddings and fine-tuning, 2.5 stale documents and idempotent indexing, 2.6 mixed or sensitive sources, 2.7 ingest checks) · 3 Query time (3.2 rank fusion or weighted scores, 3.4 several indexes, 3.7 chunk order, 3.8 cite and verify) · 4 Agentic retrieval · 5 Graph and structured retrieval (metric catalog, entitlements; 5.1 one store per access pattern; 5.2 building a graph with an LLM; 5.3 model-written graph and SQL queries) · 6 Caching · 7 Debug order
 
 A RAG system is two pipelines that meet at an index. Index time: parse, chunk, attach metadata, embed, index. Query time: understand the query, search wide, narrow, assemble, generate. Read query time as a funnel. The first stage is judged by **recall** (did the evidence reach the candidate set at all?), later stages by **precision** (how much of what reaches the model is useful?). Nothing downstream recovers a document the first stage missed [DLLMA ch12 §The RAG Pipeline], and a failure usually runs down the chain: bad chunking, then weak retrieval, then poor ranking, then a thin context [SYSTEMS ch5 §5.10 Retrieval Quality Shapes Answers].
 
@@ -55,7 +55,7 @@ A graph fixes three weaknesses of chunk retrieval: chunks lose the relations bet
 | Relationship chain across entities | "Who owns the service behind this error, and what changed there this week?" | Graph: find the entity, then k-hop or path retrieval [KGRAG ch7 §Graph-guided retrieval] |
 | Corpus-wide theme | "What do customers complain about most?" | Graph community summaries [DLLMA ch12 §Retrieve] |
 | No explicit entity, or nuance matters | "Do our replies to enterprise clients sound too stiff?" | Vectors, not the graph |
-| Counts, sums, filters over records | "How many refunds over $500 last month?" | Text-to-SQL on the system of record (section 5) |
+| Counts, sums, filters over records | "How many refunds over $500 last month?" | Recurring question shapes: a vetted parameterised template the model fills (section 5.3). Exploratory one-offs: text-to-SQL on the system of record (section 5) |
 | Governed number | "What was last quarter's churn rate?" | Metric catalog (section 5) |
 
 **Default: hybrid first, a graph only when measured, then route.** Keyword plus vector hybrid serves most traffic. Add a graph only when your test set holds relationship or corpus-wide questions that hybrid search measurably fails, and you can keep the graph current (section 5.2). Then put a router in front of the stores instead of replacing one with the other. The books split here. BUILDAPPS says GraphRAG "frequently produces better results" but gives no measurement [BUILDAPPS ch6 §Using Knowledge Graphs]. SYSTEMS and DLLMA use it only where the domain justifies the cost, and warn that bad relationships are worse than missing ones ([SYSTEMS ch5 §5.15 Advanced RAG: From Retrieval to Navigation]; [DLLMA ch12 §Retrieve]). KGRAG makes the strongest case for graphs and still ends at HybridRAG, graph and vector retrieval in one system, which did better on financial questions in the work it cites [KGRAG ch7 §GraphRAG applications]. It mentions a router that picks the store per query as something future systems may add, not as current practice. Routing is this skill's recommendation for mixed traffic once both stores exist. GraphRAG has no standard benchmarks, so the decision rests on your own question set (evaluation.md §1).
@@ -82,10 +82,12 @@ A graph fixes three weaknesses of chunk retrieval: chunks lose the relations bet
 - **Chunk size.** No book gives an ideal size. Test two or three granularities against your real queries [DLLMA ch11 §Chunking]. Keep an answer from being split across a boundary [EVALS ch7].
 
 ### 2.3 Metadata schema (per chunk)
-`chunk_id, doc_id, title, section_path, page, source, doc_type, version or effective_date, language, product, tenant_id, acl_groups, content_hash, pipeline_version, batch_id, indexed_at`
+`chunk_id, doc_id, title, section_path, section_role, page, source, doc_type, version or effective_date, language, product, tenant_id, acl_groups, deny_scopes, content_hash, pipeline_version, batch_id, indexed_at`
 
 - Filter on these inside the search ([SYSTEMS ch5 §5.9 Metadata Filtering]). Filters can come from rules or from an LLM that parses the query [DLLMA ch12 §Retrieve].
 - **ACLs are the field most often missing.** Embeddings copied out of secured systems lose the access rules that governed them [MESH ch1 §The Agent Opportunity]. Carry them as metadata, sync them when the source changes, and enforce them per query from the authenticated identity.
+- **Allow lists are not enough: carry deny rules too.** Ethical walls, information barriers, conflict screens, legal holds and need-to-know exclusions bar a person who would otherwise qualify: a lawyer in the litigation group who is screened off one matter, an analyst behind a research barrier. An allow list can't say that. Store `deny_scopes` beside `acl_groups` and evaluate both inside the search for the caller: a chunk is visible only when the caller matches an allow group and no deny scope, and deny wins. A new wall is an ACL change. Push it to the index metadata, invalidate every cache keyed by the old scope (section 6), and purge recalled memory, session state and checkpoints that hold content from the newly barred scope (memory-design.md §6). Test it with a user walled off after the fact: on the next query they lose access everywhere, caches and memory included.
+- **`section_role`** says what kind of text a chunk is: body or holding, dissent, headnote or editorial summary, a party's quoted argument, a superseded clause. The citation check in section 3.8 uses it.
 
 ### 2.4 Embeddings (basics; model choice goes to agent-model-selector)
 - Use the same model for queries and documents. Use the similarity measure the model was trained with. With unit-normalised vectors, dot product equals cosine and costs less ([BUILDAGENTIC ch2]; [DLLMA ch11 §Similarity Measures]).
@@ -102,6 +104,7 @@ A graph fixes three weaknesses of chunk retrieval: chunks lose the relations bet
 - **Make indexing idempotent.** Each run reads only its own increment (documents new or changed since the last good run), not the whole source again, and upserts by a stable chunk ID (document ID + chunk position). The content hash decides whether a chunk needs re-embedding. When a changed document yields fewer chunks, delete the leftovers. Confirm that the index honours the IDs you supply. If it assigns its own, every re-run duplicates chunks: delete by document ID before inserting, or deduplicate by chunk ID at query time (section 3.6) and count duplicates as an index-health metric (section 2.7).
 - **Ingest generation.** Keep one counter per index, the ingest generation. Every ingest run that passes its checks (section 2.7) increments it, incremental runs included, and the query path reads it. Retrieval and answer caches put it in their keys (section 6). An index or alias name is not a version here: nightly upserts into a live index never change it, so cached "not found" results would outlive the ingest that added the documents. Tag every chunk with the `batch_id` of the run that wrote it.
 - Deleting a source must remove its chunks, vectors and any cached retrievals or answers that used them.
+- **Primary-authority corpora** (case law, statutes, regulations, standards): age is not staleness. An old decision can still be good law and a recent one can already be overturned. Take status from an authoritative feed (overruled, reversed, amended, repealed, withdrawn, superseded), store it as metadata, and re-check it at answer time for anything cited. The age limits and recency tie-breakers below don't apply across such documents. Treatment can cover one point rather than the whole document, so show it beside the citation; where you only know a document-level status, keep the document out of authoritative use and say why.
 
 **When documents carry no version or effective date** (the usual case for wikis), derive a status per document at index time and store it as metadata: `status` (`current`, `needs_review`, `deprecated`, `archived`), `last_modified`, `owner`, `supersedes`.
 
@@ -123,7 +126,7 @@ Some sources are knowledge, live state and personal data at once. A helpdesk tic
 
 | Use | Store | Built how | Who can read it | Retention |
 |---|---|---|---|---|
-| Reusable knowledge | Sanitised "case card" index: problem, environment, symptoms, resolution steps, outcome, source ticket ID | Batch job over resolved tickets with a confirmed fix. An LLM drafts the card; a PII and secret scrubber removes names, emails, person-linked hostnames and credentials; review a sample before publishing | Everyone allowed that knowledge class. Exclude sensitive categories (security incidents, HR, legal) or give them their own ACL | Same age limit and owner review as how-tos (section 2.5). Regenerate or delete the card when its ticket is deleted or reopened |
+| Reusable knowledge | Sanitised "case card" index: problem, environment, symptoms, resolution steps, outcome, source ticket ID | Batch job over resolved tickets with a confirmed fix. A PII and secret scrubber removes names, emails, person-linked hostnames and credentials before any model sees the ticket; an LLM drafts the card from the scrubbed text, through an endpoint approved for that data class; the scrubber runs again on the draft; review a sample before publishing. Rotate any credential the scrubber finds | Everyone allowed that knowledge class. Exclude sensitive categories (security incidents, HR, legal) or give them their own ACL | Same age limit and owner review as how-tos (section 2.5). Regenerate or delete the card when its ticket is deleted or reopened |
 | The user's own records | No copy: a live tool on the source system | Queried at run time, scoped to the reporter and the assignee group | Per the source system's ACL | The source system's retention |
 | Analytics and evaluation | Pseudonymised extracts | Scheduled export | Eval and ops team | Per policy; included in the deletion map |
 
@@ -171,8 +174,8 @@ def rrf(*rankings, k=60):                      # each ranking: list of doc ids, 
 ```
 
 - **Weighted scores are the alternative to RRF.** Normalise each list's scores to a common range, then combine them with a keyword weight α. KGRAG gives 0.4 or 0.5 as typical and notes that some sources suggest 0.3 [KGRAG ch6 §Keyword-based search and hybrid search]. Check the direction before copying a number: the book's formula and its prose disagree on which end of α means keyword, and engines differ too. Use weighting when one side should count more (identifier-heavy traffic toward keyword, paraphrase-heavy traffic toward dense), and tune α on the identifier and paraphrase slices. Otherwise keep RRF, which needs no normalisation and no tuning. Some managed engines offer only one of the two (aws-implementation-notes.md).
-- **Permission filter inside the search, before ranking.** Post-filtering a top-k list can come back short or empty, and an app-side filter that is forgotten on one code path leaks. Build retrieval test sets per permission scope, or a correct filter looks like a retrieval failure.
-- **Check how your engine filters approximate search.** "In the same query" can still mean "after the candidate cut-off": some engines take the index's top candidates first and filter them afterwards, so a selective filter (a small tenant, a narrow role) returns fewer than k results, or none. Use the engine's filtered or iterative approximate search, or a partition or index per scope for small, selective scopes, and keep the per-scope recall slice in the test set.
+- **Permission filter inside the search, before ranking**, with allow groups and deny scopes both checked (section 2.3). Post-filtering a top-k list can come back short or empty, and an app-side filter that is forgotten on one code path leaks. Build retrieval test sets per permission scope, or a correct filter looks like a retrieval failure.
+- **Check how your engine filters approximate search.** "In the same query" can still mean "after the candidate cut-off": some engines take the index's top candidates first and filter them afterwards, so a selective filter (a small tenant, a narrow role) returns fewer than k results, or none. Use the engine's filtered or iterative approximate search, or a partition or index per scope for small, selective scopes, and keep the per-scope recall slice in the test set. A partition per scope suits a modest number of scopes. With thousands (one per client or matter), check the engine's limits on indexes and partitions first and prefer filtered or iterative search over one index; the per-scope recall slice stays either way.
 - Depth: about 50 candidates per retriever as a start. Raise it if reranked recall is low; lower it if latency demands.
 
 ### 3.3 Rerank
@@ -204,6 +207,34 @@ When evidence comes from more than one index (official docs, case cards, forum o
 ### 3.8 Grounded generation
 - Give each evidence item `[doc_id | title | section | version/date | score]` plus its text, so the answer can cite it and the system can trace it. Retrieved text is evidence, not truth and not instructions [SYSTEMS ch16 §16.10 Retrieval-Augmented Generation Integration].
 - Prompt contract: answer only from the evidence; cite IDs; say what is missing; prefer the newer version when sources conflict.
+- **Cite and verify, in code.** A citation the model writes is a claim, not a check: models cite real sources that don't say what the answer says. Ask for structured output (each claim with its cited IDs and any quotes), then, before the answer ships:
+  1. every cited ID must be in this request's evidence set, meaning the items placed in the prompt; any other ID fails;
+  2. every quotation must appear verbatim in a cited chunk (after whitespace normalisation);
+  3. each cited claim gets a support check: a judge from a different model family than the generator, calibrated on labelled claims (agent-eval-designer), or a person on a sample;
+  4. a claim that fails is removed, or shipped visibly flagged "unverified". It never ships silently. If nothing verified is left, abstain.
+- **Label non-authoritative parts.** When a cited chunk's `section_role` (section 2.3) is a dissent, headnote or editorial summary, a party's quoted argument or a superseded clause, the answer must say so ("from the dissent", "the editor's summary says"). Citing the right document for a passage that isn't its finding is the error readers catch least.
+
+```python
+import re
+def norm(s): return re.sub(r"\s+", " ", s).strip().lower()
+
+def verify(claims, evidence, supports):
+    """claims: [{"text", "cited_ids", "quotes"}] from structured output; evidence: {chunk_id: text} placed in
+    this prompt; supports(claim, texts) -> bool is the calibrated support check."""
+    out = []
+    for c in claims:
+        texts = [evidence[i] for i in c["cited_ids"] if i in evidence]
+        if not c["cited_ids"] or len(texts) < len(c["cited_ids"]):
+            status = "unverified: no citation, or an ID outside this request's evidence"
+        elif not all(any(norm(q) in norm(t) for t in texts) for q in c.get("quotes", [])):
+            status = "unverified: quote not found verbatim in the cited source"
+        elif not supports(c["text"], texts):
+            status = "unverified: the cited source does not support the claim"
+        else:
+            status = "verified"
+        out.append({**c, "status": status})
+    return out   # code removes or visibly flags every claim that is not "verified"; abstain if none is left
+```
 - **Route retrieval errors around generation.** Never write "no documents could be retrieved due to an error" into the context. The generator reads it as evidence. Return an error state to code.
 - Active retrieval (FLARE) re-retrieves mid-answer when confidence drops [DLLMA ch12 §Generate]. It is rarely worth the complexity outside long-form writing.
 
@@ -239,7 +270,8 @@ flowchart LR
 
 - **GraphRAG** serves two question types that chunk retrieval handles badly: relation chains (error → service → owning team → recent deploy → rollback procedure; [SYSTEMS ch5 §5.15 Advanced RAG: From Retrieval to Navigation]) and corpus-wide themes answered from community summaries [DLLMA ch12 §Retrieve]. The decision and the routing are in section 1.1. The cost is an LLM call per chunk to extract entities and relations, plus calls per community to summarise, all repeated when documents change. Relations are much harder to extract than entities, and bad relationships are worse than missing ones. One book says GraphRAG "frequently produces better results" but gives no measurement [BUILDAPPS ch6 §Using Knowledge Graphs]. Build it only after a test set of those question types shows hybrid retrieval failing on them.
 - **Graph links fail empty, not loud.** A traversal over a missing link returns an empty list with no error, so a broken graph reads as "no applicable answer". Define the required paths (for example, every entity has a class and every in-scope class has at least one rule or metric), count violations after each ingest (orphans per node type, entities missing a required path) and fail the ingest above a threshold (section 2.7). Make ingest reject an entity that lacks the field its link depends on instead of creating an unlinked node. At query time, an empty traversal from an entity with no class is an index defect: log it and return an error state, not "no applicable metric". Fix the data, not the query.
-- **Text-to-SQL.** Retrieve "evidence" (business-term-to-column hints) filtered by database, generate SQL with structured output, execute it with a read-only role that carries the caller's entitlements (next bullet), and fall back to a canned reply on failure [BUILDAGENTIC ch2]. Without the evidence hints, the agent's accuracy fell from about 51% to about 36% [BUILDAGENTIC ch4 §Case Study 3: From RAG to Agents]. Generated SQL follows the rules in section 5.3.
+- **Text-to-SQL.** Retrieve "evidence" (business-term-to-column hints) filtered by database, generate SQL with structured output, execute it with a read-only role that carries the caller's entitlements (next bullet), and fall back to a canned reply on failure [BUILDAGENTIC ch2]. Without the evidence hints, the agent's accuracy fell from about 51% to about 36% [BUILDAGENTIC ch4 §Case Study 3: From RAG to Agents]. Generated SQL follows the rules in section 5.3. Keep it for exploratory questions; record questions that recur (lists, filters, counts) get vetted parameterised templates, the metric-catalog pattern below applied to lists.
+- **Machine-labelled filter fields.** A field produced by a classifier or an LLM ("ruled for the employer", "complaint about delivery") and used as a filter needs a sampled accuracy check against human labels, and the answer says that the field is machine-labelled and how accurate it measured. A filter on a wrong label returns a confident, wrong list.
 - **Entitlements at the data layer.** A read-only role stops writes, not cross-user reads: one shared read-only service role sees every user's rows. Run generated or catalogued queries under a principal that carries the caller's row and column entitlements (database row-level security, column grants, or the data catalog's row filters and column masks), resolved from the session identity. Check that each filter is in force for the principals it should cover; a filter that is defined but not granted or enabled restricts nothing. Test with two users who must see different rows.
 - **Metric catalog for governed numbers.** When the answer is a number someone is accountable for (a KPI, a regulatory ratio, a financial figure, an SLA value), don't generate SQL for it. Store each metric as `{metric_id, description, inputs, scope_parameters, owner, version, query_ref}`. The query itself lives in code or a reviewed repository, not in the catalog text the model sees. Map the question to a metric by similarity search over the descriptions, above a floor calibrated like any other (section 3.5). The model returns a metric ID and scope values; code checks both against the allow-list, runs the vetted query read-only with bound parameters under the caller's entitlements, and passes the value with its metric ID and version into the answer for citation. The model explains the number; it never computes it. An unknown metric ID is an error. No match above the floor means decline or route to a person, never a fallback to generated SQL. Watch for catalog drift, and for a description that matches while the scope doesn't, which is why code checks the scope values.
 - **Retrieved few-shot examples.** For repetitive tasks, retrieve solved examples similar to the input ([BUILDAGENTIC ch3 §Experiment: Different Types of Few-Shot Learning]; [DLLMA ch12 §RAG for Selecting In-Context Training Examples]).
@@ -285,8 +317,8 @@ The query tool's interface belongs to agent-tool-designer, and the threat model 
 | Cache | Key | Invalidate on | Risk |
 |---|---|---|---|
 | Embeddings | content hash + model version | model change | none worth noting |
-| Retrieval results | normalised query + **permission scope** + **ingest generation** (section 2.5) | new ingest generation, ACL change | cross-user leak if the scope is missing; stale "not found" if the generation is missing |
-| Final answers | query + scope + ingest generation | new ingest generation, any other source change | stale or personalised answers; only for stable, low-risk, non-personalised questions |
+| Retrieval results | normalised query + **permission scope** + **ingest generation** (section 2.5) | new ingest generation, ACL or deny-scope (wall) change | cross-user leak if the scope is missing; stale "not found" if the generation is missing |
+| Final answers | query + scope + ingest generation | new ingest generation, ACL or wall change, any other source change | stale or personalised answers; only for stable, low-risk, non-personalised questions |
 
 Caching is a correctness and security decision as well as a speed one ([SYSTEMS ch12 §12.10 Caching]; [SYSTEMS ch5 §5.14 RAG Latency, Performance, and Caching]).
 

@@ -81,8 +81,9 @@ The classical method, still the best proof of coverage [APIARCH ch6]:
 
 ## The lethal trifecta
 
-An agent that, **within one request or run**, has (1) access to private data, (2) exposure to untrusted content, and
-(3) a way to communicate externally can be turned into an exfiltration channel by one injected instruction (Simon Willison's framing, presented in [MCP ch7]).
+An agent that, **within one request or run**, can read private data, takes in content an outsider wrote, and has some
+way to send data out can be turned into an exfiltration channel by one injected instruction (Simon Willison's framing,
+presented in [MCP ch7]). It is the confidentiality case of the Rule of Two (below).
 Evaluate it per flow, not per product: the fix is usually to cut one leg for that request, not to remove a feature.
 
 Count these as legs even when they look harmless:
@@ -105,8 +106,12 @@ repositories and publish them in a pull request. All three legs were present in 
 private-data leg per request: gateway middleware refused access to any repository other than the one the session
 started in, and OAuth tokens were scoped to a single repository.
 
-The **Rule of Two** (Meta, October 2025, in [PLAYBOOK ch9]) names the same three ingredients and allows all three only
-under human oversight; how the two tests combine is in [controls-catalog.md](controls-catalog.md) §4.
+The **Rule of Two** (Meta, October 2025; reported in [PLAYBOOK ch9]) is wider. Its three properties are processing
+untrustworthy inputs, access to sensitive systems or private data, and the ability to change state or communicate
+externally; an agent holds at most two in one session unless a person reviews. The trifecta is its confidentiality
+case. The integrity case needs no exfiltration: untrusted input steers a change in a sensitive system (a merge to the
+main branch, a deploy, a permission change, a payment), so an agent with no secrets can still hold all three. Check
+both per flow; how the tests combine is in [controls-catalog.md](controls-catalog.md) §4.
 
 **MCP Colors** (stricter variant, [MCP ch7]): label each tool red (handles untrusted content) or blue (critical action),
 treat all data as private by default, and never mix red and blue tools in one agent or server. Use it when you design
@@ -196,9 +201,10 @@ receiver treats content as data and applies its own gate.
 
 ### T11 Memory and context poisoning
 Injected or wrong content is written to memory and biases later runs. In the travel-agent walkthrough the exfiltration
-run is stored as a successful task, so it becomes reference material for future plans [DEFGUIDE ch12]. A 2026 study cited in
-[ILLUSTRATED ch10] found that poisoning one part of a personal agent's persistent state raised attack success from
-about 25% to 64-74%. **Look for:** memory writes from runs that read untrusted content; shared memory across users;
+run is stored as a successful task, so it becomes reference material for future plans [DEFGUIDE ch12]. A 2026 study,
+"Your Agent, Their Asset: A Real-World Safety Analysis of OpenClaw", cited in [ILLUSTRATED ch10], found that
+poisoning any one part of a personal agent's persistent state (its capabilities, identity or knowledge) raised attack
+success from about 25% to 64-74%. **Look for:** memory writes from runs that read untrusted content; shared memory across users;
 "learned procedures" saved without review; memory tools whose session, user or author-role keys the model fills. **Control:** validated writes, provenance, tenant isolation, purge path.
 
 ### T12 Unexpected code execution
@@ -219,8 +225,10 @@ time, money), loop detection, circuit breakers, safe degradation.
 ### T15 Human-agent trust exploitation
 A compromised agent writes a persuasive justification so the approval click becomes the attack [DEFGUIDE ch12];
 reviewers suffer automation bias, alert fatigue and skill decay [BUILDAPPS ch12]; per-command approval protects only
-people who can read the command [ILLUSTRATED ch10]. **Control:** hard limits that hold after a yes; reviewer view that
-leads with the exact action; rare, routed escalations ([human-oversight.md](human-oversight.md)).
+people who can read the command [ILLUSTRATED ch10]. An approval link that decides when opened, or works for anyone
+holding it, lets a mail scanner or a forwarded email approve. **Control:** hard limits that hold after a yes; reviewer
+view that leads with the exact action; a signed-in, entitled approver; rare, routed escalations
+([human-oversight.md](human-oversight.md)).
 
 ### T16 Rogue or over-helpful agent (no attacker)
 Goal drift, completion bias, reward hacking, chaining tools nobody anticipated while staying inside formal permissions

@@ -16,12 +16,12 @@ Date: <YYYY-MM-DD> · Prices as of <date>, source <URL> · Status: <draft | agre
 | Task type | Max model calls | Max plan steps | Max tool calls | Max tokens | Max retries | Timeout | Cost fuse/session | At the limit |
 |---|---|---|---|---|---|---|---|---|
 
-At the limit: <partial result with what was done, what was not, the receipts and the smallest unblocking question | degrade | go async>. Enforcement (checks before every call, counters in checkpointed state): agent-harness-designer.
+At the limit: <partial result with what was done, what was not, the receipts and the smallest unblocking question | degrade | go async>. Enforcement (checks before every call, counters in checkpointed state): agent-harness-designer. Caps set without traces are marked provisional, with the date they get reset from the traced p99.
 
 ## 3. Cost model
 
 - Tiers: <small = model, mid = model, …>, prices as of <date>
-- Per request: expected <$>, likely high (~p95) <$>, capped ceiling <$> (<ratio>x; a bound, not a forecast). With no caps: "UNBOUNDED now; <$> with proposed caps <list>".
+- Per request: expected <$>, likely high (every step at its p95; above a true p95) <$>, capped ceiling <$> (<ratio>x; a bound, not a forecast). With no caps: "UNBOUNDED now; <$> with proposed caps <list>".
 - Per successful run: <$> = (expected + <review minutes> × <$ per minute>) / <success rate>; human review <share>
 - Per month: <$> at expected volume; <$> at peak (expected × busiest day's volume × 30)
 - Per-step share: <steps, including non-model cost>
@@ -65,6 +65,8 @@ Sampling: <rate, strata, always-captured classes> · Scorers: <cheapest first> �
 | Alert | Signal | Window | Min samples | Trigger | Severity | Route | Runbook |
 |---|---|---|---|---|---|---|---|
 
+Invariant alerts (one event pages, no window): duplicate side effect, sensitive data in telemetry, kill-switch bypass.
+
 ## 10. CI gates
 
 | Tier | Trigger | Scorers | Rule | Budget |
@@ -85,7 +87,7 @@ Sampling: <rate, strata, always-captured classes> · Scorers: <cheapest first> �
 
 Serving design (API layer, workers, model server, streaming, deployment shape): <link to the agent-harness-designer doc | not yet designed>.
 
-Peak load per model (busiest day ÷ 1,440 × peak-hour factor <x>; default 3 = 24 h ÷ 8 busy hours, assumed until measured):
+Peak load per model (busiest day ÷ 1,440 × peak-hour factor <x>; default 3 = 24 h ÷ 8 busy hours, assumed until measured; once traced, use the measured p99 calls per minute plus burst headroom):
 
 | Model | Calls/min | Uncached input tok/min | Output tok/min | Provider limits (RPM, ITPM, OTPM) | Headroom |
 |---|---|---|---|---|---|

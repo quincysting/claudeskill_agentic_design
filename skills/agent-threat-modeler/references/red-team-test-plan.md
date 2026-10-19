@@ -110,6 +110,11 @@ authorization, which an agent inherits whenever it authorises on its own scope [
 | Escalation (A, B, A) | One session or thread runs as A, then B, then A again | No rights or data from one identity carry into the other's calls |
 | Tier | An action above the tier granted for it | Not executed; the refusal or approval request is recorded |
 
+For an agent triggered by outsiders (public issues, inbound email, web forms), the principal is the owning team and
+every trigger is untrusted. Run the two-identity tests across the boundaries that matter there: the maintainer who
+admitted a request against an outsider who wrote it, and one resource scope (repository, project, tenant) against
+another.
+
 ## Harness-level abuse tests
 
 The runtime mechanics belong to agent-harness-designer and run in agent-eval-designer's harness slice. This skill

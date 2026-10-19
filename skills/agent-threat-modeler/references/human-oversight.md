@@ -88,7 +88,7 @@ States: `pending → approved | rejected | expired | escalated`, and `edited`, w
 | Side effect never in the same step as the interrupt; propose, pause, execute in separate steps | On resume the interrupted step reruns from its start, so anything before the pause runs twice [DEFGUIDE ch2] |
 | Execution keyed by the write's idempotency key, derived from durable run state as agent-harness-designer sets it (run, action and target, or a business key); the approval ID is stored with the intent and marked used in the same write | Double clicks, retried webhooks, resumed runs and a re-approval after a timeout execute at most once: a new approval gets a new ID, but the write keeps its key |
 | The approval binds a digest of the exact action and arguments (one canonical form: agent-harness-designer's harness-components.md §3), an expiry and a single-use nonce; the executor recomputes the digest and refuses a changed, expired or reused approval | An ID stops a double execution, not a changed one. Any change, extra retry or expiry needs a new approval [AISEC repo: part8_multi-agent_harness_spec/safety-governance.md]. Its example default is one invocation within 15 minutes [AISEC repo: part8_multi-agent_harness_spec/agents.yaml]; a template that runs whatever call is on the thread once "approved" shows the gap [RELATED repo: 12-factor-agents/packages/create-12-factor-agent/template/src/server.ts] |
-| Irreversible actions use a payload preview, then a confirm question naming action and target ("Do you approve sending this draft to this recipient with this subject, yes or no?"), never "should I send it?" | Specificity forces a conscious yes [PRODGUIDE ch12] |
+| Irreversible actions use a payload preview, then a confirm question that names the action, the target and the details that matter (for an email: this draft, this recipient, this subject) and asks for a yes or no, never "should I send it?" | Specificity forces a conscious yes [PRODGUIDE ch12] |
 | Before asking, the agent lists its assumptions and unknowns; if it isn't sure of the target (which customer, which campaign), it asks a question instead of offering to act | Uncertainty is a stop condition, not something an approval resolves [PRODGUIDE ch12] |
 | The request restates the action's permission tier | No silent upgrade goes unnoticed [PRODGUIDE ch12] |
 | Edited arguments re-run the hard limits | Otherwise "edit" is a way around the caps |
@@ -108,6 +108,24 @@ it inferred, and a second channel to confirm critical actions.
 
 **Who sees it:** route to someone qualified to judge that action. Per-command approval protects only people who can
 read the command [ILLUSTRATED ch10]; for non-expert users, rely on least privilege and design-time scope instead.
+
+**Approvals sent as links.** A link in an email or a chat message is a pointer, not a credential.
+- The approver signs in, and the gate checks that this identity may approve this action class at this value. The
+  requester never approves its own request.
+- Opening the link shows the review view (below) and decides nothing. Mail scanners, link previews and prefetch open
+  links with nobody reading them, so a link that approves when opened approves on its own, and a forwarded link would
+  let whoever received it approve. Either is a defect.
+- The decision is an explicit action in the signed-in session, bound to the digest of what was shown. The recorded
+  approver is the authenticated identity, never whoever held the link.
+- If links that approve or execute are already in people's mailboxes, retire them: first disable the action behind the
+  old links, then expire the approvals they point at, then review the actions approved without a signed-in approver.
+- Mechanics (a read-only GET, an authenticated POST with CSRF protection, the retirement steps, tests):
+  agent-harness-designer, harness-components.md §3.
+
+**When the platform already binds the approval.** A forge that ties a review to a commit SHA and dismisses it on a new
+push, or a document system that ties a sign-off to a version, already supplies the digest: the SHA or version is it.
+Record what it lacks, usually a single-use nonce and an expiry, and add them where you can, for example by closing
+approvals older than a set time and asking for a fresh review before the merge runs.
 
 **Delegates as reviewers.** An assistant who approves for the principal (the normal case for executives) is a separate
 identity with its own entitlements and approval rights, and is recorded as the approver. The requester never approves
@@ -161,12 +179,14 @@ point, not a measured threshold.
    and expected escalations). The sum is approvals per day. Count each class at its current rung on the autonomy ladder
    (§5), not its target: a class at "approve each" during a pilot asks for every instance. Run the check once per
    rollout stage, since the asks fall only as classes are promoted.
-2. Minutes per review: time about 20 real or mock reviews. If you can't, state an assumption and label it.
+2. Minutes per review: time about 20 real or mock reviews. If you can't, state an assumption and label it. Approvals
+   that are reviews of work (code, contracts, long drafts) take minutes, not seconds.
 3. Review budget: reviewers × minutes per day each can spend on review.
 4. Require approvals × minutes per review ≤ about half the budget. The half is this skill's convention for headroom
    (peaks, incidents), not a measured figure. For a personal assistant the reviewer is the principal: ask how many
    approvals a day they will really read and design to that number.
-5. If it doesn't fit, reduce asks with the patterns in controls-catalog §4, narrow the scope, or delay launch. Don't
+5. If it doesn't fit, reduce asks with the patterns in controls-catalog §4, cap intake at admission (how many requests
+   the agent accepts per day, sized to the review budget), narrow the scope, or delay launch. Don't
    auto-approve to make the numbers work. A time-boxed pilot may run over the budget only with the reviewer's written
    acceptance and an end date. After launch, watch approval latency (§8).
 
@@ -183,8 +203,8 @@ Ladder: **observe (shadow) → suggest or draft → approve each → act and not
   satisfaction met preset thresholds [BUILDAPPS ch13]. Calendar-based promotion ("trusted after three months") is an
   anecdote, not a gate.
 - **Move-up conditions in the books, as a spread.** [PLAYBOOK ch2] asks for about 80% of outputs approved without
-  changes, sustained 30 to 60 days (its summary says at least 30), plus written rules for the new autonomous actions
-  and a recovery plan for their failure modes. [PLAYBOOK ch4]'s stages use 85% over 30 or more days to leave
+  changes, sustained 30 to 60 days (its summary says at least 30), plus written rules covering what the agent may now
+  do on its own and a plan for recovering when those actions fail. [PLAYBOOK ch4]'s stages use 85% over 30 or more days to leave
   draft-only and 90% over 60 or more days to leave supervised execution. The spread from 80 to 90% shows the numbers
   are judgment, not measurement, so don't quote one as the book's rule. Keep the two preconditions (written rules,
   rehearsed recovery plan) and add the case count the books leave out: 30 days at five cases a week is about 20 cases,

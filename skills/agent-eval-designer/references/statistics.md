@@ -46,7 +46,7 @@ It can show that the agent breaks (every failure is real and becomes a task), an
 If all n independent tasks pass, the 95% upper bound on the failure rate is about 3/n (rule of three). Repeated trials of one task are not independent, so count distinct tasks, not trials. Variants of one scenario are not fully independent either; see "Correlated tasks" below.
 - 30 clean runs are compatible with a 10% failure rate.
 - To claim a critical-failure rate below 1%, you need about 300 independent tasks with zero failures (exactly 299).
-- 3 of 3 attacks blocked has a 95% lower bound of about 44% on the block rate.
+- 3 of 3 attacks blocked has an exact one-sided 95% lower bound of about 37% on the block rate (1 − `zero_fail_upper(3)`); the Wilson lower bound is about 44%.
 - 0 failures in 10 gives an exact one-sided bound of 26% (`zero_fail_upper(10)` below); the rule of three's 3/n is slightly conservative at small n.
 
 For a safety or "never do X" claim, size the suite from the rate you need to rule out. If the suite can't reach that size before launch, state the bound it does support ("zero failures in 40 tasks: below about 7.5%") and keep a human approval on that action until it can.
@@ -238,6 +238,7 @@ if __name__ == "__main__":
     assert [round(x, 2) for x in wilson(24, 30)] == [0.63, 0.9]
     assert [round(x, 2) for x in wilson(27, 30)] == [0.74, 0.97]
     assert round(zero_fail_upper(10), 2) == 0.26 and round(zero_fail_upper(30), 3) == 0.095
+    assert round(1 - zero_fail_upper(3), 2) == 0.37 and round(wilson(3, 3)[0], 2) == 0.44   # 3 of 3 blocked
     assert round(2 * sign_test(6, 0), 3) == 0.031 and 2 * sign_test(3, 0) == 0.25
     assert tasks_for_halfwidth(0.8, 0.05) == 246
     assert sign_test(5, 0) == 1 / 32 and sign_test(0, 0) == 1.0

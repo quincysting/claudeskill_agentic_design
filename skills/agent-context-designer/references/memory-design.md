@@ -2,7 +2,7 @@
 
 Depth for Procedure steps 2 and 5. Citation keys are expanded in SKILL.md under Sources.
 
-Contents: 1 Information map (state, memory, knowledge) · 2 Do you need long-term memory · 3 Types by update semantics (temporal graph memory) · 4 Write policy (4.5 governed entry; 4.7 proposed and approved writes, expiry, correction) · 5 Read policy · 6 Scope, privacy, deletion · 7 Consolidation and forgetting · 8 Threads, checkpoints and concurrent writers · 9 Multi-agent memory · 10 Agent-written notes and memory tools · 11 Poisoning (summary)
+Contents: 1 Information map (state, memory, knowledge) · 2 Do you need long-term memory · 3 Types by update semantics (temporal graph memory) · 4 Write policy (4.5 governed entry; 4.6 write gate; 4.7 proposed and approved writes, expiry, correction) · 5 Read policy · 6 Scope, privacy, deletion (6.1 cleaning up a running system) · 7 Consolidation and forgetting · 8 Threads, checkpoints and concurrent writers · 9 Multi-agent memory · 10 Agent-written notes and memory tools · 11 Poisoning (summary)
 
 Keep three things apart. The **context window** is the input of one call. **Memory** is state outside the model that survives the call. **Context** is what you put in the window for this step. Storing something is not the same as putting it in the prompt [SYSTEMS ch9]. There are two decisions to design: what the assembler reads into each call, and what the write gate lets into durable memory.
 
@@ -91,21 +91,28 @@ reason, created_at, updated_at, supersedes, last_retrieved_at, retrieval_count
 - **Category** selects the update rule (4.4) and the approval rule (4.7). Keep personal preferences apart from business defaults so one category doesn't pollute the other [PRODGUIDE ch8 §Memory Write Rules, Expiration, and Correction].
 - **Source and confidence** let the read path treat inferred entries with caution. An inferred entry never overrides a verified one.
 - **A TTL on every entry.** PRODGUIDE's examples run from 60 days for an owner map to 365 for a tone preference [PRODGUIDE ch8 §A Memory Architecture That Scales Without Code]. An expired entry counts as unknown: refresh it from the tool or document that owns it, or ask the user to confirm ("I have this as your default; is it still right?"). Never use it silently in the meantime [PRODGUIDE ch8 §Memory Write Rules, Expiration, and Correction].
-- **Sensitivity** `forbidden` means the value is never stored. Credentials, secrets, financial details and personal data stay out unless explicitly required and approved, and even then the entry holds a reference (`value_ref`: a record ID or link) instead of the raw value. Store an identifier or link instead of raw message content whenever that is enough [PRODGUIDE ch8 §Memory Write Rules, Expiration, and Correction].
+- **Sensitivity** `forbidden` means the value is never stored. Credentials, secrets, financial details and personal data stay out unless explicitly required and approved, and even then the entry holds a reference (`value_ref`: a record ID or link) instead of the raw value. Store an identifier or link instead of raw message content whenever that is enough [PRODGUIDE ch8 §Memory Write Rules, Expiration, and Correction]. Confidential client material and privileged communications are the same case: keep a reference to the record in the system that holds it, never the content. When an entry concerns a business record (a case, matter, account or claim), tie its retention to that record, so it expires when the record closes or its retention period ends, whichever comes first.
 - **Reason** names the future friction the entry removes. An entry nobody can justify in one sentence ("this saves time later") is deleted at the next review.
 
 ### 4.6 Minimal write gate (pattern sketch)
+Validation runs on every candidate, whatever its source: tool output and web pages carry API keys and account numbers as often as user text does. The gate only decides what becomes a proposal; the approval rule in 4.7 decides what becomes active. The explicit-request pattern is narrow on purpose: "always" or "never" would turn "I never got my refund" into memory.
 ```python
 import re
-EXPLICIT = re.compile(r"\b(remember|from now on|i prefer|always|never|call me)\b", re.I)
+EXPLICIT = re.compile(r"\b(remember (that|this|my)|from now on|call me)\b", re.I)
+AUTO_OK = set()  # categories that have earned automatic writes (4.7): empty at launch, e.g. {"units"} later
 
 def gate(candidate, source, session):
-    if source != "user":                       # tool/web/doc text: propose only, never auto-persist
+    validate(candidate)                        # every source: size cap + secret/PII patterns; raises on failure
+    if source != "user":                       # tool, web, document or agent text: a proposal at most
         return ("proposed", candidate)
-    validate(candidate)                        # size cap + secret/PII patterns; raises on failure
-    if EXPLICIT.search(candidate.text):
-        return ("active", candidate)           # explicit request: zero cost, predictable
-    return ("active", candidate) if classifier(candidate.text) >= 0.8 else ("drop", None)
+    if EXPLICIT.search(candidate.text) or classifier(candidate.text) >= 0.8:
+        return ("proposed", candidate)         # user text is a proposal too; promote() applies 4.7
+    return ("drop", None)
+
+def promote(proposal, approved_by=None):       # the 4.7 rule, in code
+    earned = (proposal.source.startswith("user_confirmed") and proposal.category in AUTO_OK
+              and proposal.sensitivity == "low")
+    return "active" if earned or approved_by else "proposed"
 
 def upsert(store, session, fact):              # scope comes from the session, not the model
     ns = (session.org_id, session.user_id, "fact")
@@ -137,7 +144,8 @@ The gate decides what becomes a candidate; the proposal decides what becomes mem
 
 - Namespace every record by organisation, user and memory type. Keep an organisation-shared segment that only admins can write [DEFGUIDE ch10].
 - Scope by agent kind: personal agents default to isolated memory; team agents get shared, access-controlled spaces; organisation-wide agents run under retention, logging and audit rules; users can inspect and delete what is kept about them [BUILDAPPS ch13 §Shared Memory and Context Boundaries].
-- Obligations: collect only what is needed, pseudonymise before storing, let users view, edit and delete, and make "forget this" erase the item from databases and backups [AGENTICAI ch7].
+- Typical obligations under privacy law (for example GDPR or CCPA; which apply depends on the jurisdiction, so confirm with the privacy owner): collect only what is needed, pseudonymise before storing, let users view, edit and delete, and make "forget this" reach every copy, backups included within a documented window [AGENTICAI ch7]. Whether a duty applies, and whether anything already exposed must be reported, is the organisation's privacy or legal owner's decision. The design flags it; it doesn't decide it, and none of this is legal advice.
+- A wall or barrier change (retrieval-pipeline.md §2.3) is a deletion for the newly barred user: purge their recalled memory, session state and checkpoints that hold content from that scope, and invalidate their scope-keyed caches.
 - **Deletion map.** A deletion must reach every copy:
 
 | Copy | Delete how |
@@ -150,9 +158,20 @@ The gate decides what becomes a candidate; the proposal decides what becomes mem
 | Thread checkpoints and transcripts | Redact or expire per retention policy |
 | Retrieval and answer caches | Invalidate by user scope |
 | Logs, traces, eval datasets | Retention policy; redact on request |
-| Backups | Expiry window documented and honoured |
+| Backups | Erase within a documented window, or record the deletion and suppress the item on any restore |
 
 - Storage location is also a UX choice. Client-side context is fast but lost across devices; server-side gives continuity at some privacy and latency cost; hybrids are common [BUILDAPPS ch3 §Context Retention and Continuity].
+
+### 6.1 Cleaning up a running system
+
+A review that finds memory breaking these rules in a live system has two jobs. Fixing the write path stops new damage; the entries the old design already stored stay until someone removes them. The fix includes the clean-up:
+1. **Inventory** each store: categories, counts, ages and sources, plus the summaries, embeddings, checkpoints, caches and logs derived from them.
+2. **Move system-of-record facts out**: delete the copied value and read it live (section 1).
+3. **Purge** forbidden categories (secrets, raw personal, confidential or privileged content, anything the current scope rules bar) from every copy in the deletion map.
+4. **Backfill** the governed fields on what stays: category, source `migrated` with confidence `inferred` until a person confirms it, TTL and sensitivity. An entry nobody can classify expires.
+5. **Log** what was deleted (IDs, category, store, date and reason, never the content), then re-run the leak and deletion tests (evaluation.md §6).
+
+Whether data that was already exposed must be reported to anyone is the privacy or legal owner's decision; the review flags it with the inventory attached.
 
 ## 7. Consolidation and forgetting
 

@@ -31,7 +31,7 @@ PRODGUIDE's template is short, and every field changes behaviour [PRODGUIDE ch7]
 | Failure categories | One fixed list (§4) | One behaviour per category |
 | Retry policy | When, how many times, when to escalate | Bounded retries and a "needs human" state instead of spinning [PRODGUIDE ch16] |
 | Idempotency rule | How reruns avoid duplicates (§5) | Whether retries, replays and redelivered events are safe |
-| Permission tier | Read-only, draft-only, execute with approval, or auto-execute (rare) | What runs without a person and what the preview shows (tool-design-rules §7) |
+| Permission tier | One of four tiers: read-only, draft-only, approval required, or auto-execute, the last kept rare | What runs without a person and what the preview shows (tool-design-rules §7) |
 | Logging requirement | What enters the run record | Audit, debugging, per-version usage counts for retirement |
 
 Add three fields from the other books:
@@ -104,7 +104,24 @@ In MCP, return it as a tool execution error (`isError: true`), with `detail` as 
 
 How that maps onto the MCP Python SDK v2 (current facts): `raise ToolError(detail)` in a high-level `MCPServer` tool returns the text only, with `structured_content` empty. To return both, build the result in a low-level handler: `content` holds the `detail` sentence, `structured_content` holds the envelope with its `problem`, and `is_error` is true. If a tool must stay on the high-level server, the category can travel only as a fixed leading token in the text that the client maps back (`business_rule: Order ord_123456 is ...`), the weaker option. Either way, declare an output schema whose envelope allows the `problem` shape (§3): the SDK's own client rejects structured content that fails the declared schema, and neither the specification nor the SDK documentation says whether error results are exempt.
 
-**The category must survive every hop.** The MCP book's example client joins result text and drops both the error flag and the structured content [MCP repo: ch3/12_make_tool_calls/client.py]. A server that answers a timed-out create with "Please try again" in plain text, and no flag, invites exactly the duplicate a contract prevents [BUILDAGENTIC repo: sdr_multi_agent/mcp_servers/hubspot_server/mcp_server.py]. A contract test forces each category and asserts that it reaches the harness and the model through the real client (§9).
+## §4a Wrapping a backend whose errors are unstructured
+
+Many APIs a tool wraps answer failures with an HTML page, a bare status line or a body nobody documented. The tool needs an adapter between the backend and the model. It maps each response to one category, logs the raw body with the run ID, and gives the model only the category and one sentence. HTML, stack traces and raw bodies never reach the model.
+
+| Backend response | On a read | On a write that was sent |
+|---|---|---|
+| 400 or 422 naming a field | `invalid_input` | `invalid_input` |
+| 401, 403 | `auth` | `auth` |
+| 404 | `not_found` | `not_found` (nothing was created) |
+| 409, 412 | `conflict` | `conflict`: re-read before anything else |
+| 429 | `rate_limited`, honour `Retry-After` | `rate_limited` if the backend documents that a 429 is not processed (most do; confirm yours), else `outcome_unknown` |
+| 500, 502, 504, connection reset, timeout after sending | `unavailable`: retry with backoff, capped | `outcome_unknown`: verify by key or lookup before any retry |
+| 503, or a failure before the request left (DNS, refused connection, TLS) | `unavailable` | `unavailable` only if it failed before sending or the backend documents a 503 as not processed; otherwise `outcome_unknown` |
+| 2xx with an HTML or unparseable body | `unavailable` | `outcome_unknown` |
+
+The write column prevents double charges. `unavailable` is retried with backoff, so a 502 filed as `unavailable` after a charge that did commit charges the customer twice behind a backend that does not deduplicate. Only a failure before sending, or a response the backend documents as "not processed", may be retried blind. Contract tests force each row through the real client (§9).
+
+**The category must survive every hop.** The MCP book's example client drops both the error flag and the structured content, and its agent joins the remaining text [MCP repo: ch3/12_make_tool_calls/client.py], [MCP repo: ch3/12_make_tool_calls/agent.py]. A server that answers a timed-out create with "Please try again" in plain text, and no flag, invites exactly the duplicate a contract prevents [BUILDAGENTIC repo: sdr_multi_agent/mcp_servers/hubspot_server/mcp_server.py]. A contract test forces each category and asserts that it reaches the harness and the model through the real client (§9).
 
 ## §5 Idempotency: make writes safe to retry
 
@@ -178,7 +195,7 @@ MCP cannot carry rule 1. Its annotations are four hints (`readOnlyHint`, `destru
 - **Sensitive fields stay out of results.** National IDs, bank and card data, health data, salary and similar regulated fields are not returned unless an agent story needs them. When one does, the field comes from a separate tool with its own scope, masked by default. No tool returns every record of a personal-data collection; lists need a filter and a page size. A CI test scans tool results for these field patterns (an ID-number or card-number shape) and fails on a hit.
 - **Handles are names, not permissions.** Re-check authorization on every call, state the lifetime in the creating tool's description, and return a tool error when a handle expires (tool-design-rules §6).
 - **Leave room to add.** Extend with parallel properties instead of replacements (keep `name`, add `given_name` and `family_name`) and with extension objects. All of it relies on consumers ignoring what they do not understand [RESTCOOK ch3 §3.10], [RESTCOOK ch2].
-- **Strict inputs, tolerant outputs.** No book states this rule; the study guide behind this skill infers it from RESTCOOK's rule that consumers ignore what they do not understand. Input schemas reject unknown arguments (`additionalProperties: false`), because a hallucinated argument is a bug. Output schemas allow additional properties, so adding a result field never breaks a client that validates.
+- **Strict inputs, tolerant outputs.** No book states this rule; this skill infers it from RESTCOOK's rule that consumers ignore what they do not understand. Input schemas reject unknown arguments (`additionalProperties: false`), because a hallucinated argument is a bug. Output schemas allow additional properties, so adding a result field never breaks a client that validates.
 
 ## §8 Change without breaking the model
 
@@ -200,11 +217,14 @@ RESTCOOK's three rules define a breaking change: take nothing away, redefine not
 
 **Exposure overrides the deprecation window.** "Never break" governs compatible evolution, not exposure. When the published tool is itself the vulnerability (it returns personal data in bulk, runs an irreversible action without the approval its tier needs, or bypasses authorization), disable it at once under the same name: every call returns a structured tool error (category `business_rule`, not retryable) whose sentence names the replacement, if there is one. Notify the owners of the calling agents from the catalogue ([catalog-governance.md](catalog-governance.md) §2) and record an incident. The replacement then follows the normal rules, and the disabled name is retired through catalog-governance §5.
 
+**Upstream changes.** The tool owner owns the model-facing contract, and the adapter (§4a) decouples it from the API it wraps. When a partner renames a field (`confirmation_no` becomes `booking_ref` next quarter), the adapter maps the new name and the tool's contract stays as it was. Put the upstream spec under the same CI: diff it on every pull and run the contract tests against the partner's sandbox, so a rename fails a build instead of a booking. A change of meaning upstream (units, enum values, a default) is a break for the tool as well and ships as a v2 under the rules above. Record the upstream API and its version in the catalogue entry, so its owner knows whom a change will hit.
+
 ## §9 Contract checks in CI
 
 1. **Schema diff.** Diff definitions, schemas, enums and failure categories against the last release, and fail on any unversioned break. Diff tools are tied to a specification version: APIARCH's found no breaking change at all when run against an older one [APIARCH ch1 §OpenAPI Specification and Versioning]. Prove the step with a planted break.
-2. **Producer contract tests.** One example interaction per tool and per failure category, failures included [APIARCH ch2 §How a Contract Is Implemented], run through the real client so you see what the model and the harness actually receive: error flag, category and structured content.
+2. **Producer contract tests.** One example interaction per tool and per failure category, failures included [APIARCH ch2 §How a Contract Is Implemented], run through the real client so you see what the model and the harness actually receive: error flag, category and structured content. They run against a sandbox, a recorded backend or a stub with test credentials, never against production writes.
 3. **Consumer-driven contracts.** Within one organisation APIARCH prefers contracts the consumer submits [APIARCH ch2 §Consumer-driven contracts]. For agents, the consuming agent's tool-choice eval and golden runs play that role, provided they load definitions from the running server. The MCP book's selection eval hand-writes its schemas, so a server change would never fail it [MCP repo: ch7/01_simple_evaluation/test.py].
+4. **Keep CI away from production.** CI holds no production secrets. On GitHub, run these checks on the `pull_request` trigger, never `pull_request_target`, which runs in the base repository's context with its secrets and a write-scoped token, so checking out or running a fork's code there exposes them.
 
 ## §10 Next actions in results
 
@@ -232,3 +252,4 @@ Skip the pattern for stateless lookups, and keep inline lists short: every adver
 9. Does CI diff definitions, schemas, enums and categories against the last release, block unversioned breaks and prove itself with a planted break?
 10. Do consuming agents' tool-choice evals and golden runs load definitions from the live server?
 11. Do state-dependent tools return flagged `next_actions` that the harness intersects with its allowlist, and does `tools/list` stay stable per authorization?
+12. Does an adapter map every status and error page of a wrapped backend to a category (§4a), with a 5xx or timeout after a write was sent filed as `outcome_unknown`, and does CI diff the upstream spec and run contract tests against its sandbox (§8)?

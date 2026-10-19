@@ -59,6 +59,7 @@ The reference is the configuration every step down must stay close to. Choose it
 - If a configuration runs in production, the incumbent is the reference.
 - If nothing runs yet, the reference is the provider's recommended general-purpose model (the "start here" model on its model page) at its recommended effort, not the most expensive tier.
 - Use the top capability tier only as a probe, on roles that miss their target with the reference, to learn whether capability is the limit. If the probe also misses, no model swap will fix that role; it goes to step 7.
+- A model the user proposes (a new release, a leaderboard leader) enters the grid as a candidate. The reference stays the incumbent. The proposed model is also the top-tier probe only if it is the provider's top tier.
 
 Record per role: quality, p50 and p95 latency, cost per solved task (defined in `references/role-model-mapping.md` §7) and a labelled failure list; record end-to-end success too. If reference numbers are not available yet, the summary states the expected direction (cheaper, faster) and what will be measured, without invented percentages.
 
@@ -66,7 +67,7 @@ Record per role: quality, p50 and p95 latency, cost per solved task (defined in 
 Pick 2 to 4 candidates per role using decision guide table A: one tier below the reference, the smallest class that could plausibly cope, and an open-weight option when the constraints call for one. Where a program can check the role's output, add the smaller candidate inside an iterate-and-check loop as its own configuration before reaching for a bigger model; it is judged on cost and latency per solved task, because the loop multiplies calls (`references/bakeoff-protocol.md` §3). For a fixed-label classification role whose labels meet table E1, a fine-tuned encoder or small classifier is a candidate from the start: training one is cheap and the result is a measurement, so it enters the bake-off instead of waiting for a later rung. If the current vendor's cheapest tier is only a small step down, add another vendor's small tier or a self-hosted open-weight model where the constraints allow (`references/model-landscape-2026-10.md`). Use public leaderboards only to shortlist. Take model names from `references/model-landscape-2026-10.md` after refreshing them as that file describes, and date every name and price you write down.
 
 ### 5. Run the bake-off
-Follow `references/bakeoff-protocol.md`. Pre-register the metric, target, non-inferiority margin and budgets. Use the same tasks for every candidate, with an equal prompt-adaptation budget for each. Hold the harness, tools, budgets and provider layer fixed across candidates, and log the effective request parameters and the provider's own stop reason, because a swap layer can change defaults (§4). If the harness is the question, hold the model fixed instead and plan the comparison with agent-harness-designer. Run at production settings, with repeated trials, an effort sweep for reasoning-capable models, and cost and tokens per solved task. Compare paired results with intervals. Set each non-inferiority margin no smaller than what the task count can detect (table F); if the business needs a tighter margin, label more tasks or mark the choice provisional.
+Follow `references/bakeoff-protocol.md`. Pre-register the metric, target, non-inferiority margin and budgets. Use the same tasks for every candidate, with an equal prompt-adaptation budget for each. Hold the harness, tools, budgets and provider layer fixed across candidates, and log the effective request parameters and the provider's own stop reason, because a swap layer can change defaults (§4). If the harness is the question, hold the model fixed instead and run the same protocol on the harness variants agent-harness-designer supplies. Run at production settings, with repeated trials, an effort sweep for reasoning-capable models, and cost and tokens per solved task. Compare paired results with intervals. Set each non-inferiority margin no smaller than what the task count can detect (table F, read at the test-split n after dev and few-shot items are carved out); if the business needs a tighter margin, label more tasks or mark the choice provisional. Tools keep their production schemas, but every write, send or spend tool runs against a sandbox, recorder or dry-run stub with non-production credentials; score the intended call or the sandbox's final state, because repeated trials against production would repeat real refunds, sends or bookings. Real traffic used as tasks is de-identified first, and goes to a candidate's provider only where the data terms allow that provider and region (`references/bakeoff-protocol.md` §1 and §5). The paired results feed agent-eval-designer's comparison and gates, so the model decision passes the same gate as any other change.
 
 ### 6. Choose per role and set effort
 For each role, take the cheapest configuration by cost per solved task that meets the target, is non-inferior to the reference within the margin, fits the latency budget, and passes the veto metrics. Within the chosen model, use the lowest effort level that is non-inferior to its best level. Defaults before measurement are in table B. Then run the assembled mixed-model pipeline end to end against the all-reference pipeline, because a weaker router's errors cascade downstream. Give each stepped-down role a fallback, such as a retry on the stronger model when validation fails or calibrated confidence is low.
@@ -97,6 +98,7 @@ Use `templates/model-plan.md`. Check it against the quality bar before returning
 | Verifier or critic | Code if the check is codable; else a strong model from another family | False passes are the costly error | A same-family verifier shares the generator's blind spots |
 | User-facing synthesis | Strong model, effort low or medium | Accuracy and clarity are visible | Long noisy context hurts more than a smaller model does |
 | Eval judge | Different family from the graded models, calibrated on human labels | Self-preference and position bias | Using it before measuring agreement |
+| Summariser or compressor of history | Small or mid model, effort off or low; faithfulness checked downstream | Short, frequent calls; errors are caught later | When the summary is the only record a later step sees, use a stronger model and score faithfulness directly |
 
 For any role whose output a program can check (tests, a validator, a schema), put the smaller model inside an iterate-and-check loop into the grid next to the bigger model in one shot.
 
@@ -108,6 +110,7 @@ For any role whose output a program can check (tests, a validator, a schema), pu
 | Single-step tool selection and arguments | Off or low | The eval shows a gain. Across five model families, more reasoning never improved tool choice by more than a point and always added latency |
 | Planning, decomposition, constraint-heavy steps | Provider default, then sweep | The sweep shows a gain worth the latency |
 | Verification | Medium, then sweep | The false-pass rate drops |
+| Summarising history, compressing context | Off or low | Faithfulness drops on the eval, or the summary is the only record a later step sees |
 | Long autonomous coding or research | Provider recommendation | Sweep lower levels too; overthinking can lower success |
 
 On current hosted models, effort also changes how many tool calls the model makes. Re-sweep after every model change, because levels are recalibrated between generations. Changing effort mid-conversation can break the prompt cache.
@@ -149,7 +152,7 @@ On current hosted models, effort also changes how many tool calls the model make
 
 Classes below the floor: merge them, or route them to the prompted model. Inputs longer than the encoder's maximum length need truncation, chunking or routing (`references/role-model-mapping.md` §8).
 
-**E2. Fine-tune a generative model (SFT, DPO, RL) now?** Say yes only if all of these hold: the gap is behavioural; cheaper rungs were tried and measured; the same failure repeats across many logged cases; there are enough verified examples (hundreds to thousands of curated examples for SFT of a large model; about 10,000 to 100,000 per task as a rule of thumb when a small generative model replaces a large one's calls); the task and labels will stay stable until the next base-model upgrade; volume justifies a pipeline; you can host the tuned model and re-run the tuning; and the vendor still offers tuning for that model, or you use open weights. Otherwise answer "not now" and name the cheaper rung plus the evidence that would change the answer.
+**E2. Fine-tune a generative model (SFT, DPO, RL) now?** Say yes only if all of these hold: the gap is behavioural; cheaper rungs were tried and measured; the same failure repeats across many logged cases; there are enough verified examples (hundreds to thousands of curated examples for SFT of a large model; about 10,000 to 100,000 per task as a rule of thumb when a small generative model replaces a large one's calls); the task and labels will stay stable until the next base-model upgrade; volume justifies a pipeline; you can host the tuned model and re-run the tuning; and the vendor still offers tuning for that model, or you use open weights. Otherwise answer "not now" and name the cheaper rung plus the evidence that would change the answer. A generative model fine-tuned to emit a label from a fixed set (a large model trained as a router, say) falls under E2, and its training data must also meet E1's per-class counts after the test split is held out.
 
 **F. Smallest non-inferiority margin a paired comparison can verify** (95%, in points; q is the share of tasks where the two configurations disagree; assume q = 0.10 until a pilot measures it)
 
@@ -162,7 +165,7 @@ Classes below the floor: merge them, or route them to the prompted model. Inputs
 | 500 | 2.0 | 2.8 | 3.9 |
 | 1,000 | 1.4 | 2.0 | 2.8 |
 
-Margin = the larger of the business tolerance and the table value. Never pre-register a margin smaller than the table allows at your n.
+Margin = the larger of the business tolerance and the table value. Never pre-register a margin smaller than the table allows at your n. Read n as the test split the comparison is scored on, after dev and few-shot items are carved out, not the total labelled count: 300 labelled items split 150 / 150 verify about 5.1 points at q = 0.10, not 3.6.
 
 ## Output
 
@@ -195,7 +198,9 @@ Before returning, check that:
 - [ ] The fine-tuning verdict lists which entry criteria (E1 or E2) are met and which are not, and every tuned model is compared with what it would replace.
 - [ ] Any RL plan has a gated reward, adversarial reward tests, an independent held-out scorer, a base-model comparison and a regression set.
 - [ ] Any training plan picks the checkpoint by validation metric, pins and mirrors the base revision, and includes a training-serving parity test.
-- [ ] The bake-off states task counts and the smallest difference it can detect at that count.
+- [ ] The bake-off states task counts and the smallest difference it can detect at that count, read at the test-split n.
+- [ ] Side-effecting tools run against a sandbox, recorder or stub with non-production credentials in every bake-off and tuning eval; nothing writes to production.
+- [ ] Real traffic used for tasks or training is de-identified, its use is allowed by the data owner and terms for each candidate provider and region, and the plan records retention and deletion handling.
 - [ ] Confidence-based routing uses calibrated scores (log-probabilities or a classifier head), never stated confidence.
 - [ ] Licence, data residency and tuning availability are checked for every candidate.
 - [ ] Hand-offs name the sibling skill and the question it should answer.
@@ -206,7 +211,7 @@ Before returning, check that:
 |---|---|
 | Naming models and prices from memory as if current | Use classes plus dated examples; refresh from provider pages; date every number |
 | Pre-registering a 2-point margin on 150 tasks | Read table F; label more tasks or widen the margin, and say which |
-| Reading a small tier's headline price as the saving | Measure cost per solved task on real prompt lengths. As of 2026-10-19 Anthropic's Haiku 5.5 lists $0.10 / $0.50 per MTok only for prompts up to 100,000 tokens (five times that above), and its tokenizer counts about 30% more tokens than Haiku 4.5's. Where constraints rule a small tier out, add effort cuts, batch pricing, another vendor's small tier or an open-weight model |
+| Reading a small tier's headline price as the saving | Measure cost per solved task on real prompt lengths. A price can be tiered by prompt length, and tokenizers differ between model generations, so the same text costs a different number of tokens; the dated example is in `references/model-landscape-2026-10.md`. Where constraints rule a small tier out, add effort cuts, batch pricing, another vendor's small tier or an open-weight model |
 | Choosing by leaderboard or by brand | Shortlist from leaderboards, decide on the user's tasks; gaps between top models on public benchmarks are usually marginal |
 | Reaching for the biggest model before trying a smaller one in a loop | Where a program can check the output, bake off the smaller model with a few check-and-revise rounds against the bigger one in one shot, on cost and latency per solved task |
 | Comparing models that run under different harnesses, or quoting a points gap for harness versus model | Hold the harness, tools, budgets and provider layer fixed when the model is the variable, and the model fixed when the harness is. The harness can matter as much as a model upgrade on some tasks, or not at all, and it reliably moves cost |
@@ -227,36 +232,40 @@ Before returning, check that:
 
 ## Sources
 
-Distilled from a cross-book study guide on agent design (chapters on model selection and adaptation, reasoning and planning, LLM fundamentals, and the agent harness). Book chapters used:
-- *Building Applications with AI Agents*: ch1 and ch2 (model selection), ch7 (learning without weights, when to fine-tune, SFT for function calling, DPO, RLVR), ch11 (continuous learning), and its companion fine-tuning and reflexion code.
-- *Designing Large Language Model Applications*: ch5 (choosing an LLM, open versus proprietary, model flavours), ch6 (the need for fine-tuning, recipe, datasets), ch7 (continual pre-training, PEFT, merging), ch8 (RLHF, hallucination after fine-tuning, reasoning data), ch11 (fine-tuning embedding models).
-- *AI Agents: The Definitive Guide*: ch3 (GRPO, GSPO, RULER, ART), ch4 (models as team members, thinking modes and budgets, open versus closed, LoRA), and its companion notebooks.
-- *Building Agentic AI*: ch3 (model bake-off for SQL generation), ch5 and companion repo (tool selection with reasoning on and off), ch7 (reasoning-effort experiments), ch8 (calibration, classifier versus multiple choice, domain adaptation).
-- *An Illustrated Guide to AI Agents*: ch2 and ch3 (post-training, reasoning models), ch5 (SFT versus RL for tool learning, ToolRL, Search-R1), ch6 (self-improvement), ch7 (benchmarks, pass^k).
-- *Systems Thinking for Agentic AI*: ch3 (chain-of-thought as a tool), ch12 (task-based model routing, cost versus quality).
-- *The Agentic Enterprise*: ch5 (log, label, fine-tune, distil), ch8 (portability).
-- *Agentic Mesh*: ch15 (model registry and versioned tuning pipelines).
-- *AI Evals in Practice*: ch6 (minimum flips for a real difference).
-- *Building AI Agents with LLMs, RAG, and Knowledge Graphs*: ch5 (retrieval against fine-tuning, and doing both), ch8 (how RL and LLMs interact; the LLM as reward designer).
+Distilled from the books below (model selection and adaptation, reasoning and planning, LLM fundamentals, the agent harness). These are independent study notes, not affiliated with or endorsed by the authors or publishers cited. Book chapters by the key used in the references:
+- BUILDAPPS: *Building Applications with AI Agents*: ch1 and ch2 (model selection), ch7 (learning without weights, when to fine-tune, SFT for function calling, DPO, RLVR), ch11 (continuous learning), and its companion fine-tuning and reflexion code.
+- DLLMA: *Designing Large Language Model Applications*: ch5 (choosing an LLM, open versus proprietary, model flavours), ch6 (the need for fine-tuning, recipe, datasets), ch7 (continual pre-training, PEFT, merging), ch8 (RLHF, hallucination after fine-tuning, reasoning data), ch11 (fine-tuning embedding models).
+- DEFGUIDE: *AI Agents: The Definitive Guide*: ch3 (GRPO, GSPO, RULER, ART), ch4 (models as team members, thinking modes and budgets, open versus closed, LoRA), and its companion notebooks.
+- BUILDAGENTIC: *Building Agentic AI*: ch3 (model bake-off for SQL generation), ch5 and companion repo (tool selection with reasoning on and off), ch7 (reasoning-effort experiments), ch8 (calibration, classifier versus multiple choice, domain adaptation).
+- ILLUSTRATED: *An Illustrated Guide to AI Agents*: ch2 and ch3 (post-training, reasoning models), ch5 (SFT versus RL for tool learning, ToolRL, Search-R1), ch6 (self-improvement), ch7 (benchmarks, pass^k).
+- SYSTEMS: *Systems Thinking for Agentic AI*: ch3 (chain-of-thought as a tool), ch12 (task-based model routing, cost versus quality).
+- ENTERPRISE: *The Agentic Enterprise*: ch5 (log, label, fine-tune, distil), ch8 (portability).
+- MESH: *Agentic Mesh*: ch15 (model registry and versioned tuning pipelines).
+- EVALS: *AI Evals in Practice*: ch6 (minimum flips for a real difference).
+- KGRAG: *Building AI Agents with LLMs, RAG, and Knowledge Graphs*: ch5 (retrieval against fine-tuning, and doing both), ch8 (how RL and LLMs interact; the LLM as reward designer).
 
-Andrew Ng, The Batch letters (deeplearning.ai):
+NG: Andrew Ng, The Batch letters (deeplearning.ai), cited as `[NG <title>, <date>]`:
 - "Agentic Design Patterns Part 1" (2024-03-20): https://www.deeplearning.ai/the-batch/how-agents-can-improve-llm-performance
 - "Why We Need More Compute for Inference" (2024-04-24): https://www.deeplearning.ai/the-batch/why-we-need-more-compute-for-inference
 - "The Falling Cost of Building AI Applications" (2024-12-04): https://www.deeplearning.ai/the-batch/the-falling-cost-of-building-ai-applications
 - "Build an Autonomous Agent Using This Simple Recipe!" (2025-12-10): https://www.deeplearning.ai/the-batch/build-an-autonomous-agent-using-this-simple-recipe
 - "What Comes After Tokenmaxxing?" (2026-08-07): https://www.deeplearning.ai/the-batch/what-comes-after-tokenmaxxing-how-to-avoid-getting-locked-in-to-just-one-ai-provider
 
-Repositories:
-- aisuite, version 0.2.0 (released 2026-09-18, read 2026-10-18): https://github.com/andrewyng/aisuite
+Repositories, cited as `[KEY repo: path]`:
+- RELATED: aisuite, version 0.2.0 (released 2026-09-18, read 2026-10-18): https://github.com/andrewyng/aisuite
+- BUILDAPPS: https://github.com/MichaelAlbada/BuildingApplicationsWithAIAgents (read 2026-10-18)
+- BUILDAGENTIC: https://github.com/sinanuozdemir/building-agentic-ai (read 2026-10-18)
+- DEFGUIDE: https://github.com/Nicolepcx/ai-agents-the-definitive-guide (read 2026-10-18)
 
 Practitioner lab notes (AWS AgentCore and data labs, 2026-10).
 
 External (checked 2026-10):
 - Anthropic, Models overview and Effort documentation (fetched 2026-10-06): https://platform.claude.com/docs/en/about-claude/models/overview and https://platform.claude.com/docs/en/build-with-claude/effort
 - Anthropic, Models overview, Pricing, Model deprecations and the Claude Haiku 5.5 page (re-checked 2026-10-19): https://platform.claude.com/docs/en/about-claude/pricing, https://platform.claude.com/docs/en/about-claude/model-deprecations and https://platform.claude.com/docs/en/models/haiku-5-5/overview
-- M. Arjmandi, "Harness or Model? Isolating the Harness Effect in Agentic Coding with a Contamination-Controlled Private Suite" (2026-09, fetched 2026-10-19): https://arxiv.org/abs/2609.11987
+- M. Arjmandi, "Harness or Model? Isolating the Harness Effect in Agentic Coding with a Contamination-Controlled Private Suite" (single-author preprint, 2026-09, fetched 2026-10-19): https://arxiv.org/abs/2609.11987
 - AWS, Amazon Bedrock Converse API reference (read 2026-10-19): https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
-- OpenAI, API pricing page, including the fine-tuning wind-down notice (fetched 2026-10-06): https://developers.openai.com/api/docs/pricing
+- OpenAI, API pricing page, including the fine-tuning wind-down notice (fetched 2026-10-06, re-checked 2026-10-19): https://developers.openai.com/api/docs/pricing
+- Zhou et al., "LIMA: Less Is More for Alignment" (2023; 1,000 curated examples, checked 2026-10-19): https://arxiv.org/abs/2305.11206
 - L. Weng, "Reward Hacking in Reinforcement Learning" (2024-11): https://lilianweng.github.io/posts/2024-11-28-reward-hacking/
 - Anthropic, research post on natural emergent misalignment from reward hacking (2025-11): https://www.anthropic.com/research/emergent-misalignment-reward-hacking
 - Thinking Machines, "LoRA Without Regret" (2025-09): https://thinkingmachines.ai/blog/lora/

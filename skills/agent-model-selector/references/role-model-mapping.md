@@ -30,7 +30,7 @@ The "starting class" column lists what to put into the bake-off first. The bake-
 
 The reference for every role is the incumbent configuration if one runs in production, otherwise the provider's recommended general model at its recommended effort. Use the provider's top capability tier only as a probe for roles that miss their target.
 
-Two allocation rules underlie the table. Pay for a stronger model only where stronger reasoning changes the result; sending every step to the strongest model is, in one book's words, lazy architecture disguised as quality. And user-facing, high-risk or state-changing steps deserve more caution than internal, read-only ones.
+Two allocation rules underlie the table. Pay for a stronger model only where stronger reasoning changes the result; SYSTEMS warns that sending every task to the strongest model by default is usually lazy architecture [SYSTEMS ch12]. And user-facing, high-risk or state-changing steps deserve more caution than internal, read-only ones.
 
 ## 2. Does the step need a model at all?
 
@@ -56,9 +56,9 @@ Before settling on a frontier model for a role whose output a program can check 
 
 Watch the hidden cost: a cheap model that emits invalid tool arguments or weak classifications can spend more in retries, repairs and escalations than it saves on the first call. Always compare cost per solved task (section 7).
 
-Small-model conversion loop for an existing agent (after the NVIDIA small-language-model paper and the log-label-tune-distil lifecycle in *The Agentic Enterprise*):
+Small-model conversion loop for an existing agent (after the NVIDIA small-language-model paper, external, 2025-06, and the log-label-tune-distil lifecycle in [ENTERPRISE ch5]):
 1. Log every model call with role, input, output and outcome.
-2. Strip sensitive data.
+2. Strip personal data and secrets, and confirm that the data owner and the terms allow using the logs for training (`adaptation-ladder.md` §5).
 3. Cluster calls into recurring tasks; rank clusters by volume times cost.
 4. For the top clusters, bake off small candidates (prompted first).
 5. If prompted small models miss the target, fine-tune on verified examples from the logs (often teacher outputs from the frontier model, checked by a person or a program).
@@ -70,12 +70,12 @@ Treat effort (or thinking on/off, or a thinking budget on self-hosted models) as
 
 | Role | Default | Raise when | Evidence |
 |---|---|---|---|
-| Routing, classification, extraction | Off or lowest | Almost never; chain-of-thought adds noise to labels and breaks short machine-readable output | Books agree CoT hurts simple classification and format conversion |
-| Single-step tool selection and arguments | Off or low | The eval shows a gain at a higher level | Across five model families, higher reasoning never improved tool choice by more than a point and always added latency; two models were worst at high effort (mid-2025, about 10,000 scored choices) |
-| Planning, decomposition, constraint-heavy steps | Provider default, then sweep | Constraint-heavy or multi-tool plans show gains | A reasoning model solved an interlocking-constraint puzzle a standard model rushed (one anecdote); providers recommend higher effort for long agentic coding |
+| Routing, classification, extraction | Off or lowest | Almost never; chain-of-thought adds noise to labels and breaks short machine-readable output | Step-by-step reasoning often adds noise on classification and format conversion [SYSTEMS ch3]; on a simple benchmark, BUILDAGENTIC's effort sweeps found reasoning did not help [BUILDAGENTIC ch7] |
+| Single-step tool selection and arguments | Off or low | The eval shows a gain at a higher level | Across five model families, higher reasoning never improved tool choice by more than a point and always added latency; two models were worst at high effort (mid-2025, about 10,000 scored choices) [BUILDAGENTIC repo: agent_positional_bias] |
+| Planning, decomposition, constraint-heavy steps | Provider default, then sweep | Constraint-heavy or multi-tool plans show gains | One anecdote, not a measurement: a reasoning model worked through an interlocking-constraint puzzle that a standard model rushed. Providers recommend higher effort for long agentic coding |
 | Verification, critique | Medium, then sweep | False-pass rate drops at higher effort | Verification is where extra thinking most often pays, but measure it |
 | Final synthesis | Low or medium | Faithfulness or completeness gains on the eval | Longer reasoning can hurt on distractor-heavy context; agent contexts are distractor-heavy |
-| Long autonomous coding or research runs | Provider recommendation (often high) | Sweep including lower levels | On SWE-bench, more overthinking correlated with fewer resolved issues; high effort cost about 3.5 times more for an 8-point gain in one run |
+| Long autonomous coding or research runs | Provider recommendation (often high) | Sweep including lower levels | On SWE-bench, more overthinking correlated with fewer resolved issues; high effort cost about 3.5 times more for an 8-point gain in one run (Cuadron et al., external, 2025-02) |
 
 Mechanics that change the answer:
 - Reasoning tokens are billed (at output-token prices) and add latency even when hidden. They count against the output cap, so raise `max_tokens` when raising effort.
@@ -90,8 +90,8 @@ Mechanics that change the answer:
 If any role routes, escalates or auto-approves on a confidence threshold, the threshold is only meaningful if the model is calibrated: of answers given at 80% confidence, about 80% should be right.
 
 - Measure expected calibration error (ECE): bucket predictions by confidence, compare each bucket's mean confidence with its accuracy, average the gaps weighted by bucket size.
-- Use token log-probabilities or a classifier head for confidence. Never use confidence the model states in text: models gave wrong answers with stated confidence of 70% or more while their token probabilities were spread almost evenly, the signature of a guess.
-- Few-shot prompting improved both accuracy and calibration over zero-shot in the one measured study, and fine-tuning improved calibration further for every model tested; a fine-tuned encoder was the best calibrated.
+- Use token log-probabilities or a classifier head for confidence. Never use confidence the model states in text: models gave wrong answers with stated confidence of 70% or more while their token probabilities were spread almost evenly, the signature of a guess [BUILDAGENTIC ch8].
+- Few-shot prompting improved both accuracy and calibration over zero-shot in the one measured study, and fine-tuning improved calibration further for every model tested; a fine-tuned encoder was the best calibrated [BUILDAGENTIC ch8].
 - Some closed APIs return log-probabilities only for the top 20 tokens, and some return none. If calibrated scores are a hard requirement, that favours an open model or an encoder for the routing role.
 - RLHF-style alignment tends to reduce calibration; do not assume a chat model's probabilities are calibrated without measuring on your labels.
 
@@ -99,7 +99,7 @@ If any role routes, escalates or auto-approves on a confidence threshold, the th
 
 | Choose | When | Cost of the choice |
 |---|---|---|
-| Managed closed model | Starting out; workflows still changing; no ML operations staff; top capability needed | Vendor lock-in; tuning (if offered) lives only in the vendor's environment; menus change (one major provider closed its fine-tuning platform to new users in 2026) |
+| Managed closed model | Starting out; workflows still changing; no ML operations staff; top capability needed | Vendor lock-in; tuning (if offered) lives only in the vendor's environment; menus change (OpenAI's fine-tuning platform was closed to new users and being wound down as of 2026-10; see `model-landscape-2026-10.md`) |
 | Managed open-weight model (hosted by a third party) | Want portability and lower price while avoiding GPUs | Check host's data handling; capability gap varies by task |
 | Self-hosted open-weight model | Data must not leave your boundary; need token probabilities, LoRA adapters, RL; volume makes GPUs cheaper than tokens | GPUs, serving stack, upgrades and on-call are yours |
 
@@ -121,7 +121,7 @@ In agentic systems the number that moves cost is tokens per task. A run that ref
 
 ## 8. Encoders and long inputs
 
-Encoders have a hard maximum input length. Classic BERT-family models stop at 512 tokens; ModernBERT raised this to 8,192 and NeoBERT supports 4,096 (figures from the books, 2025). Legal clauses, emails with threads and tickets with logs can exceed the limit.
+Encoders have a hard maximum input length. Classic BERT-family models stop at 512 tokens; ModernBERT raised this to 8,192 [BUILDAGENTIC ch8] and NeoBERT supports 4,096 [DEFGUIDE ch4] (2025 figures). Legal clauses, emails with threads and tickets with logs can exceed the limit.
 
 1. Measure the token-length distribution of real inputs with the candidate's tokenizer: median, p95, maximum, and the share above the limit.
 2. Pick a strategy for inputs over the limit:

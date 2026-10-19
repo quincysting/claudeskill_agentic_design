@@ -6,12 +6,16 @@
 
 <4 to 6 sentences: what the agent does, how it is triggered and served, where state lives, the framework decision, the controls an operator has, and the riskiest open point.>
 
+**First actions:** <the three changes or decisions to make first; in review mode, the top Critical fixes>
+
 **Confirm first**
 1. <assumption that most changes the design, e.g. "the AP system's webhook retries on timeout for 24 hours">
 2. <...>
 3. <...>
 
 ## Findings (review mode only)
+
+Severity follows the consequence if the finding's fact holds; mark it "(inferred)" when the fact is inferred, and list that fact under Confirm first.
 
 | # | Severity | Finding | Evidence: stated / inferred / confirmed (file:line, config key, run ID) | Fix | Test that catches it |
 |---|---|---|---|---|---|
@@ -69,7 +73,7 @@ Status (review mode): keep / change / add
 - Intent / receipt placement: <...>
 - Key per write: <run + action + target, or business key>; lookup before retry: <how>
 - Resume rule for an intent without a receipt: <...>
-- Approval: fields, lifetime <N min>, digest of <...>, nonce, executor check, pause and execute in separate steps
+- Approval: fields, lifetime <N min>, digest of <...>, nonce, executor check, pause and execute in separate steps; delivery: <a link opens a read-only view; an authenticated POST by an entitled approver decides; how links already sent are retired, if migrating>
 - Compensation: <reversible steps and reverts; irreversible steps last>
 
 ## 6. Budgets and stops
@@ -84,6 +88,7 @@ Status (review mode): keep / change / add
 | Tokens or cost | | | before every call | run state | | `partial`, `budget:tokens` or `budget:cost` |
 | Wall time (paused during human waits) | | | before every call | run state | | `partial`, `wall_time` |
 | Retries per call | | | per failure class | run state | | `escalated`, `retries_exhausted` |
+| Child slices (delegated work) | | | before a child spawns and before each of its calls | the run's ledger | | `partial`, `budget:<name>` |
 
 The framework's recursion or turn limit (LangGraph's `recursion_limit`, an SDK's `max_turns`) is a backstop set above the pre-call step guard, not the step budget. Its error maps to `partial` with `max_steps`, never to `failed` or `completed`.
 
@@ -117,6 +122,7 @@ Status (review mode): keep / change / add
 - Streaming: <SSE / WebSocket / none>; disconnect policy per run type: <...>; output check before release: <...>
 - Limits per client: <rate, concurrent streams>
 - Shutdown and drain: <...>
+- Leases (queued runs longer than the visibility timeout): <lease expiry, heartbeat, sweeper interval>
 
 ## 9. Harness tests and run-record contract
 
@@ -126,7 +132,7 @@ Status (review mode): keep / change / add
 |---|---|---|---|
 
 - Run-record fields handed to agent-eval-designer: <list or "as harness-tests.md §4">
-- Harness bake-off (if choosing between harnesses): <tasks, trials, model held fixed, metrics>
+- Harness bake-off (if choosing between harnesses): <variants, each passing the harness tests; agent-model-selector's protocol with the model held fixed: tasks, trials, metrics>
 
 ## 10. Decision log
 

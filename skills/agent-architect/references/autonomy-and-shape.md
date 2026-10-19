@@ -76,7 +76,7 @@ flowchart TD
 
 Q3 is where teams reach for an agent too early. Answer it in writing: name what the step must discover at run time that decides its next action. If you cannot name it, the step is a workflow.
 
-The ordering follows the ladder in [BUILDAPPS ch1] (simple code, deterministic workflow, RAG, agent; chosen by input variability, reasoning complexity, performance and compliance constraints, maintenance burden) and the rule in [SYSTEMS ch6]: use an agent when "the next step depends on what the system discovers while running".
+The ordering follows the ladder in [BUILDAPPS ch1] (simple code, deterministic workflow, RAG, agent; chosen by input variability, reasoning complexity, performance and compliance constraints, maintenance burden) and the rule in [SYSTEMS ch6]: use an agent only when what happens next depends on what the run turns up along the way.
 
 ## Shape catalogue
 
@@ -143,6 +143,7 @@ Write both definitions into the design doc before placing steps in the matrix.
 
 - **Reversible:** the system itself can undo the action fully, at negligible cost, before harm lands. Drafts, holds, internal notes, status flags and staged changes qualify. Money sent out, messages to customers or third parties, a denial communicated to a customer, deletions and anything that starts a legal clock do not, even when a clawback or correction is technically possible.
 - **Cheap:** the expected loss of one wrong action (probability × impact, including remediation, customer and regulatory cost) is below what the organisation already accepts without review today. Look for an existing tolerance: an auto-approval limit, a write-off limit, a QA sampling rate. If none exists, treat the action as costly.
+- **Cheap is judged per batch at volume.** When one model and prompt repeat an action many times (outbound emails, bulk record updates), a fault is systematic: it repeats in every action until someone notices. Judge "cheap" on the batch, as the expected loss of one fault times the volume sent before detection. One email may be cheap; five thousand copies of the same mistake are not.
 
 ### Mapping a client's approval rule onto the matrix
 
@@ -176,6 +177,8 @@ Authority is raised per step, on evidence, never because a model got better. A m
 | Act | Fully automatic | Only for reversible or cheap steps |
 
 Each stage also needs a rollback trigger (metric drop below a floor, any Critical incident) that reverts automatically to the previous stage, and a named person who signs off promotion. Above-threshold actions and adverse decisions stop at `approve` unless governance decides otherwise.
+
+**Act and notify at volume needs batch controls.** For a high-volume external action, act-and-notify is safe only with a daily cap and a ramp; circuit breakers on outcome rates (bounces, complaints, reversals) that fire only above a minimum sample size; sampled review with a weekly minimum; and the kill switch. Approving each action at that volume is a pilot control: compute its reviewer-hours, and plan when, and on what evidence, it graduates to sampled review.
 
 **Move-up conditions.** PLAYBOOK names three [PLAYBOOK ch2]: proven reliability at the current stage; written rules for the new actions (what the step may do without approval, its limits, when it stops or escalates); and a recovery plan (how a failure is detected, fixed and reversed). Its reliability bar varies across chapters: about 80% of outputs approved without changes over 30 to 60 days in ch2, and 85% over 30 days, then 90% over 60, in ch4's earned-autonomy stages [PLAYBOOK ch4]. Treat the spread as judgment, not measurement. Set the target per step, require a minimum case count as well as a period (30 days at five cases a week is about 20 cases, too few to tell 80% from 65%), and keep auditing after promotion. PLAYBOOK rates the whole agent; promote per step.
 

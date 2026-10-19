@@ -23,8 +23,8 @@ not delete records, the restriction exists in the system. The model can't enforc
 confusing [HARDMCP ch6].
 
 **Provider safety is not a control.** A hosted model's refusals are someone else's policy, which you neither control
-nor test. In 2026 they blocked defensive work (analysing logs of an attack, reviewing a team's own code) and did not
-stop an agent whose sandbox and monitoring failed [NG When Guardrails Go Wrong, 2026-07-24],
+nor test. In 2026 they blocked defensive work (analysing logs of an attack, reviewing a team's own code), and they did
+not stop the breach that Ng ties to buggy sandboxing and monitoring [NG When Guardrails Go Wrong, 2026-07-24],
 [NG Open Models, Open Harnesses, Open Security, 2026-07-31], [NG Who's Responsible for Irresponsible AI?, 2026-09-18].
 [AISEC ch10] gives providers robustness, alignment and baseline guardrails, and application owners validation,
 filtering and monitoring; take the application half as yours in full. Count provider safety as a bonus, and keep an

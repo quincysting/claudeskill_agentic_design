@@ -50,7 +50,7 @@ On AWS, map each decision with [references/aws-implementation-notes.md](referenc
 
 Design mode runs steps 1 to 10. Review mode runs step R first, then steps 1 to 10 for the target design.
 
-**R. Review the as-is harness.** Map what actually runs, from code and traces, not docs: where the loop lives, where state is stored (process memory, a file, a shared store), where each limit is checked (before each call, once per turn, never), what each exit returns, what a restart does. Run the audit checklist and the tutorial-harness table in `references/harness-components.md`. Record each finding with severity, evidence (file:line, config key, run ID), fix, and the test that would have caught it. For each reported incident (a duplicate email, a runaway run), name the structural cause and say how to confirm it from the logs. When only a description is supplied (no code, config or traces), label each finding's evidence as stated, inferred or confirmed, and carry every inferred finding into "Confirm first" or the risks.
+**R. Review the as-is harness.** Map what actually runs, from code and traces, not docs: where the loop lives, where state is stored (process memory, a file, a shared store), where each limit is checked (before each call, once per turn, never), what each exit returns, what a restart does. Run the audit checklist and the tutorial-harness table in `references/harness-components.md`. Record each finding with severity, evidence (file:line, config key, run ID), fix, and the test that would have caught it. For each reported incident (a duplicate email, a runaway run), name the structural cause and say how to confirm it from the logs. When only a description is supplied (no code, config or traces), label each finding's evidence as stated, inferred or confirmed, and carry every inferred finding into "Confirm first" or the risks. Severity follows the consequence if the inferred fact holds: write "Critical (inferred)" and put the fact to check in "Confirm first"; never downgrade a finding because its trigger is inferred (harness-components.md §8).
 
 1. **Frame the runtime.** Write the agent's responsibility sentence (from the architecture if it exists), the trigger, the caller, the run class (interactive seconds, job minutes, long-running with waits) and the side-effect inventory: each write, its reversibility, its target (the business object a key is built from) and whether the backend dedupes or can be queried. If no one has decided an action's authority (an irreversible message with no approval rule, say), flag it for agent-architect and agent-threat-modeler and give each tool a tier flag so the harness supports either answer.
 
@@ -68,7 +68,7 @@ Design mode runs steps 1 to 10. Review mode runs step R first, then steps 1 to 1
 
 8. **Serve and deploy.** Pick the deployment shape by trigger (table below). Design the agent's own endpoint: create a run with an idempotency key (202 Accepted for long work), a status resource, an event stream from the record with resume by last event ID, cancel, and an approval decision call; validated request schemas, problem-details errors, per-principal access checks, per-client limits. Keep three layers (API, workers, model server or provider) and no blocking work on the request event loop. Set the disconnect policy per run type and finish output checks before text is released. Plan shutdown and drain. `references/serving-and-deployment.md`.
 
-9. **Plan the harness tests.** Pick the rows of the test table that apply, with a scripted model and an out-of-process store, and give agent-eval-designer the run-record contract and the fixed stop-reason list. If the choice is between harnesses, plan a bake-off with the model held fixed (pass rate by task family and cost per solved task, as agent-model-selector defines it) with agent-model-selector. `references/harness-tests.md`.
+9. **Plan the harness tests.** Pick the rows of the test table that apply, with a scripted model and an out-of-process store, and give agent-eval-designer the run-record contract and the fixed stop-reason list. If the choice is between harnesses, specify the harness variants and the harness tests each must pass, and run agent-model-selector's bake-off protocol on them with the model held fixed (pass rate by task family and cost per solved task). `references/harness-tests.md`.
 
 10. **Write and check.** Fill `templates/harness-design.md`. Put the 3 to 5 assumptions that most change the design in a "Confirm first" block after the summary. Run the audit checklist in `references/harness-components.md` against your own draft, then the Quality bar; fix and re-run before returning.
 
@@ -92,7 +92,7 @@ Keep provider swaps cheap whichever you pick: prototype against more than one pr
 |---|---|---|---|
 | A caller waits; work fits the request timeout | Single service | Run ID and header at entry; draft and execute as distinct states; on approval, load by run ID and check the payload against the stored preview | Work regularly outlasts the timeout: switch to a job |
 | A caller starts work longer than a few seconds | 202 Accepted + status resource + event stream | Run ID, status, refresh interval, numbered events | Clients poll with no refresh hint, or hold a request open |
-| Webhook or business event | Receiver + queue + workers | Receiver verifies, validates, maps the event to an allowed workflow, derives the run ID from source and event ID, enqueues, acknowledges; never calls the model; dead-letter path | The loop runs in the handler: the sender retries and the work runs twice |
+| Webhook or business event | Receiver + queue + workers | Receiver verifies, validates, maps the event to an allowed workflow, derives the run ID from source and event ID, enqueues, acknowledges; never calls the model (any classification becomes the worker's first step); returns 5xx if the enqueue fails, or writes through an outbox; a lease per run when runs outlast the queue's visibility timeout; dead-letter path | The loop runs in the handler: the sender retries and the work runs twice |
 | A clock | Scheduled run | A run packet per run as the review surface; incremental by default with periodic full reconciliation | Drift nobody reviews |
 | Long work while a user watches or steers | Foreground + background agents | Background worker on the run record; a foreground agent that informs the user and routes feedback | Both write the same state |
 
@@ -114,7 +114,7 @@ Keep provider swaps cheap whichever you pick: prototype against more than one pr
 | Tokens and cost | Before every call against what remains; updated after each response | Run state | Warn at about 80%, stop at 100% |
 | Wall time | Before every call; paused during human waits | Run state (active time) | `partial` |
 | Retries | Per failure class | Run state | `escalated`, `retries_exhausted` |
-| Delegated work | The parent's budget is passed down; a handoff cannot reset it | Parent run state | As above |
+| Delegated work | Before a child spawns and before each of its calls, the child reserves a slice of the run's single budget ledger by conditional decrement, and returns what it did not use at exit; child count and depth capped; a handoff cannot reset it | The run's ledger, in checkpointed state | As above |
 | Approval lifetime | By the executor, immediately before the call | Approval record | Expired: nothing runs; a new approval |
 | Kill flags and cancel | Before every call | Flag store and run state | `cancelled` |
 
@@ -155,11 +155,11 @@ In review mode the order is: Summary and "Confirm first", then the findings tabl
 Check every item before returning; fix and re-check any that fail. An item that depends on an input the user has not given passes if the doc states it as an assumption or open question.
 
 - [ ] Every run has a server-issued or event-derived run ID, scoped to its principal, and an append-only record with a header and typed events.
-- [ ] State and checkpoints live in a store every worker shares, never process memory; checkpoints carry a schema version; one writer per run or conditional writes.
+- [ ] State and checkpoints live in a store every worker shares, never process memory; checkpoints carry a schema version; one writer per run or conditional writes; a run that outlasts the queue's visibility timeout holds a lease with a heartbeat, and a sweeper re-enqueues non-terminal runs whose lease expired.
 - [ ] Every side effect has an intent before and a receipt after, a key derived from run state, a lookup before any retry, and a stated resume rule for an intent without a receipt.
 - [ ] Every budget has a number and a basis, is checked before every model and tool call, lives in checkpointed state, pauses during human waits and is shared across delegated work.
 - [ ] Every stop ends in a named status with a reason from the fixed list (harness-tests.md §4); a forced stop is never `completed`; `cancelled` is distinct from `failed`; every non-completed status has a durable sink.
-- [ ] Approvals are bound to a digest of the exact action and arguments, an expiry and a nonce; the executor recomputes the digest; pause and side effect are separate steps.
+- [ ] Approvals are bound to a digest of the exact action and arguments, an expiry and a nonce; the executor recomputes the digest; pause and side effect are separate steps. A link sent to an approver only opens a read-only view (a GET never decides), and the decision is an authenticated, CSRF-protected POST by an entitled approver that carries the digest they saw (harness-components.md §3).
 - [ ] Draft-only and abort are flags read at every call, flipped without a redeploy, with named triggers, a drill and a stated time for a flip to reach running workers (method: harness-components.md §4); abort revokes credentials.
 - [ ] Cancellation reaches long tools, which clean up; the disconnect policy is set per run type.
 - [ ] Streaming is a view of the record with numbered events and resume by last event ID; output checks finish before text is released.
@@ -169,6 +169,7 @@ Check every item before returning; fix and re-check any that fail. An item that 
 - [ ] The framework's owned parts are listed, its relevant defaults are set explicitly, and provider swaps are logged.
 - [ ] The harness tests have "passes when" criteria, run in CI against an out-of-process store, and the run-record contract is handed to agent-eval-designer.
 - [ ] Fast-aging facts (framework names, defaults, service limits) are dated and hedged; sibling concerns are handed off by name.
+- [ ] Every count in the summary (findings by severity, tests, budgets) is recomputed from the body before returning.
 
 ## Common mistakes
 
@@ -179,6 +180,8 @@ Check every item before returning; fix and re-check any that fail. An item that 
 | Routing the step cap or an error through the success path | Distinct statuses with reasons; a test that forces each exit |
 | Putting the approval check and the write in one step | Pause in one step, execute in the next, behind the key |
 | Executing whatever call is on the thread after "approved" | Bind the approval to a digest, an expiry and a nonce; recompute before executing |
+| An approval link whose GET approves or executes, or that works for anyone who holds it | The link opens a read-only view; an authenticated POST by an entitled approver decides; retire the links already sent (harness-components.md §3) |
+| Dropping a redelivered message for a run that is still leased, with nothing to recover the run if its worker dies | A lease with a heartbeat, and a sweeper that re-enqueues runs whose lease expired (control-loop.md, "Leases for long runs on a queue") |
 | A kill switch that means a redeploy, or lives in the system prompt | Flags in harness state, read at every call; drill them |
 | Treating framework replay as reproduction | Reproduce from recorded outputs; experiment with side effects off |
 | Running the loop inside the webhook handler | Verify, validate, enqueue, acknowledge; process in a worker |
@@ -188,13 +191,13 @@ Check every item before returning; fix and re-check any that fail. An item that 
 | A status or progress endpoint that invokes or streams the graph itself, which in some frameworks resumes the run | The API reads the run record; only workers run the loop |
 | Retrying a durable activity that wraps model and tool calls | One side effect per activity, keyed |
 | Declaring a status or a `requires_approval` label and never enforcing it | Refuse to start when a labelled tool has no policy wired; test every label by forcing it |
-| Quoting a fixed score gap between harnesses, or swapping the model and calling it an upgrade test | Bake off with the model held fixed and compare cost per solved task; the harness may matter as much as a model upgrade on some tasks, or not at all, and it reliably moves cost |
+| Quoting a fixed score gap between harnesses, or swapping the model and calling it an upgrade test | Bake off with the model held fixed and compare cost per solved task; the harness may matter as much as a model upgrade on some tasks, or not at all, and the one controlled comparison so far (a single-author preprint) found it changed cost per solved task (harness-tests.md §5) |
 | Keeping critical switches and corrections in the context window | Flags, budgets and tiers are harness state; a person's correction is done only when it is in the persisted spec and the stop check |
 | Designing tool schemas, threat models or eval suites here | Mark the attachment point and hand off to the sibling skill |
 
 ## Sources
 
-Distilled from the books below. In `references/`, a citation such as [PRODGUIDE ch16] names one of these books and a chapter, and a citation with `repo:` names a file in a companion or related repository; each reference file restates the point it relies on, so the sources are not needed to use the skill.
+Distilled from the books below. These are independent notes, not affiliated with or endorsed by the authors or publishers cited. In `references/`, a citation such as [PRODGUIDE ch16] names one of these books and a chapter, and a citation with `repo:` names a file in a companion or related repository; each reference file restates the point it relies on, so the sources are not needed to use the skill.
 
 - PRODGUIDE: *Agentic AI Systems: The Complete Guide for Building Production AI Agents*, ch2, 14, 16, 17, 18.
 - SYSTEMS: *Systems Thinking for Agentic AI*, ch6, 8, 10, 13, 16, 17.
@@ -213,7 +216,7 @@ Distilled from the books below. In `references/`, a citation such as [PRODGUIDE 
 - KGRAG: *Building AI Agents with LLMs, RAG, and Knowledge Graphs*, ch4.
 - EVALS: *AI Evals in Practice* (companion code only).
 
-Andrew Ng, The Batch letters:
+Andrew Ng, The Batch letters (cited in `references/` as NG with title and date):
 - Agentic Coding and Agentic Software Testing Go Together (2025-09-17): https://www.deeplearning.ai/the-batch/agentic-coding-and-agentic-software-testing-go-together
 - Agents Running in Parallel Get There Faster (2025-08-27): https://www.deeplearning.ai/the-batch/agents-running-in-parallel-get-there-faster
 - Improve Agentic Performance with Evals and Error Analysis, Part 2 (2025-10-22): https://www.deeplearning.ai/the-batch/improve-agentic-performance-with-evals-and-error-analysis-part-2
@@ -229,14 +232,15 @@ Repositories (read, not run, 2026-10):
 - Companion code: github.com/Nicolepcx/ai-agents-the-definitive-guide (DEFGUIDE), github.com/kylestratis/ai_agents_mcp_examples (MCP), github.com/PacktPublishing/AI-Evals-in-Practice (EVALS), github.com/HandsOnLLM/An-Illustrated-Guide-To-AI-Agents (ILLUSTRATED), github.com/sinanuozdemir/building-agentic-ai (BUILDAGENTIC), github.com/MichaelAlbada/BuildingApplicationsWithAIAgents (BUILDAPPS), github.com/santosomar/AI-agents-for-cybersecurity (AISEC, the multi-agent harness specification), github.com/masteringapi/attendees (APIARCH), github.com/Ali-Parandeh/building-generative-ai-services (FASTGENAI).
 - Related (key RELATED): github.com/humanlayer/12-factor-agents, github.com/andrewyng/aisuite, github.com/mamund/apis-and-agents.
 
-Practitioner lab notes (AWS AgentCore and data labs, 2026-10), the source of the lab-tagged rows in [references/aws-implementation-notes.md](references/aws-implementation-notes.md).
+Practitioner lab notes (the author's own hands-on AWS AgentCore and data labs, 2026-10; anonymised, no client data), the source of the lab-tagged rows in [references/aws-implementation-notes.md](references/aws-implementation-notes.md).
 
 External (checked 2026-10):
 - LangGraph persistence, time travel and interrupts: https://docs.langchain.com/oss/python/langgraph/persistence , https://docs.langchain.com/oss/python/langgraph/use-time-travel , https://docs.langchain.com/oss/python/langgraph/interrupts
-- LangGraph recursion limit and graceful shutdown (fetched 2026-10-19): https://docs.langchain.com/oss/python/langgraph/graph-api , https://docs.langchain.com/oss/python/langgraph/fault-tolerance
+- LangGraph recursion limit and graceful shutdown (fetched 2026-10-19): https://docs.langchain.com/oss/python/langgraph/graph-api , https://docs.langchain.com/oss/python/langgraph/fault-tolerance ; recursion-limit default by release, from the published wheels (2026-10-19): https://pypi.org/project/langgraph/
+- MCP 2026-07-28 cancellation (fetched 2026-10-19): https://modelcontextprotocol.io/specification/2026-07-28/basic/utilities/cancellation
 - Claude Agent SDK, agent loop: https://code.claude.com/docs/en/agent-sdk/agent-loop
 - OpenAI Agents SDK, running agents: https://openai.github.io/openai-agents-python/running_agents/
-- Arjmandi, Harness or Model? (arXiv 2609.11987, 2026-09): https://arxiv.org/abs/2609.11987
+- Arjmandi, Harness or Model? (single-author preprint, arXiv 2609.11987, 2026-09; its cost ratio comes from observed usage): https://arxiv.org/abs/2609.11987
 - Anthropic, How we built our multi-agent research system (2025-06): https://www.anthropic.com/engineering/multi-agent-research-system
 - RFC 9457, Problem Details for HTTP APIs: https://www.rfc-editor.org/rfc/rfc9457.html
 - Anthropic, Effective harnesses for long-running agents (2025-11): https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents

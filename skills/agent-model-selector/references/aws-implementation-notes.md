@@ -2,7 +2,7 @@
 
 AWS mapping for this skill's principles. As of 2026-10; services change, verify before use.
 
-Load this when a role's model is tuned, hosted or called on AWS. The principles live in SKILL.md and the other reference files; this file only says which AWS feature or setting carries each one and where the labs tripped. Items marked "(unverified)" were seen in practice labs or inferred, but not confirmed against current AWS documentation.
+Load this when a role's model is tuned, hosted or called on AWS. The principles live in SKILL.md and the other reference files; this file only says which AWS feature or setting carries each one and where the labs tripped. Items marked "(unverified)" were seen in practice labs or inferred, but not confirmed against current AWS documentation. The lab observations are anonymised notes from the author's own practice labs, with no client data.
 
 ## Mapping
 

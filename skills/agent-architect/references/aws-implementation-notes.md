@@ -2,6 +2,8 @@
 
 AWS mapping for this skill's principles. As of 2026-10; services change, verify before use.
 
+The (lab) rows are anonymised observations from the author's own hands-on labs, with no client data; treat them as unverified unless they are also tagged (docs).
+
 The principles live in the other reference files and stay vendor-neutral. This file says which AWS feature or setting carries each one and where hands-on labs tripped. Tags: **(docs)** confirmed against AWS documentation on 2026-10-11 (pages listed at the end); **(established)** long-standing documented behaviour the labs did not exercise; **(lab)** seen in practitioner labs only; **(unverified)** not confirmed, check before relying on it. Identity and policy enforcement on AWS: agent-threat-modeler's AWS notes. Hosting, tracing and runtime release mechanics: agent-ops-reviewer's. Runtime rows (one writer per run, typed checkpoints, ordered streams and stream position, durable exit sinks, durable workflow engines, AgentCore Runtime sessions, kill-switch flags) moved with the control loop to the agent-harness-designer skill's AWS notes.
 
 ## Mapping
@@ -13,7 +15,7 @@ The principles live in the other reference files and stay vendor-neutral. This f
 | Log retention for replay and audit (multi-agent.md, "Communication") | Amazon MSK topics with `cleanup.policy=delete` and `retention.ms` sized to the business lifecycle | `cleanup.policy=compact` keeps only the latest value per key and loses the history (established Kafka behaviour; lab) |
 | Per-agent credentials (multi-agent.md, "If you split") | One IAM execution role per agent runtime or tool server, scoped to that agent's own tables and indexes; the IAM policy simulator or a real call for the denial test | An inline policy with a harmless name granted cross-store access. Read the effective policy JSON, not policy names (lab) |
 | Discovery (multi-agent.md, "Contracts between separately deployed agents") | A small DynamoDB table of agent cards; `GetAgentCard` to fetch the card of an agent on AgentCore Runtime (docs) | `Scan` reads the whole table and is eventually consistent by default: fine for a handful of agents; use a strongly consistent read when a just-registered card must be visible (established). The lab's registry entry had no address field, so callers compiled peer addresses in (lab) |
-| A2A between agents (multi-agent.md, "Contracts between separately deployed agents") | AgentCore Runtime with the A2A protocol: a stateless HTTP server on `0.0.0.0:9000` at `/`, agent card at `/.well-known/agent-card.json`, ARM64 container (docs) | The runtime protocol defaults to HTTP; set A2A explicitly (lab). See "Deploying A2A agents" |
+| A2A between agents (multi-agent.md, "Contracts between separately deployed agents") | AgentCore Runtime with the A2A protocol: a stateless HTTP server on `0.0.0.0:9000` at `/`, agent card at `/.well-known/agent-card.json`, ARM64 container (docs). That bind is for inside the managed runtime's container only; never expose the port directly | The runtime protocol defaults to HTTP; set A2A explicitly (lab). See "Deploying A2A agents" |
 
 ## Gotchas the labs hit
 

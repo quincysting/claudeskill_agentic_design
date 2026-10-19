@@ -10,13 +10,16 @@
 
 Severity: **Critical**: the suite can pass while the agent fails. **High**: the numbers cannot support the decisions made on them, or a judge is untrusted. **Medium**: maintainability, cost, coverage gaps. **Low**: style.
 
-| # | Severity | Location | Finding | Evidence | Impact | Fix |
+Evidence: **stated** (the user said so), **inferred** (from a description; name the artefact that would confirm it) or **confirmed** (from code, data or reports read). Severity follows the consequence if an inferred finding holds.
+
+| # | Severity | Location | Finding | Evidence (stated / inferred / confirmed) | Impact | Fix |
 |---|---|---|---|---|---|---|
 
 ## What the current numbers mean
 
 | Reported | Tasks (sent / scored / errored) | Recomputed interval / test (missing = failed) | Reading |
 |---|---|---|---|
+| <a number with no per-task results behind it> | <what is known> | not recomputable: no per-task results | Treat as unverified; keep per-task results from now on |
 
 ## First three changes
 

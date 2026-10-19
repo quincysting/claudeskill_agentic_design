@@ -24,7 +24,7 @@ Combine AGENTICAI's four-part case [AGENTICAI ch10] with ENTERPRISE's unit-of-va
 
 ## 2. Unit of value and baseline
 
-Pick a unit the business already tracks so nobody can dispute the baseline, and so the agent shows up in KPIs leaders already watch [ENTERPRISE ch5]. Candidates from ENTERPRISE ch4: decisions automated, hours of human work avoided, risk incidents prevented, line-hours recovered, incremental revenue. Good units are per item: cost per resolved request, cycle time per claim, errors per 1,000 invoices.
+Pick a unit the business already tracks so nobody can dispute the baseline, and so the agent shows up in KPIs leaders already watch [ENTERPRISE ch5]. ENTERPRISE's candidate units include automated decisions, person-hours no longer spent, incidents that didn't happen, production-line hours won back and added revenue [ENTERPRISE ch4]. Good units are per item: cost per resolved request, cycle time per claim, errors per 1,000 invoices.
 
 Baseline rules:
 - Measure it; don't estimate it. If it isn't measured yet, the first pilot task is to measure it, and the case says so.
@@ -83,11 +83,13 @@ Run `scripts/roi_model.py` (Python standard library only). With no argument it r
 | volume | items per month in scope | baseline fact: system counts |
 | human_min | person-minutes of effort per item today, not open-to-close time | baseline fact: measured or system history |
 | rate | loaded cost per person-hour | baseline fact: finance |
+| human_err_rate | wrong outcomes per item people produce today, on the same kind of items | baseline fact: QA, rework or complaint records. Default 0 (no offset), the cautious choice when it is unknown |
 | contained | share the agent closes with no person (0 for assist-only) | pilot uncertainty |
 | escalated_min | person-minutes per item the agent doesn't close (for assist mode, the new handling time) | pilot uncertainty; often higher than human_min once the easy items are gone |
 | qa_share, qa_min | share of agent-closed items a person checks (1.0 if every item needs approval), minutes each | pilot uncertainty; QA plan |
-| run_cost | agent cost per item | estimate: agent-ops-reviewer |
-| err_rate, err_cost | wrong outcomes per closed item, cost each | pilot uncertainty; finance or risk for cost |
+| run_cost | agent cost per item in scope, closed or not | estimate: agent-ops-reviewer |
+| fee_per_closed | a vendor's price per item the agent completes (outcome pricing); charged only on closed items, so breakeven and the containment sensitivity stay exact. Put any per-attempt fee in run_cost | estimate: the vendor's quote |
+| err_rate, err_cost | the agent's wrong outcomes per closed item (its absolute rate), cost each. The model charges only the part above human_err_rate, so errors people already make are not counted against the agent; an agent better than today shows a saving | pilot uncertainty; finance or risk for cost |
 | platform | monthly platform share, monitoring, on-call | estimate: platform team |
 | pilot_cost | one-off spend before the scale decision; the money at risk if the pilot is killed | estimate |
 | build | total one-off cost to full deployment, pilot included: build, integration, change management, training | estimate |
@@ -95,20 +97,25 @@ Run `scripts/roi_model.py` (Python standard library only). With no argument it r
 | currency | label for every amount, e.g. "EUR" | |
 | measured | list of inputs backed by own data | mark honestly; the verdict depends on it |
 | ranges | realistic low/high per input, set from evidence before you look at breakeven | your judgment; default x0.5..x2; `contained` has no default |
+| range_evidence | what each range rests on, e.g. `{"contained": "shadow run, 400 items, Sep 2026"}` | a shadow run, a ticket sample the agent could close, a comparable deployment. Without it, or `contained` in `measured`, the verdict is not firm |
 
-It prints baseline cost, each cost line, capacity freed (hours and FTE, labelled capacity, not cash; negative when the agent adds human work), net per month valued at capacity and as cash, payback, pilot spend at risk, breakeven containment and the floor, the combined pessimistic case, sensitivity tables per input group sorted by swing, and a verdict. Varying `human_min` scales `escalated_min` with it, since escalated items get faster or slower with the work itself.
+It prints baseline cost, each cost line, capacity freed (hours and FTE, labelled capacity, not cash; negative when the agent adds human work), net per month valued at capacity and as cash with a payback for each, pilot spend at risk, breakeven containment and the floor, the combined pessimistic case, sensitivity tables per input group sorted by swing, and a verdict. Varying `human_min` scales `escalated_min` with it, since escalated items get faster or slower with the work itself.
 
 What the demo shows (20,000 items, 5 min, $40/h, 70% contained): net about $29,900/month, payback 4 months. Model cost x5 cuts net by about 11%; containment 70% to 40% cuts it by about 55%; wrong-outcome cost $25 to $100 cuts it by about 70%. **Containment, escalation time and the cost of a wrong outcome usually decide the case; the model bill rarely does.** Token price starts to decide it when the replaced work is cheap per item or the agent makes many calls per item; hand that to agent-ops-reviewer. The pilot must measure the top drivers in the pilot-uncertainty group well. Baseline facts at the top of their own table get measured before the pilot, not left to it.
 
-Use the outputs to set thresholds, in this order. First set the realistic containment range from evidence (a shadow run, a sample of tickets the agent could close, a comparable deployment), then read breakeven. Never move the range afterwards to pass the test. The floor rule:
+Use the outputs to set thresholds, in this order. First set the realistic containment range from evidence (a shadow run, a sample of tickets the agent could close, a comparable deployment) and record it in `range_evidence`, then read breakeven. Never move the range afterwards to pass the test. If none of that evidence exists, the first step is a shadow sample of a few hundred real items. Until then the script gives no firm funding verdict, only what the model would say on the current range, because a range set by judgement decides the verdict. The floor rule:
 
 | Realistic containment range | Verdict | Kill line |
 |---|---|---|
 | Low end ≥ breakeven + 10 points | Fundable: pilot now, scale on exit criteria | Below the low end; exit threshold = the model's net there |
 | Low end below that, high end ≥ breakeven + 10 points | Pilot only: fund `pilot_cost`, no full build until containment is measured | Below breakeven + 10 points |
-| High end < breakeven + 10 points | Not fundable: the pilot could not pass its own kill line | None; don't start |
+| High end < breakeven + 10 points | Not fundable: the pilot could not pass its own kill line (firm only on a measured baseline and an evidence-backed range) | None; don't start. On assumed inputs: measure first, then re-run |
 
-Any assumed baseline fact turns "fundable" into "pilot only" and heads the case "UNVALIDATED: pilot required". The script applies these rules and prints the verdict. It also builds the combined pessimistic case: pilot uncertainties and estimates at their bad ends, baseline facts held, because measuring settles them. If that case goes negative, say so; the pilot must measure those drivers before anyone decides to scale.
+A verdict on assumed inputs is provisional in both directions. Any assumed baseline fact turns "fundable" into "pilot only" and heads the case "UNVALIDATED: pilot required". It also turns "not fundable" into "not fundable on assumed inputs": the next step is neither a pilot nor "don't start" but the measurement (the baseline, and a shadow sample when the containment range has no evidence) before any pilot spend, then a re-run. The script applies these rules and prints the verdict.
+
+**Cash next to value.** A case can be fundable on capacity value and still lose cash every month, because freed hours save money only when someone acts on them (section 4). The script prints net cash and a cash payback beside the capacity figures, and adds a CASH VIEW line under any positive verdict when net cash is negative. Put both nets and both paybacks in the one-page table; a sponsor who needs cash savings reads that line as the verdict.
+
+**Proportionality.** Compare the pilot spend with the model's net at the kill line over the planning horizon (for example 24 months). If even that can't earn back `pilot_cost`, say so plainly: the pilot is an option or enabler bet (learning, a platform for the next use cases), and the sponsor should fund it as one rather than as a payback case. It also builds the combined pessimistic case: pilot uncertainties and estimates at their bad ends, baseline facts held, because measuring settles them. If that case goes negative, say so; the pilot must measure those drivers before anyone decides to scale.
 
 **Risk-reduction cases**: price the incidents prevented. EVALS funds evaluation work from incident cost: about 12 engineering hours per incident, three a quarter, $150 an hour, so $5,400 a quarter in direct cost before user impact [EVALS ch13].
 

@@ -15,7 +15,7 @@ What to change when a role misses its target on the eval, in order of cost and r
 ## 1. Three dials
 
 1. **Which model.** A configuration change, fully reversible, provided an eval tells you what the swap did.
-2. **What the model sees.** Prompt, examples, retrieved documents, stored reflections and rules. Cheap to change and inspect, and it carries over to the next model. (One book calls this nonparametric learning.)
+2. **What the model sees.** Prompt, examples, retrieved documents, stored reflections and rules. Cheap to change and inspect, and it carries over to the next model. BUILDAPPS calls this nonparametric learning [BUILDAPPS ch7].
 3. **What the model is.** SFT, preference tuning, RL, continued pre-training, distillation. Slow to set up, needs data and evaluation infrastructure, and must be redone or re-validated when the base model changes.
 
 Agent traces improve every layer. With open weights they can drive post-training; with a closed model the same traces still improve prompts, tool descriptions, routing, eval sets and memory policies.
@@ -60,7 +60,7 @@ A fine-tuned encoder or small classifier for a fixed label set is not gated by t
 
 When fine-tuning pays: classification, format, tool-call syntax and when-not-to-call, teaching a generator to use retrieved context in the formats it arrives in (code, tables, XML), and cost reduction on a narrow, high-volume task. When it does not: adding knowledge, tasks still changing, low volume, or no capacity to repeat the work when a better base model arrives ("when in doubt, don't fine-tune").
 
-Hosted tuning availability is a real constraint: as of 2026-10 one major provider had closed its fine-tuning platform to new users. If a plan relies on tuning a closed model, name the fallback (an open-weight model with LoRA) up front.
+Hosted tuning availability is a real constraint: as of 2026-10 OpenAI's pricing page said its fine-tuning platform was being wound down and was closed to new users (https://developers.openai.com/api/docs/pricing, checked 2026-10-19; details in `model-landscape-2026-10.md`). If a plan relies on tuning a closed model, name the fallback (an open-weight model with LoRA) up front.
 
 ## 4. Methods primer
 
@@ -89,24 +89,24 @@ Hosted tuning availability is a real constraint: as of 2026-10 one major provide
 
 ## 5. How much data
 
-Orders of magnitude from the books and papers they cite, not rules:
+Orders of magnitude from the books and the papers they cite, not rules:
 
 | Use | Volume |
 |---|---|
-| Dynamic exemplars | A store of dozens to thousands of verified successes; a few retrieved per call (two or three varied examples usually beat six similar ones) |
-| SFT of a large model | Hundreds to thousands of curated examples |
-| Instruction tuning | A few thousand high-quality examples can suffice (LIMA) |
-| Reasoning behaviour via SFT | About 1,000 question-and-trace pairs gave a 32B model stable reasoning (s1) |
-| RL cold start before GRPO | About 5,000 long traces in one reasoning-model recipe |
-| RL for tool use | About 4,000 traces in ToolRL |
+| Dynamic exemplars | A store of dozens to thousands of verified successes, a few retrieved per call [BUILDAPPS ch7]; this skill's rule of thumb is two or three varied examples rather than six similar ones |
+| SFT of a large model | Hundreds to thousands of curated examples [BUILDAPPS ch7] |
+| Instruction tuning | LIMA used 1,000 curated examples (Zhou et al., 2023); DLLMA summarises it as "a few thousand" [DLLMA ch6] |
+| Reasoning behaviour via SFT | About 1,000 question-and-trace pairs gave a 32B model stable reasoning (s1) [ILLUSTRATED ch3] |
+| RL cold start before GRPO | About 5,000 long traces in one reasoning-model recipe [ILLUSTRATED ch3] |
+| RL for tool use | About 4,000 traces in ToolRL [ILLUSTRATED ch5] |
 | Small-model replacement of an agent's calls | 10,000 to 100,000 examples per task as a rule of thumb (NVIDIA, 2025) |
-| Encoder or small classifier | The measured study had about 173,000 training examples; with a few thousand, expect less. Heuristic by training labels per class (after holding out the test split): under about 50, do not train; about 50 to 200, a grey zone where the tuned model is a bake-off candidate decided by the test split and a learning curve; over about 200, a strong default candidate. Confusable classes need more |
+| Encoder or small classifier | The measured study had about 173,000 training examples [BUILDAGENTIC ch8]; with a few thousand, expect less. Heuristic by training labels per class (after holding out the test split): under about 50, do not train; about 50 to 200, a grey zone where the tuned model is a bake-off candidate decided by the test split and a learning curve; over about 200, a strong default candidate. Confusable classes need more |
 
 Labels must belong to the role being trained. A conversation outcome (resolved, escalated, a thumbs-down) mixes the effects of every role and every tool, so it is not a training label for any single one; sample role calls from those conversations and label each call (right intent? right tool and arguments?).
 
 With limited labels, draw a learning curve: train on 25%, 50% and 100% of the labels and score the held-out split. If the curve is still rising, more labels will pay; if flat, look elsewhere. Rare classes are where tuned classifiers stay worst, so report per-class accuracy.
 
-Data quality beats quantity. Verify synthetic answers with a program or a reviewer before training: a public reasoning dataset used as a textbook example contained a worked answer that was simply wrong (three dice summing to 11: 27 ways, probability 1/8, not the 1/12 its trace concluded). Draw examples from real traffic, have a person check them, and keep every labelled example so the tuning can be repeated on the next base model.
+Data quality beats quantity. Verify synthetic answers with a program or a reviewer before training: a public reasoning dataset used as a textbook example contained a worked answer that was simply wrong (three dice summing to 11: 27 ways, probability 1/8, not the 1/12 its trace concluded). Draw examples from real traffic, have a person check them, and keep every labelled example so the tuning can be repeated on the next base model. Real traffic needs the same care as eval data, and more: tuned weights can reproduce their training text. Remove or pseudonymise personal data and secrets before an example enters a training set; confirm that the data owner and the customer terms allow training use, and sending the data to the tuning provider and region; keep access control and retention on the sets; route deletion requests to them, and plan a retrain when a deleted example was in a trained model's data; and test the tuned model for extraction by prompting with partial training records before release. (The dice example is from [DLLMA ch8].)
 
 ## 6. Side effects
 
@@ -117,7 +117,7 @@ Data quality beats quantity. Verify synthetic answers with a program or a review
 
 ## 7. Settled disagreements
 
-- **Fine-tune or retrieve for knowledge?** Retrieve. The pro-fine-tuning evidence in the books is strong for classification, format and cost, and weak for knowledge: one domain-adaptation run's top-grade rate rose from 6.5% to 22%, about equal to a small model with a lookup tool (23%) and far below a larger model with retrieval (71%). External work (Ovadia et al., 2024) found retrieval beat unsupervised fine-tuning for both familiar and new facts. KGRAG reaches the same verdict across seven dimensions (how knowledge is updated, data preparation, customisation, interpretability, compute, hallucination, privacy) and adds that the two can be combined: retrieve the facts, fine-tune the generator so it uses retrieved context and its formats, and fine-tune the embedder too [KGRAG ch5 §Comparison between RAG and fine-tuning]. Embedder tuning is a retrieval decision, so it goes to agent-context-designer. The book's statement that fine-tuning can reduce hallucinations is hedged in the same sentence (tuned models often still hallucinate) and comes with no measurement, so it does not move the verdict.
+- **Fine-tune or retrieve for knowledge?** Retrieve. The pro-fine-tuning evidence in the books is strong for classification, format and cost, and weak for knowledge: one domain-adaptation run's top-grade rate rose from 6.5% to 22%, about equal to a small model with a lookup tool (23%) and far below a larger model with retrieval (71%) [BUILDAGENTIC ch8]. External work (Ovadia et al., 2024) found retrieval beat unsupervised fine-tuning for both familiar and new facts. KGRAG reaches the same verdict across seven dimensions (how knowledge is updated, data preparation, customisation, interpretability, compute, hallucination, privacy) and adds that the two can be combined: retrieve the facts, fine-tune the generator so it uses retrieved context and its formats, and fine-tune the embedder too [KGRAG ch5 §Comparison between RAG and fine-tuning]. Embedder tuning is a retrieval decision, so it goes to agent-context-designer. The book's statement that fine-tuning can reduce hallucinations is hedged in the same sentence (tuned models often still hallucinate) and comes with no measurement, so it does not move the verdict.
 - **Does fine-tuning add capability?** Mostly it exposes and reshapes behaviour the base already has. Choose the base model for what it knows; tune it for how it behaves.
 - **Who supplies the learning signal?** A program wherever correctness is checkable; a judge only as a relative ranker behind a correctness gate; people to label the data that calibrates both. Label-free self-improvement (majority vote over the model's own samples) is research, not something to point at production traffic: a wrong majority becomes training signal.
 
@@ -125,13 +125,13 @@ Data quality beats quantity. Verify synthetic answers with a program or a review
 
 1. Failure is a behaviour gap, repeated across many logged cases, and cheaper rungs were tried and measured.
 2. Train, validation and held-out test splits fixed before any tuning; the test split was never used for prompt work.
-3. Examples verified by a person or a program; per-class counts known; "no tool" and tool-failure cases included.
+3. Examples verified by a person or a program; per-class counts known; "no tool" and tool-failure cases included; personal data and secrets removed or pseudonymised, training use allowed by the data owner and terms, retention and deletion handling recorded (section 5).
 4. Validation split scored during training; the kept checkpoint is the one with the best validation metric, not the last one (section 6, memorisation).
 5. Base model chosen for knowledge and licence, pinned to an immutable revision (a commit hash, not a branch or "latest") and mirrored to your own storage; LoRA unless there is a reason not to.
 6. General-capability regression set prepared.
 7. For RL: reward passes adversarial tests; tasks filtered to those solved sometimes but not always; independent held-out scorer (see `rl-and-reward-design.md`).
 8. Every comparison includes what the tuned model would replace, on the same held-out data: the untrained base for generative tuning, the best prompted candidate for an encoder classifier (an untrained classification head is meaningless).
-9. Calibration measured if thresholds depend on confidence.
+9. Calibration measured if thresholds depend on confidence; an extraction test run on the tuned model (partial training records as prompts) before release.
 10. Data, scripts, hyperparameters, eval results and the resulting model versioned and registered with a rollback path.
 11. Training and serving match. The prompt template, special tokens, tokenizer files, stop sequence and inference library versions are versioned with the adapter and used unchanged at serving, on the exact base revision it was trained on. A parity test renders a training example through the serving path and checks the token IDs and the stop behaviour. A mismatch can stop the adapter from loading, or let it load and misbehave.
 12. A re-run plan for the next base model and a fallback if hosted tuning is withdrawn.

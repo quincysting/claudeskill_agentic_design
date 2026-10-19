@@ -1,17 +1,19 @@
 # Tool review: <agent or server name>
 
 ## Summary
-- <five lines: tool count now and proposed, integration, selection strategy, riskiest tool and its control, what to fix first>
+- <five lines: tool count now and proposed, integration, selection strategy, riskiest tool and its control, what to fix first; recount every number here from the body before returning>
 
 **Verdict:** <one line: e.g. "Safe to keep running only after P0-1 and P0-2; tool choice will stay unreliable until the search/fetch overlap is fixed.">
 
-**Scope reviewed:** <files, tool definitions, server and client code, logs; if no logs or transcripts, say so and mark findings "inferred">. **Model and host:** <…>. **Not reviewed:** <…>.
+**Scope reviewed:** <files, tool definitions, server and client code, logs; if no logs or transcripts, say so>. **Model and host:** <…>. **Not reviewed:** <…>.
 
 ## Findings
 
 Priority: **P0** wrong irreversible action, duplicate side effect, cross-tenant access or security exposure · **P1** measurable wrong tool, bad arguments, loops or task failure · **P2** tokens, latency, maintainability · **P3** polish.
 
-| ID | Priority | Where (tool / file:line) | Issue | Evidence | Fix |
+Evidence: **stated** (the user said so), **inferred** (from definitions or code, no logs) or **confirmed** (logs, traces, a test). Severity follows the consequence if an inferred fact holds.
+
+| ID | Priority | Where (tool / file:line) | Issue | Evidence (stated / inferred / confirmed) | Fix |
 |---|---|---|---|---|---|
 | P0-1 | P0 | | | | |
 | P1-1 | P1 | | | | |
@@ -28,6 +30,9 @@ Priority: **P0** wrong irreversible action, duplicate side effect, cross-tenant 
 ## Confirming the fixes
 - Tool-choice eval: <cases to add, especially the confused pairs and negative cases; runs; ship bar>.
 - Checks to add in code or tests: <idempotency replay test (same key twice, commit-then-timeout), authorization test, timeout path with verification, one contract test per failure category through the real client, schema diff in CI with a planted break; run them under the agent's own credentials>.
+
+## Confirm first
+- <each inferred finding: the log line, trace or eval case that would confirm or clear it>
 
 ## Assumptions
 - <assumption> (**blocking** if a finding or fix depends on it; how to check)

@@ -90,7 +90,7 @@ Write every one down with a number before launch. Without one, agents drift towa
 | Review or critique rounds | 1 to 2, then accept, reject or escalate [SYSTEMS ch13] | — |
 | Retries per transient failure | With backoff | — |
 
-SYSTEMS says its numbers are only examples; what it requires is that some budget exists before production. "Agent systems do not scale only by adding machines. They scale by bounding work." [SYSTEMS ch10]
+SYSTEMS says its numbers are only examples; what it requires is that some budget exists before production, because more machines alone do not make an agent system scale, while bounded work does [SYSTEMS ch10].
 
 ### Where budgets bite
 
@@ -99,6 +99,7 @@ A budget that exists but is checked in the wrong place does not hold. Five rules
 - **Keep the counters in the run's checkpointed state.** A tracker object outside state resets when the worker restarts [DEFGUIDE repo: ch06/ch06_A2A_MCP_Governed.ipynb].
 - **Pause the clock during human waits.** Subtract the time spent waiting for a reviewer from the run's time budget, so a slow approver does not trip the agent's timeout [DEFGUIDE ch6].
 - **Use a ladder and share it.** Warn at about 80% of any ceiling (stop creating new tasks, alert the operator) and stop at 100% (end the task, revoke its capabilities). The budget is shared across delegated work: a handoff to another agent cannot reset it. Detect repeats of the same worker, capability and input digest [AISEC repo: part8_multi-agent_harness_spec/safety-governance.md]. That specification's defaults (20 agent turns, 30 tool calls, one retry per task, 30 minutes) are one team's numbers [AISEC repo: part8_multi-agent_harness_spec/agents.yaml]; the ladder and the shared budget are what transfer.
+- **One ledger for delegated work.** Sharing means one budget ledger per run in checkpointed state, not a number copied to each child: three parallel children each handed "what remains" can spend three times that. A child reserves a slice by conditional decrement before it spawns and before each of its calls, and returns what it did not use when it exits; cap the number of children and the depth. A reservation that fails ends the child with a budget reason. (This mechanism is this skill's; the specification above states only that the budget is shared.)
 - **Leave headroom for the call you cannot price.** A pre-call check cannot know the call's cost, and accounting after each response overshoots by up to one response plus whatever running subagents spend before they stop (one vendor SDK documents this, as of 2026-10; framework-vocabulary-2026-10.md). Set the hard cap one maximum call below the real limit.
 
 When a budget is hit, PRODGUIDE's safe fallback applies: downgrade to draft-only, return the minimum useful output, and ask only the questions needed to continue [PRODGUIDE ch17 §Budget Guardrails and Context Discipline]. The status is `partial` with the budget named as the reason.
@@ -134,7 +135,9 @@ Partial output beats fake completeness [SYSTEMS ch16]. A common bug: the step ca
 
 ### Downstream decisions: hand off, don't hold the run
 
-Use `awaiting_approval` only when the run itself holds the pending action and the decision comes back to it quickly, through the agent's own UI or queue, within minutes to hours. The channel does not decide the status: a chat button or an email link that calls the harness's own approval endpoint within the request lifetime is `awaiting_approval`. `handed_off` is for a decision taken in another system of record, on that system's timeline, that comes back as a new event.
+Use `awaiting_approval` only when the run itself holds the pending action and the decision comes back to it quickly, through the agent's own UI or queue, within minutes to hours. The channel does not decide the status: a chat button or an email link that leads to the harness's own approval endpoint within the request lifetime is `awaiting_approval` (the link itself only opens a read-only view; harness-components.md §3). `handed_off` is for a decision taken in another system of record, on that system's timeline, that comes back as a new event.
+
+A paused run holds no worker. On `awaiting_approval` it checkpoints, releases its worker and its lease, and the decision enqueues a resume message that any worker can pick up. The wall clock stays paused for the whole wait.
 
 When the decision is made by a person in another system (a claims queue, a ticketing tool) on that system's SLA:
 1. End the run with `handed_off`. Store the package, the case ID, the external reference and the config versions used.
@@ -157,7 +160,7 @@ Holding a run open for days pins old configuration, ties up resources and acts o
 | Repeated garbage from one component | Circuit breaker pauses it (AGENTICAI's summariser was paused after three gibberish outputs in a minute) and routes to fallback or a person [AGENTICAI ch8] |
 | One tool keeps failing | Trip a breaker on that tool after N consecutive errors (about 3 is the 12-factor default) and stop retrying until a cooldown passes; hitting the threshold is a good point to escalate [RELATED repo: 12-factor-agents/content/factor-09-compact-errors.md]. A breaker covers one component; the kill switch covers the whole agent (harness-components.md §4) |
 | A write timed out (outcome unknown) | Default sequence: look the idempotency key up, or read the target's state; if nothing is found, retry at most once with the same key; if the outcome is still unknown, end `escalated` with reason `outcome_unknown`. Never ask the model again, which may choose a different action [PRODGUIDE ch16 §The Production Spine: State, Retries, Approvals, and Control]. A backend with neither a key nor a lookup gets no automatic retry for that write: on a timeout the run ends `escalated`, or the write goes through a path that is safe to repeat (a person executes it, or the backend deduplicates). List that backend as a blocking assumption under "Confirm first" |
-| Cancel signal or kill flag | Stop at the next safe point (the guard); end `cancelled`; a long tool receives the cancellation and cleans up (serving-and-deployment.md §4) |
+| Cancel signal or kill flag | Stop at the next safe point (the guard); end `cancelled`; a long tool receives the cancellation and cleans up (serving-and-deployment.md §4). A cancelled run never resumes, so settle any write in flight first: let the call return within its timeout or look the key up, record the receipt, and list any intent still without one on the exit event, so the item in the `cancelled` sink asks a person to reconcile it |
 | Low confidence or blocked | Escalate to a person with sources and confidence attached [AGENTICAI ch8] |
 
 Two correction loops, kept separate [DEFGUIDE ch5]: the **inner loop** re-asks the model to satisfy the same schema (fast, for model-shaped failures); the **outer loop** is the graph or orchestrator, with gates, retry routing and checkpoints (for timeouts, infrastructure failure, policy violations and side effects). Count retries in state so they stay bounded and visible.
@@ -192,6 +195,16 @@ def save(store, run_id, state, read_version):     # read_version is 0 for a new 
         raise StaleState(run_id)                    # reload and re-decide; never overwrite
 ```
 
+### Leases for long runs on a queue
+
+A queue hides a message for a visibility timeout and then delivers it again. A run that lasts longer than that timeout is redelivered while its first worker is still busy. Dropping that redelivery is right only if something recovers the run when the busy worker dies; otherwise the run stays `running` for ever. Give each run a lease:
+- The worker that starts or resumes a run takes the lease with a conditional write (owner, expiry), and renews it on a heartbeat. The same heartbeat extends the message's visibility.
+- A redelivery for a run whose lease is live is acknowledged and dropped. A redelivery for a run whose lease has expired takes the lease and resumes from the last checkpoint.
+- A sweeper runs on a schedule and re-enqueues every non-terminal run whose lease expired, so a run whose worker died after a redelivery was dropped still resumes, once. A run in `awaiting_approval` holds no lease and is not swept; its decision event resumes it.
+- Set the lease expiry to a few heartbeat intervals, and the heartbeat well inside the visibility timeout.
+
+Tests: harness-tests.md, "Lease, redelivery" and "Lease, dead holder".
+
 ### Typed, versioned checkpoints
 
 - Serialise through the state schema (a typed model), not ad hoc JSON. Enums, nested records and optional fields must round-trip; a string compared with an enum is silently false.
@@ -205,7 +218,7 @@ Resume continues a run from its last checkpoint; retry repeats one call (idempot
 - **Experiment:** call the model again with the recorded input, change one component, compare plans, sources and previews. Framework replay from a checkpoint is this kind: nodes after the checkpoint run again, model and tool calls included, and may differ (LangGraph documentation, as of 2026-10).
 - **Reproduction:** feed back the recorded model outputs and tool results from the event log instead of calling anything, to see exactly what happened.
 
-Either way, side effects stay off: safe mode is the same mechanism as draft-only (harness-components.md §5).
+Either way, side effects stay off: safe mode is the same mechanism as draft-only, and replays run under a credential with no write scope (harness-components.md §5). A home-made replay that re-runs the recorded tool calls is an experiment with side effects on, which is a defect to fix.
 
 ## Execution mode
 

@@ -6,12 +6,14 @@ Load this for step 9 of the procedure. The offline suite itself (cases, scorers,
 
 Run it on every PR that touches prompts, model IDs or parameters, tool definitions or tool code, agent configs, retrieval settings or the eval dataset. Use a path filter so documentation-only PRs skip it. Model migrations and provider switches go through the **same** gate, never a looser one. The harness test slice (resume after a crash, forced stops, budgets, cancel, kill switch, against an out-of-process store) comes from **agent-harness-designer** and runs in the pre-merge fast tier: the model is scripted, so these are deterministic checks with zero tolerance.
 
+**CI never touches production.** The suite runs every write tool against a stub, recorder or sandbox and scores the intended call or the sandbox's final state; a gate that can refund, send or book acts on real customers once per case and per rerun. CI holds only non-production credentials: a model or judge API key scoped to evaluation, sandbox tool credentials, no production database or tool secrets. Test data is synthetic or de-identified (agent-eval-designer owns the dataset rules).
+
 ## 2. Tiers
 
 | Tier | When | What runs | Budget | Rule |
 |---|---|---|---|---|
 | Pre-merge fast | Every PR in scope | Deterministic scorers: schema validity, forbidden tools, required steps, step and cost budgets, exact-match fields | Free, under about 30 s (slower pre-merge checks get bypassed) | Any newly failing case fails the build |
-| Pre-merge judge | PRs in scope, after the fast job | Full suite with the LLM judge | A few dollars per PR (mid-2026 figures: $1 to $5) | Confirmed regressions and paired test (section 4) |
+| Pre-merge judge | PRs in scope, after the fast job | Full suite with the LLM judge | A few dollars per PR (mid-2026 figures: $1 to $5 [EVALS ch11]) | Confirmed regressions and paired test (section 4) |
 | Nightly | Main branch | Full suite, all scorers, repeated trials | Moderate | Same rule; opens an issue instead of blocking |
 | Release | Before promotion to canary | Full suite plus held-out split, consensus judging | Larger | Tolerance 2 to 3%, zero confirmed new failures on hard checks, and a person reads the five lowest-scoring passing cases |
 
@@ -96,6 +98,8 @@ jobs:
       - run: python evals/regression_gate.py evals/baseline.json cand.json > gate_report.json
 ```
 
+- Keep the `pull_request` trigger. Never switch to `pull_request_target`: it runs in the base repository's context with its secrets and a write-scoped token, so a job that checks out and runs a fork's pull request there hands that code your judge or model API key. Fork PRs then run without secrets; run the judge tier for them only after a maintainer has reviewed the code.
+- Every step runs with write tools stubbed and evaluation-only credentials (section 1, "CI never touches production").
 - Post the three lists to the PR (hard regressions, confirmed worse, confirmed better) as well as the verdict, because reviewers act on named cases. For non-engineers, translate the red build into user impact: "three billing queries now produce incorrect refund amounts".
 - Include in every report: dataset version, agent version, model ID, judge model and rubric version, run cost and wall-clock time.
 - Also run the **fallback model** through the suite on a schedule: a fallback that has never passed the gate is not a fallback.
@@ -107,7 +111,7 @@ jobs:
 - Report counts with intervals ("29 of 30, 95% CI 83 to 99%"), not bare percentages from small sets.
 - Triage flaky cases weekly: tighten the rubric, widen that scorer's tolerance, or move a chronically borderline case out of the automated suite into periodic human review.
 
-## 7. What evaluation costs (mid-2026 figures from the eval literature; recheck)
+## 7. What evaluation costs (mid-2026 figures from one eval book [EVALS ch11]; recheck)
 
 | Scorer | Cost per verdict | Latency |
 |---|---|---|
@@ -127,4 +131,4 @@ jobs:
 | Weekly comprehensive eval and calibration | weekly | $5 to $20 |
 | Human annotation round | monthly | $50 to $500 |
 
-Cost falls by ordering (deterministic first so clear failures skip the judge), caching verdicts for unchanged outputs (key includes judge model and rubric version), concurrency, the cheapest adequate judge per scorer, and batch pricing for scheduled runs (about half price). Tiering plus caching typically cut eval spend by more than half. A cheaper judge is not free: a small model agreed with a mid-size one on faithfulness only about 82% of the time in one comparison, so calibrate before switching. A 20-minute pre-merge eval is a cost too; developers route around it.
+Cost falls by ordering (deterministic first so clear failures skip the judge), caching verdicts for unchanged outputs (key includes judge model and rubric version), concurrency, the cheapest adequate judge per scorer, and batch pricing for scheduled runs (about half price). Tiering plus caching typically cut eval spend by more than half. A cheaper judge is not free: a small model agreed with a mid-size one on faithfulness only about 82% of the time in one comparison [EVALS ch11], so calibrate before switching. A 20-minute pre-merge eval is a cost too; developers route around it.

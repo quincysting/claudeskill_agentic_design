@@ -6,6 +6,13 @@ How the offline suite gates changes. Online evals, production sampling, alerting
 
 Every PR that touches prompts, tool definitions, model configuration, agent code, retrieval configuration or the dataset. Use a path filter so documentation-only PRs skip it [EVALS ch6]. Model migrations and judge upgrades trigger a full run too.
 
+## CI safety
+
+An eval job runs the agent, so it can do whatever the agent's tools can do.
+- Write tools point at sandboxes and recorders (datasets-and-harness.md, requirement 2). CI holds test credentials only: the model and judge API keys, scoped and rate-limited, and never production database, payment or e-mail credentials.
+- On GitHub, run eval workflows on the `pull_request` trigger, never `pull_request_target`, which runs in the base repository's context with its secrets and a write-scoped token, so checking out or running a fork's code there exposes them. An eval job always runs the changed code. Require approval before workflows run for outside contributors.
+- Datasets in CI are the de-identified copies (datasets-and-harness.md, "Real user data"), and job logs are retained no longer than the data allows.
+
 ## Baseline
 
 A baseline is a saved report: dataset version, agent version (prompt, model, tools), judge model and rubric version, and per-task results keyed by stable task ID [EVALS ch6].
@@ -51,7 +58,7 @@ For stochastic agents a critical check can fail in 1 of 5 trials. That trial fai
 
 | Tier | Runs | Content | Budget |
 |---|---|---|---|
-| Pre-merge (every relevant PR) | Minutes at most | Deterministic scorers on a tagged critical subset (about 30 to 50 tasks, mostly incident cases [EVALS ch2]), 1 trial, run concurrently, dev split | Scoring is free, but running the agent is not (see "Agent inference cost"). EVALS targets under about 30 s because slower pre-merge checks get bypassed [EVALS ch6]; with an agent in the loop, that is reachable only with a small concurrent subset. When only scorers or the dataset changed, re-score cached transcripts instead of rerunning the agent. Add the harness slice (scripted model, seconds) when harness code changes |
+| Pre-merge (every relevant PR) | Minutes at most | Deterministic scorers on a tagged critical subset (about 30 to 50 tasks, mostly incident cases [EVALS ch2]), 1 trial, run concurrently, dev split | Scoring is free, but running the agent is not (see "Agent inference cost"). EVALS targets under about 30 s because slower pre-merge checks get bypassed [EVALS ch6]; with an agent in the loop, that is reachable only with a small concurrent subset. Re-score cached transcripts instead of rerunning the agent only when expectations, labels or scorer code changed; a change to prompts, tools, fixtures or the clock makes the cached transcripts stale. Add the harness slice (scripted model, seconds) when harness code changes |
 | PR judge run (a few relevant PRs a week) | Minutes | Full dev split with judges, 3 trials per task where outputs vary | Judge $1–5 per run at mid-2026 prices [EVALS ch11], plus agent inference |
 | Nightly (dozens of PRs a day) | Up to an hour | Same as the PR judge run, on the day's main branch | Same |
 | Release | Before shipping | Hard checks on dev + held-out; release rates and intervals from held-out only (statistics.md, "Which split"); consensus judging; a held-out evaluator scored beside the visible judges (llm-judges.md); 5+ trials on side-effecting tasks; tolerance 2–3% where the split's MDE allows it (see "Tolerance"); a person reads the five lowest-scoring passing cases [EVALS ch6]; the full harness slice passes | Higher; accepted |
@@ -109,7 +116,8 @@ Reading it: 5 confirmed regressions and no improvements give p ≈ 0.03 and bloc
 
 ## Model migrations, optimisers, best-of-many
 
-- **Same gate for model migrations.** A migration validator that calls a model change safe whenever the pass rate falls by no more than the tolerance, however many cases regress, is looser than the gate on a one-line prompt edit. One book's companion code does exactly that. Run the migration through the full gate and read every regressed task before deciding.
+- **Same gate for model migrations.** A migration validator that calls a model change safe whenever the pass rate falls by no more than the tolerance, however many cases regress, is looser than the gate on a one-line prompt edit. The EVALS companion code does exactly that (`validate_migration`, as read 2026-10-18) [EVALS repo: project/cap13/evalkit/workflow/migration.py]. Run the migration through the full gate and read every regressed task before deciding.
+- **Choosing between models or versions.** A default rule, to adapt and pre-register: (1) zero critical failures on every trial; (2) the hard-check pass rate is not worse by a confirmed paired difference (sign test on flipped tasks); (3) pass^k on side-effecting slices is not worse by more than the MDE. A difference inside the MDE is a tie, decided on cost per solved task as agent-model-selector defines it, or on agent-ops-reviewer's cost per successful run when the candidates differ in human review time. The bake-off controls (one harness for all candidates, an equal prompt-adaptation budget per model, provider defaults set explicitly) come from agent-model-selector's bake-off protocol.
 - **Recalibrate the judge** if the migration also changes the judge model.
 - **Best of many experiments.** After twenty experiments on 30 tasks, the best pass rate is inflated by luck. Confirm the winner on the held-out split before saving it as the baseline [EVALS ch13].
 - **Automated prompt optimisers** (DSPy and similar) are proposal generators. Their output goes through the same gate, with a held-out set the optimiser never saw.

@@ -68,19 +68,21 @@ If the system runs on AWS, map each decision with [references/aws-implementation
    - audit the sources first: answers to the top 30 to 50 questions, retired and conflicting documents archived, an owner and review schedule, the 90% rule for structured decision fields (not articles), volatile data behind a live query (§0);
    - check parsing on every real format;
    - chunk by document structure, with document and section context prepended;
-   - attach metadata, including ACLs and version;
-   - run BM25 and dense search in parallel, fuse by rank (or by weighted normalised scores when one side should count more), and apply the permission filter inside the search (§3.2);
-   - retrieve wide (about 50), rerank, and pass 3-5;
+   - attach metadata, including allow groups, deny scopes (ethical walls, information barriers, legal holds), section role and version (§2.3);
+   - run BM25 and dense search in parallel, fuse by rank (or by weighted normalised scores when one side should count more), and apply the permission filter, allow and deny both, inside the search (§3.2);
+   - retrieve wide (about 50), rerank, and pass 3-5 (more for synthesis across sources, tuned on that slice);
    - set a relevance floor and a not-found path, and give every item a citable ID;
+   - verify citations in code: cited IDs in this request's evidence set, quotes verbatim, a support check per claim, unsupported claims removed or flagged "unverified", non-authoritative parts labelled (§3.8);
+   - for primary-authority corpora (case law, statutes, standards), take staleness from an authoritative status feed, not from age (§2.5);
    - handle staleness: version metadata, or for undated documents a derived status, age limits and an owner review queue (§2.5);
    - make indexing idempotent (stable chunk IDs, upsert) and check every ingest: per-source counts, a canary query, backfill for what the trigger missed (§2.5, §2.7);
-   - for governed numbers, use a metric catalog instead of text-to-SQL, and run every table query under the caller's row and column entitlements (§5);
+   - for governed numbers, use a metric catalog instead of text-to-SQL, give recurring list, filter and count questions vetted query templates, check the accuracy of any machine-labelled filter field, and run every table query under the caller's row and column entitlements (§5);
    - with several indexes, rerank the pooled candidates together, cap each source, and order evidence by trust tier (§3.4);
    - for a graph, load validated triplets and hold them to the quality bar; generated graph or SQL queries run read-only under the caller's entitlements, from templates or an allowlist, with graph writes only on the ingest path (§5.2, §5.3).
 
    For agentic retrieval, add a mandatory-search rule, a first retrieval in code wherever grounding is required, budgets enforced in code with an abstain exit, and notes with source IDs carried between hops.
 
-5. **Decide whether long-term memory is warranted.** It pays only when users or tasks recur. If neither does, stop at thread state plus retrieval and say so. Otherwise, fill one memory-spec row per type kept, using [references/memory-design.md](references/memory-design.md) §3 to §7: store, key and scope, write trigger, decider, validation, update rule, expiry, deletion path, read path. Default write path: rules plus an optional cheap classifier on the hot path. LLM extraction runs only in batch (every N turns, at session end, or in a background worker) and only proposes candidates; code accepts, dedupes and supersedes them. Each durable entry carries category, source, confidence, last verified, a TTL and a sensitivity level; an expired entry counts as unknown; entries hold references instead of raw content or personal data; and writes that steer actions other people see go through a proposal a person approves until that category has earned automatic writes (memory-design.md §4.5, §4.7). This rule is for durable memory. Per-turn task state in chat (the current-task line and the attempt ledger) is thread state that code maintains every turn ([references/context-assembly.md](references/context-assembly.md) §4). Wherever more than one writer can touch a thread or record (a retry and a resume, replicas, concurrent turns), writes are conditional, and the thread store has a tested read order (memory-design.md §8).
+5. **Decide whether long-term memory is warranted.** It pays only when users or tasks recur. If neither does, stop at thread state plus retrieval and say so. Otherwise, fill one memory-spec row per type kept, using [references/memory-design.md](references/memory-design.md) §3 to §7: store, key and scope, write trigger, decider, validation, update rule, expiry, deletion path, read path. Default write path: rules plus an optional cheap classifier on the hot path. LLM extraction runs only in batch (every N turns, at session end, or in a background worker) and only proposes candidates; code accepts, dedupes and supersedes them. Each durable entry carries category, source, confidence, last verified, a TTL and a sensitivity level; an expired entry counts as unknown; entries hold references instead of raw content or personal data; and writes that steer actions other people see go through a proposal a person approves until that category has earned automatic writes (memory-design.md §4.5, §4.7). This rule is for durable memory. Per-turn task state in chat (the current-task line and the attempt ledger) is thread state that code maintains every turn ([references/context-assembly.md](references/context-assembly.md) §4). Wherever more than one writer can touch a thread or record (a retry and a resume, replicas, concurrent turns), writes are conditional, and the thread store has a tested read order (memory-design.md §8). When reviewing a running system, the fix also cleans up what the old design already stored: inventory, move system-of-record facts out, purge forbidden content, backfill the governed fields, log the deletions (memory-design.md §6.1).
 
 6. **Assemble each call.** Build a full budget table and layout for the main call(s) with [references/context-assembly.md](references/context-assembly.md) §2 to §6, and a one-line short form for auxiliary calls (router, compactor, extractor, judge). Reserve the output allowance, measure the static prefix, give each bucket a ceiling, an owner and an overflow rule, and set a target p95 total below the ceiling. Lay out shared static prefix → per-user stable block → append-only history → volatile tail (anything that changes every turn). When per-user data changes mid-session (another tab or device writes), keep the session-start snapshot in the per-user block, add the changes as a delta in the tail, and re-snapshot at compaction or the next session (context-assembly.md §3). Hard constraints go in the shared prefix and the original task statement in the per-user block. Fence and label every block with its origin and trust when it enters, recalled memory and agent-written notes included (context-assembly.md §9). In chat, a current-task line in the tail follows task switches. Write the compaction spec (trigger, what stays verbatim, the must-survive list), the tool-result projection and clearing rules, and the sub-agent brief and return size. If the user has a cost target, estimate cost per call and per task with the formula in context-assembly.md §1. When the inputs are mostly guesses, give a low/high range, name the assumption that drives it, and list the measurements that will replace it.
 
@@ -88,14 +90,16 @@ If the system runs on AWS, map each decision with [references/aws-implementation
 
 8. **Run the safety and privacy pass.** Check each of these:
    - permissions are filtered before ranking, and every retrieval and answer cache is keyed by permission scope and ingest generation (a counter that every ingest passing its checks advances, incremental runs included; retrieval-pipeline.md §2.5, §6);
+   - the ACL model has deny rules as well as allow lists, evaluated inside the search; a new wall or barrier propagates to index metadata, invalidates scope-keyed caches and purges the barred user's recalled memory and session state, with a test for a user walled off after the fact (retrieval-pipeline.md §2.3);
    - user and tenant IDs come from the authenticated session, including in memory tools, where the server binds the scope keys and the author role (memory-design.md §10);
    - table and metric queries run with the caller's row and column entitlements, not a shared service role (retrieval-pipeline.md §5);
    - generated graph and SQL queries run read-only, scoped to the caller, from templates or an allowlist, with row limits and timeouts, and graph writes happen only on the ingest path (retrieval-pipeline.md §5.3);
    - every assembled block carries its origin and trust label, so the provenance gate that agent-threat-modeler specifies can refuse tool calls triggered by content (context-assembly.md §9);
    - tool, web and document text never becomes durable memory or instructions without a reviewed step;
-   - deletion reaches every copy (the deletion map in [references/memory-design.md](references/memory-design.md) §6).
+   - deletion reaches every copy (the deletion map in [references/memory-design.md](references/memory-design.md) §6);
+   - logged questions and conversations enter test sets only de-identified and with the data owner's permission (evaluation.md §1).
 
-   Flag poisoning and injection paths, and hand the threat model to agent-threat-modeler.
+   Flag poisoning and injection paths, and hand the threat model to agent-threat-modeler. Data-protection, confidentiality and privilege questions (retention duties, sending client text to a model provider, whether a past exposure must be reported) go to the organisation's privacy or legal owner: flag them as open questions and don't decide them. Nothing here is legal advice.
 
 9. **Plan evaluation** with [references/evaluation.md](references/evaluation.md):
    - retrieval recall@k at each stage, per query type and permission scope;
@@ -106,7 +110,7 @@ If the system runs on AWS, map each decision with [references/aws-implementation
 
    Every addition gets a before/after measurement.
 
-10. **For reviews, rank findings.** P0 means it leaks across users or tenants, loses a safety constraint, or persists secrets or untrusted content. P1 means a measurable loss of answer quality. P2 means wasted cost or latency. Every finding carries evidence (file:line or trace), why it matters, the fix, and how to verify it. Put P0s first, then quick wins, then P1s with their metrics.
+10. **For reviews, rank findings.** P0 means it leaks across users or tenants, loses a safety constraint, or persists secrets or untrusted content. P1 means a measurable loss of answer quality. P2 means wasted cost or latency. Every finding carries evidence (file:line or trace), why it matters, the fix, and how to verify it. Put P0s first, then quick wins, then P1s with their metrics. A data-handling defect in a live system is fixed in two parts: the forward fix, and the clean-up of records the old design already wrote (re-index with ACLs, purge or re-mask stored copies, invalidate caches, backfill governed fields), with a deletion log.
 
 11. **Write the output** from the template, check it against the quality bar, and fix anything that fails.
 
@@ -119,7 +123,8 @@ If the system runs on AWS, map each decision with [references/aws-implementation
 | Private or changing corpus; most questions need it | Always-retrieve pipeline: hybrid + filters + rerank | Testable, cacheable, predictable | Route greetings and chit-chat around retrieval |
 | Proprietary, regulated or fast-changing knowledge | Always retrieve, instruct abstention | The model's confident priors are wrong here | Letting the model decide whether to look |
 | Several sources, or the next lookup depends on the last result | Retrieval as a tool in a bounded loop | Picks sources, takes second hops | One measurement: ~1.9x latency, ~3.5x cost; agents skip optional search; budgets in code |
-| Answer lives in tables | Text-to-SQL with retrieved schema hints | Retrieval means writing a query | Read-only role carrying the caller's row and column entitlements; fallback on failure |
+| Answer lives in tables, exploratory question | Text-to-SQL with retrieved schema hints | Retrieval means writing a query | Read-only role carrying the caller's row and column entitlements; fallback on failure |
+| Recurring list, filter or count questions over records | Vetted parameterised templates the model fills; code checks and binds the values | Same answer every time, auditable, no generated SQL | Machine-labelled filter fields need a sampled accuracy check, disclosed in the answer |
 | Answer is a governed number (KPI, regulatory ratio, financial figure) | Metric catalog: match the metric by description above a floor, run its vetted parameterised query in code, answer from the returned value | One definition per number, auditable, no generated SQL | Catalog drift; a description that matches while the scope doesn't (check scope values in code) |
 | Questions walk relations or ask for corpus-wide themes, and hybrid measurably fails on them | A graph beside hybrid search, with a router (retrieval-pipeline.md §1.1) | Chunk retrieval handles them badly | LLM extraction cost on every change; wrong edges are worse than none; fails on questions that name no entity; generated queries need a read-only, caller-scoped path |
 | Repetitive task with a bank of solved examples | Retrieved few-shot examples | Cheap quality gain | Few or conflicting examples |
@@ -141,7 +146,9 @@ Check stages in order: indexed → in candidates → in reranked top k → in th
 | Answer misses a unit or scope ("figures in millions") | Chunk lost its document context | Prepend document and section context at index time |
 | Confident answer when nothing relevant exists | No floor, no not-found path | Calibrated floor; instructed abstention; unanswerable test cases |
 | Good evidence ignored | Generation | Grounding and citation instructions; fewer, better chunks; stronger model |
-| Content from another tenant or role appears | Filtering or caching | ACL metadata, filtered inside the search; caches keyed by scope |
+| Cites a real source that does not support the claim, or quotes a dissent or summary as the finding | Generation | Cite-and-verify contract in code: cited IDs in the evidence set, verbatim quotes, a support check per claim, unsupported claims removed or flagged, section roles labelled (§3.8) |
+| Content from another tenant or role appears, or a walled user still sees a barred matter | Filtering or caching | ACL metadata with allow groups and deny scopes, filtered inside the search; caches keyed by scope and invalidated on a wall change (§2.3) |
+| Overruled or amended authority cited as current | Freshness (primary authority) | Status from an authoritative feed, re-checked at answer time; age rules don't apply (§2.5) |
 | Superseded policy quoted | Freshness | Version metadata; retire old versions; recency as tie-breaker among near-duplicates |
 | Outdated page quoted and the corpus has no version fields | Freshness | Derived status from markers, near-duplicates and age; owner review queue; date in the evidence header |
 | Case history or forum answer overrides the official doc | Multi-index fusion | Rerank pooled candidates, per-source quotas, trust tiers in the prompt |
@@ -187,7 +194,7 @@ Check stages in order: indexed → in candidates → in reranked top k → in th
 | Knob | Start | Basis |
 |---|---|---|
 | First-stage candidates per retriever | ~50 | Wide for recall; reranking narrows it |
-| Chunks passed to the model | 3-5 reranked | Five focused chunks often beat twenty loose ones [SYSTEMS ch5] |
+| Chunks passed to the model | 3-5 reranked for single-answer lookups; more for synthesis across sources | Five focused chunks often beat twenty loose ones [SYSTEMS ch5]; tune the synthesis count on that slice's recall and faithfulness |
 | RRF k | 60 | Common engine default (provider-notes.md) |
 | Weighted hybrid instead of RRF | Keyword weight 0.3-0.5 on normalised scores | [KGRAG ch6]; check which end of the weight means keyword |
 | Evidence order | Rank order for 3-5 chunks; alternate (strongest at both edges) for a wide top k | [DLLMA ch12], [KGRAG ch6] |
@@ -228,11 +235,13 @@ Name the rule behind each non-obvious decision in one phrase. Leave out general 
 - [ ] A graph is built from validated triplets, with writes only on the ingest path. Generated graph and SQL queries run read-only under the caller's entitlements, from templates or an allowlist, with row limits and timeouts.
 - [ ] Retrieval is hybrid, or a measurement shows one side adds nothing. It reranks before passing, passes few chunks, has a floor and a not-found path, and returns citable IDs.
 - [ ] Indexing is idempotent, and every ingest is checked (per-source counts, a canary query); a zero count fails the run.
-- [ ] Permission filtering happens inside the search, before ranking, and caches are keyed by permission scope and ingest generation.
+- [ ] Permission filtering happens inside the search, before ranking, with deny rules (walls, barriers, holds) as well as allow lists; caches are keyed by permission scope and ingest generation, and a wall change purges caches, recalled memory and session state for the barred scope.
+- [ ] Cited answers pass a cite-and-verify check in code: cited IDs in the request's evidence set, quotes verbatim, a support check per claim, unsupported claims removed or flagged, non-authoritative parts labelled.
+- [ ] A review of a running system includes the clean-up of data the old design already stored, with a deletion log; legal, privacy and privilege questions go to the privacy or legal owner as open questions.
 - [ ] Each memory type has a store, scope, trigger, decider, validation, update rule, expiry, deletion path and read path.
 - [ ] Durable entries carry category, source, confidence, last verified, TTL and sensitivity. Expired entries count as unknown, references replace raw content and personal data, and writes that steer actions other people see are proposed and approved.
 - [ ] No per-turn LLM memory call without a measured gain.
-- [ ] Tool, web and document text never becomes durable memory without a reviewed step, and identity comes from the session (memory tools included: scope keys and author role are bound by the server).
+- [ ] Every memory candidate is scanned for secrets and personal data whatever its source; tool, web and document text never becomes durable memory without a reviewed step; user text is a proposal under the approval rule; and identity comes from the session (memory tools included: scope keys and author role are bound by the server).
 - [ ] State and memory with more than one possible writer use conditional writes or a single writer per thread; none is a blind overwrite.
 - [ ] Table and metric queries carry the caller's row and column entitlements; governed numbers come from a metric catalog.
 - [ ] Live system-of-record data is fetched, not memorised.
@@ -253,6 +262,9 @@ Name the rule behind each non-obvious decision in one phrase. Leave out general 
 | Storing every message, or everything, in a vector store | Classify by update semantics; facts upsert; store only what improves future behaviour |
 | Treating RAG and memory as one thing | A curated corpus and agent-written state have different lifecycles and rules |
 | Filtering permissions after top-k, or in app code only | ACL metadata, pre-filter from the session identity, scope-keyed caches |
+| An allow-list-only ACL for a firm with ethical walls or information barriers | Deny scopes evaluated in the search; a wall change also purges caches and memory (retrieval-pipeline.md §2.3) |
+| Trusting the model's citations because the IDs look real | Check in code that cited IDs were in the evidence, quotes are verbatim and each claim is supported (retrieval-pipeline.md §3.8) |
+| Fixing the write path of a leaky memory and leaving the old entries in place | Clean up what is stored: inventory, purge, backfill, deletion log (memory-design.md §6.1) |
 | A timestamp or user name at the top of the system prompt | User text goes in the per-user block after the shared prefix, the timestamp in the tail; track cache-read tokens |
 | Compaction prompt "summarise the conversation" | Domain must-survive checklist, constraints in the prefix, a survival test |
 | Budgets invented without counting | Measure the prefix and chunk sizes from a real trace; label estimates |
@@ -278,7 +290,7 @@ Name the rule behind each non-obvious decision in one phrase. Leave out general 
 
 ## Sources
 
-Citation keys used in this skill and its references:
+These are independent notes that paraphrase and cite the works below; they are not affiliated with or endorsed by the authors or publishers. Citation keys used in this skill and its references:
 - **SYSTEMS**: *Systems Thinking for Agentic AI*, ch5 (RAG systems), ch9 (memory), ch12 (token budgeting, caching), ch16 (RAG integration, execution loop).
 - **DLLMA**: *Designing Large Language Model Applications*, ch10 (interaction paradigms, data stores), ch11 (embeddings, chunking), ch12 (RAG pipeline, rerank, refine, memory paging).
 - **DEFGUIDE**: *AI Agents: The Definitive Guide*, ch7 (context janitor), ch10 (agent memory, hygiene, topologies), ch11 (prefix cost).

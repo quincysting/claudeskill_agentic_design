@@ -9,7 +9,7 @@
 
 ## Verdict (Step 8)
 
-**<Ship / Ship with conditions / Block>**: <one sentence why>
+**<Ship / Ship with conditions / Block>**: <one sentence why; Block while any P0 lacks an existing control (a planned control never lifts Block on a running system); a verdict that rests on (assumed) items is provisional either way>
 
 Top fixes, in order (one fix may close several findings):
 1. <P0 fix: one line>
@@ -37,12 +37,14 @@ Untrusted inputs: <list every source that reaches the context>
 Entry points: <every endpoint, alias and deployed version that can invoke the agent, read from the live config; the
 authenticator on each; who can call each tool backend directly>
 
-Rule of Two triage: <can one run hold private data, untrusted content and external action at once?>
+Rule of Two triage: <can one run hold (A) untrustworthy inputs, (B) access to sensitive systems or private data and (C) the ability to change state or communicate externally at once? Integrity case: can untrusted input change a sensitive system (merge, deploy, configuration, permissions, payments) even with no private data?>
+
+Ambient capabilities: <environment variables and secrets, mounted sockets, inherited credentials and metadata endpoints, network position, repository paths that trigger CI>
 
 ## Trifecta check (Step 5)
 
-| Flow | Private data | Untrusted content | External channel | Verdict and cut |
-|---|---|---|---|---|
+| Flow | Private data | Untrusted content | External channel | Untrusted input can change a sensitive system? | Verdict and cut |
+|---|---|---|---|---|---|
 
 ## Findings (Steps 6-9)
 
@@ -50,10 +52,10 @@ Order by priority, then by impact. One block per finding.
 
 ### F-01 [P0] <short title>
 
-- **Evidence:** <file:line, config key, or observed behaviour; quote the minimum needed>
+- **Evidence:** <stated / inferred / confirmed: file:line, config key, or observed behaviour; quote the minimum needed. An inferred finding keeps its consequence's priority, written P0 (assumed)>
 - **Path and impact:** <untrusted source → plan → tool → effect; which worst outcome>
 - **OWASP:** <ASI0x, LLM0x>
-- **Fix:** <concrete change, where it goes; small snippet if it encodes the pattern>
+- **Fix:** <concrete change, where it goes; small snippet if it encodes the pattern; for a running system, also the clean-up of what the old design produced: secrets to rotate, links or tokens to revoke, stored data to purge, actions to review>
 - **Effort:** <S / M / L>
 
 ## Guardrails as built (Step 9)
@@ -71,7 +73,8 @@ front door and anonymous probe, consent, sampling/elicitation/roots, runtime def
 
 Approval mechanics: <side effects separated from interrupt? keyed execution? bound to a digest of the exact arguments,
 an expiry and a nonce? deadline and silence rule? edits re-checked? payload preview and confirm question? reviewer view
-order? approvals per day vs reviewer time?>
+order? approvals per day vs reviewer time? do approval links only open a view, with a signed-in, entitled approver
+deciding?>
 Sends: <who is the principal; draft-first or delayed send for messages to anyone else, incl. invites and notifications>
 Autonomy ladder: <current rung per action class; promotion metric; demotion rule>
 Stop control: <exists? server-side? remote? tested?>

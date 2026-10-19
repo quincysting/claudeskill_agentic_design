@@ -2,7 +2,7 @@
 
 AWS mapping for this skill's principles. As of 2026-10; services change, verify before use.
 
-This file maps the offline suite onto Amazon Bedrock AgentCore Evaluations and the runtime's tracing. Online evaluation, dashboards and alerting belong to agent-ops-reviewer. The three evaluation modes, ground truth in batch and on-demand evaluation, the trajectory evaluators, the CloudWatch ingestion wait and the shape of batch results were checked against AWS documentation on 2026-10-11. Items marked (unverified) were seen in hands-on labs but not confirmed in the documentation.
+This file maps the offline suite onto Amazon Bedrock AgentCore Evaluations and the runtime's tracing. Online evaluation, dashboards and alerting belong to agent-ops-reviewer. The three evaluation modes, ground truth in batch and on-demand evaluation, the trajectory evaluators, the CloudWatch ingestion wait and the shape of batch results were checked against AWS documentation on 2026-10-11. Items marked (unverified) were seen in hands-on labs but not confirmed in the documentation. The lab observations are anonymised notes from the author's own practice labs, with no client data.
 
 ## Mapping
 
@@ -32,7 +32,7 @@ In the lab, helpfulness scored high on exactly the sessions where the agent inve
 
 ## Checking that ground truth was used
 
-Ground truth fields are optional, and evaluators fall back to their reference-free mode without them. A trace with no `expectedResponse` is scored by `Builtin.Correctness` as a reference-free judge, and nothing fails. The plain-string form of `expectedResponse` is matched to the session's last trace only, so earlier turns of a multi-turn session go reference-free unless each expected response is scoped to its trace ID. A field that an evaluator received but didn't use comes back in `ignoredReferenceInputFields`.
+Ground truth fields are optional, and evaluators fall back to their reference-free mode without them. A trace with no `expectedResponse` is scored by `Builtin.Correctness` as a reference-free judge, and nothing fails. The plain-string form of `expectedResponse` is matched to the session's last trace only, so earlier turns of a multi-turn session go reference-free unless each expected response is scoped to its trace ID. A field that an evaluator received but didn't use comes back in `ignoredReferenceInputFields` (these three behaviours re-checked against the ground truth page on 2026-10-19).
 
 Before trusting a correctness score, assert per trace that an expected response scoped to that trace was sent and isn't listed as ignored. Otherwise the score came from a reference-free judge, which can't see confident wrong answers.
 

@@ -2,6 +2,9 @@
 
 AWS mapping for this skill's principles. As of 2026-10; services change, verify before use.
 
+The (lab) rows are anonymised observations from the author's own hands-on labs, with no client data; treat them as
+unverified unless they are also tagged (docs).
+
 The principles live in the other reference files and stay vendor-neutral. This file only says where each one lands on
 AWS (Amazon Bedrock AgentCore Runtime, Gateway, Identity and Policy, plus IAM, CloudTrail and CloudWatch) and what went
 wrong in practice. Tags: **(docs)** confirmed in AWS documentation on 2026-10-11; **(lab)** seen in hands-on practice

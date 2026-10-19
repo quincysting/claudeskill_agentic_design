@@ -16,7 +16,7 @@ Severity: **P0** leaks data across users or tenants, loses a safety constraint, 
 | F1 | P0 | retrieval / memory / assembly | | | | |
 
 ## Fix order
-1. <P0s, in dependency order>
+1. <P0s, in dependency order; a data-handling P0 includes the clean-up of what is already stored (purge or re-mask, cache invalidation, backfill) with a deletion log>
 2. <quick wins: changes under a day with clear gains, e.g. moving a timestamp out of the prefix>
 3. <P1s, each with its before/after metric>
 4. <P2s>
@@ -31,3 +31,4 @@ Severity: **P0** leaks data across users or tenants, loses a safety constraint, 
 <What goes to agent-threat-modeler, agent-tool-designer, agent-eval-designer, agent-architect, agent-ops-reviewer, agent-model-selector>
 
 ## Open questions
+<Include questions for the privacy or legal owner (retention, privilege, whether an exposure must be reported); this review flags them and does not decide them.>

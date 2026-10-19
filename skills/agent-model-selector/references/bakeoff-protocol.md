@@ -19,7 +19,7 @@ A side-by-side run of candidate models and settings, per role, on the user's own
 ## 1. What the eval must provide
 
 Per role:
-- **Tasks from real traffic**, stratified: common cases, hard cases, edge cases (rare classes, long inputs, ambiguous requests), adversarial cases, and cases where the right action is to do nothing (no tool call, abstain, escalate).
+- **Tasks from real traffic**, stratified: common cases, hard cases, edge cases (rare classes, long inputs, ambiguous requests), adversarial cases, and cases where the right action is to do nothing (no tool call, abstain, escalate). Real traffic is de-identified before it becomes a task (personal data and secrets removed or pseudonymised), and it goes to a candidate's provider only where the data owner and the customer terms allow that provider and region; a candidate nobody has vetted for the data runs on synthetic or already-public tasks. Access control, retention and deletion follow agent-eval-designer's "Real user data" rules.
 - **Splits:** a dev split for prompt adaptation and a test split never used for tuning anything (details below for small labelled sets).
 - **Size:** see the tables in section 7. Rough guide: 30 to 50 tasks can screen out clearly worse candidates; deciding between candidates within about 3 points needs about 300 or more paired tasks (table in section 7).
 - **Labels or checks** a program can apply wherever possible (exact label, schema validity, expected tool and arguments, final state). A rubric judge only for open-ended text, calibrated against about 50 human-labelled cases.
@@ -41,7 +41,7 @@ Plus a **general regression set** if any candidate is a tuned generative model.
 Write these down before running anything, so the result cannot move the goalposts:
 - Primary metric per role (accuracy, macro-F1, tool-call exact match, schema-valid rate, rubric pass rate, pass^k for side-effecting roles).
 - Absolute target per role, and a hard floor if any (for example, no class below 80% recall).
-- **Non-inferiority margin** versus the reference: how much worse a cheaper option may be on the primary metric. Set it to the larger of the business tolerance and the smallest margin the task count can verify (table in section 7). Never pre-register a margin the sample cannot detect; if the business needs a tighter one, label more tasks.
+- **Non-inferiority margin** versus the reference: how much worse a cheaper option may be on the primary metric. Set it to the larger of the business tolerance and the smallest margin the task count can verify (table in section 7), read at the size of the test split the decision is scored on, after dev and few-shot items are carved out. Never pre-register a margin the sample cannot detect; if the business needs a tighter one, label more tasks.
 - Budgets: p95 latency per role call, cost per solved task.
 - Secondary metrics that can veto: calibration error where thresholds matter, refusal or error rate, tool-call rate on no-tool cases.
 
@@ -65,7 +65,7 @@ Prune the grid with a quick screen on 30 to 50 dev tasks; run the survivors on t
 - Keep the information content identical: same context, same tools, same examples.
 - Record the exact prompt version per candidate.
 
-**Hold one thing fixed.** To compare models, keep the harness, tools, budgets, stop rules and provider layer identical. To compare harnesses (a framework against your own loop, a vendor harness against a neutral one), keep the model fixed. A model win measured under two different harnesses is not a model result. Public leaderboards rank a model and a harness as one entry, and rows also differ in prompts, budgets and versions, so the gaps between rows are observational. The one controlled study so far (one author, 80 tasks, two frontier models; Arjmandi, arXiv 2609.11987, 2026-09) showed no reliable average gap with the model held fixed, gaps that varied by task family, and a 1.2 to 1.6 times difference in cost per solved task. So the harness can matter as much as a model upgrade on some tasks, or not at all, and it reliably moves cost. Never carry a fixed points gap for "harness versus model" into a plan; report pass rate by task family and cost per solved task. The harness bake-off itself (task families, trials, the harness test slice) belongs to the agent-harness-designer skill (its harness-tests.md, section 5); this file supplies the statistics.
+**Hold one thing fixed.** To compare models, keep the harness, tools, budgets, stop rules and provider layer identical. To compare harnesses (a framework against your own loop, a vendor harness against a neutral one), keep the model fixed. A model win measured under two different harnesses is not a model result. Public leaderboards rank a model and a harness as one entry, and rows also differ in prompts, budgets and versions, so the gaps between rows are observational. One single-author preprint (Arjmandi, 2026-09, https://arxiv.org/abs/2609.11987; 80 tasks, two frontier models) found no reliable average gap with the model held fixed, gaps that varied by task family (a split chosen after seeing the data), and a 1.2 to 1.6 times difference in observed cost per solved task. Treat it as one data point. So the harness can matter as much as a model upgrade on some tasks, or not at all, and it reliably moves cost. Never carry a fixed points gap for "harness versus model" into a plan; report pass rate by task family and cost per solved task. This file owns the bake-off protocol for both comparisons, including which side to hold fixed. For a harness bake-off, the agent-harness-designer skill supplies the harness variants and the harness tests each variant must pass first (its harness-tests.md, section 5).
 
 **Keep provider swaps cheap, and know what the layer changes.** Route every model call through one thin interface, so trying another provider's model for accuracy, latency or cost is a configuration change [NG Build an Autonomous Agent Using This Simple Recipe!, 2025-12-10]. Switching model providers then costs a few lines of code, while switching orchestration frameworks after an agent is built on one is a lot of work [NG The Falling Cost of Building AI Applications, 2024-12-04], so keep a second provider (an open-weight option included) working from the first prototype [NG What Comes After Tokenmaxxing?, 2026-08-07]. The layer stays cheap only while your code avoids one provider's request features. A swap layer is not neutral either. In aisuite 0.2.0 (released 2026-09-18, read 2026-10-18), the library Ng started for exactly this, the Anthropic adapter:
 - sets `max_tokens` to 4,096 when the caller gives none;
@@ -77,7 +77,7 @@ A bake-off run through such a layer can be measuring the adapter's defaults: one
 ## 5. Running it
 
 - **Same tasks, every candidate** (paired design). Randomise run order to spread time-of-day load effects.
-- **Production settings.** Same context length, tools, timeouts and retry policy as production. Do not lower temperature to reduce variance on the system under test (several current APIs no longer accept sampling parameters anyway). Fix the judge's settings for reproducibility.
+- **Production settings, sandboxed effects.** Same context length, tool schemas, timeouts and retry policy as production. Every write, send or spend tool routes to a sandbox, a recorder or a dry-run stub that uses non-production credentials, and production credentials are absent from the bake-off environment. Score the intended call (tool and arguments) or the sandbox's final state. Repeated trials against real tools would issue real refunds, messages or bookings several times per task. Do not lower temperature to reduce variance on the system under test (several current APIs no longer accept sampling parameters anyway). Fix the judge's settings for reproducibility.
 - **Repeated trials.** Outputs vary even at temperature 0 (serving-stack batch effects). Use at least 3 trials per task for side-effecting or customer-facing roles and report pass^k; 1 or 2 suffice for screening deterministic-looking classification.
 - **Record per call:** raw output, input, output and reasoning tokens, cached tokens, wall-clock latency, retries, errors and refusals, model ID with version and date. Also record the effective request parameters as sent (output cap, effort, system prompt), the provider's native stop reason, and the harness and provider-layer versions.
 - **Count errors and timeouts as failures.** Dropping them inflates the rate.
@@ -104,7 +104,7 @@ A pass rate is an estimate. At an observed 80%:
 | 250 | 75 to 84% |
 | 1,000 | 77 to 82% |
 
-For a half-width of ±10, ±5 or ±3 points at 80% you need about 61, 246 and 683 tasks. A 30-task suite cannot tell 75% from 85%.
+For a half-width of ±10, ±5 or ±3 points at 80% you need about 62, 246 and 683 tasks. A 30-task suite cannot tell 75% from 85%.
 
 **Compare paired, on the same tasks.** Only tasks where the two configurations disagree carry information. Count discordant tasks: b = reference passes and candidate fails, c = candidate passes and reference fails.
 - An exact sign test on (c, b): three one-way flips give p = 0.25; about six one-way flips are needed for p < 0.05.
@@ -119,7 +119,7 @@ For a half-width of ±10, ±5 or ±3 points at 80% you need about 61, 246 and 68
 | 500 | 2.0 | 2.8 | 3.9 |
 | 1,000 | 1.4 | 2.0 | 2.8 |
 
-  Assume q = 0.10 until a pilot run on 30 to 50 dev tasks measures it.
+  Assume q = 0.10 until a pilot run on 30 to 50 dev tasks measures it. Read the table at the test-split n, not the total labelled count: carving 150 dev and few-shot items out of 300 leaves n = 150.
 - Unpaired designs need far more: detecting 80% versus 85% at 80% power takes about 900 tasks per arm.
 
 **Trials are not tasks.** 50 tasks × 5 trials is not 250 independent observations; hard tasks fail together. Average trials within a task first, then bootstrap over tasks. Tasks generated from the same document or tool are correlated the same way.
@@ -142,7 +142,7 @@ If the evidence cannot separate two candidates at the available task count, say 
 
 ## 9. End-to-end confirmation and rollout
 
-Per-role wins interact: a weaker router's misroutes cascade into downstream steps. Run the assembled mixed-model pipeline on the end-to-end set and compare with the all-reference pipeline (paired). Then hand off rollout to agent-ops-reviewer: shadow traffic, canary, per-role fallback to the stronger model on validation failure or low calibrated confidence, and production monitoring of the same metrics.
+Per-role wins interact: a weaker router's misroutes cascade into downstream steps. Run the assembled mixed-model pipeline on the end-to-end set and compare with the all-reference pipeline (paired). The paired per-task results go to agent-eval-designer's comparison and gates, so the switch passes the same gate as any other change. Then hand off rollout to agent-ops-reviewer: shadow traffic, canary, per-role fallback to the stronger model on validation failure or low calibrated confidence, and production monitoring of the same metrics.
 
 ## 10. Re-run triggers
 

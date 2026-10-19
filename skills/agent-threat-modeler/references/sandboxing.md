@@ -3,8 +3,9 @@
 Use when the agent writes or runs code, uses a shell, installs packages, edits files, drives a browser, or operates a
 desktop. Approval decides *whether* something runs; isolation decides *what it can reach* when the approval was wrong.
 For users who cannot read the command, isolation is the only control that works [ILLUSTRATED ch10]. Put the effort
-here rather than in the model's refusals: Ng attributes a 2026 agent breach to buggy sandboxing and monitoring and
-holds the builder responsible [NG Who's Responsible for Irresponsible AI?, 2026-09-18].
+here rather than in the model's refusals: Ng names buggy sandboxing and monitoring as key to enabling a 2026 agent
+breach, and holds the people who build and use agents responsible, not the agent
+[NG Who's Responsible for Irresponsible AI?, 2026-09-18].
 
 ## What earns the name "sandbox"
 
@@ -75,7 +76,7 @@ Quick pick:
 ## Paths: resolve first, then check
 
 Containers don't stop traversal bugs inside the container. Blocking `..` misses encoded traversal, and a string-prefix
-check lets `/home/kyle-evil` pass as `/home/kyle` [MCP ch7]. Decode, resolve, then test containment:
+check lets `/srv/app-evil` pass as `/srv/app` [MCP ch7]. Decode, resolve, then test containment:
 
 ```python
 from pathlib import Path
@@ -108,13 +109,41 @@ injection from a misrouted tool call into code execution [DEFGUIDE ch6]. It is o
 |---|---|
 | Read, list, search files | Allowed, size-capped, inside the workspace |
 | Write or edit files | Inside the workspace root only; auto inside a sandbox, approval if on a developer's machine |
-| Run commands | Allowlist (test runner, linter, build); timeout; truncated output |
+| Run commands | Allowlist (test runner, linter, build); timeout; truncated output. The allowlist limits what starts, not what runs: a test runner, build tool or package manager executes repository and dependency code, so contain the run itself (below) |
 | Network | Off; allowlist package mirrors if installs are needed |
 | `git push`, deploy, publish, change CI or secrets | Irreversible tier: goes out as a pull request for human review |
+
+**Containment for a coding agent's runs.** Treat every command as arbitrary code. Use a tier for untrusted code (gVisor
+or microVM), with no secrets in the environment, no Docker or other host sockets, the cloud metadata endpoint blocked,
+and the network off apart from a package mirror. Tests that need containers run rootless inside the VM, never through a
+mounted host socket.
 
 "Done" is decided by tests or a state check, not by the model's claim. Measured data point (external, 2025-10):
 Anthropic reports that sandboxing Claude Code's filesystem and network access cut permission prompts by 84% internally,
 which reduces approval fatigue as well as risk.
+
+### Forge and CI
+
+A coding agent is judged by the checks and reviewers around it, so both sit outside its reach.
+- The agent never merges and never approves. A code owner reviews the latest commit, and a new push dismisses earlier
+  approvals ([human-oversight.md](human-oversight.md) §3, "When the platform already binds the approval").
+- The checks that judge the agent's change come from a protected source (the base branch or a protected
+  configuration), and tests and policy files are protected too ([controls-catalog.md](controls-catalog.md) §10).
+- The pull request's code never runs in a privileged context: a job that holds a write token or secrets must not check
+  out and run the change.
+- Release and deploy secrets live only in protected environments used by a separate release that a person triggers,
+  preferably with OIDC or trusted publishing instead of stored tokens. No agent run, and no job that runs the agent's
+  code, can reach them. If a secret was ever reachable from an agent run, rotate it now.
+- The agent's identity is a dedicated app or bot for one repository with the narrowest permissions it needs, and
+  without permission to edit workflow files.
+
+Platform notes (GitHub, checked 2026-10-19; verify against current documentation): a `pull_request_target` workflow
+runs in the context of the base repository's default branch, and GitHub warns that running untrusted pull-request code
+there can grant unintended access to write privileges or secrets; avoid it when the job must build or run the change.
+Workflows triggered by `pull_request` from a fork receive no secrets and a read-only `GITHUB_TOKEN`
+(https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows). Not re-checked on
+that date: a GitHub App needs the `workflows` permission to change files under `.github/workflows/`, and rulesets can
+require code-owner review and dismiss stale approvals on new pushes.
 
 ## Computer use and browser agents
 

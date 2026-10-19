@@ -3,7 +3,7 @@
 These lists change. Check the dates below against the current OWASP GenAI Security Project pages before an audit.
 Use the lists as a **coverage check** after you have traced paths, not as the threat model itself.
 
-## OWASP Top 10 for Agentic Applications 2026 (released 2025-12-09)
+## OWASP Top 10 for Agentic Applications 2026 (released 2025-12-09; names checked 2026-10-19)
 
 Primary list for agents. Test each item on full traces, not final text. The controls merge this skill's control
 families with the secure-design lists [AISEC ch10] prints for each item; seeded tests for every row are in
@@ -11,7 +11,7 @@ families with the secure-design lists [AISEC ch10] prints for each item; seeded 
 
 | ID | Risk | Look for in the design or code | Primary controls | Test property (what a passing trace shows) |
 |---|---|---|---|---|
-| ASI01 | Agent goal hijack (injection or hidden instructions) | Untrusted sources sharing context with write or egress tools; trifecta flows; workspace files, notes and memory the agent reads | Trifecta cut or Rule of Two fallbacks; provenance gate; fenced, labelled context separating instructions from content; the goal held as a protected object, not free text; action gating; tool output treated as untrusted | No consequential call follows untrusted content without a gate decision |
+| ASI01 | Agent goal hijack (injection or hidden instructions) | Untrusted sources sharing context with write or egress tools; trifecta flows; workspace files, notes and memory the agent reads | Rule of Two triage (untrustworthy inputs; sensitive systems or private data; change state or communicate externally), with the trifecta as its confidentiality case and the integrity case checked too; a leg cut or the Rule of Two fallbacks; provenance gate; fenced, labelled context separating instructions from content; the goal held as a protected object, not free text; action gating; tool output treated as untrusted | No consequential call follows untrusted content without a gate decision |
 | ASI02 | Tool misuse and exploitation (unsafe composition, recursion, excessive execution) | Generic or over-broad tools; side-effect tools reachable from untrusted input; no budgets; loose argument schemas | Policy gate; least-privilege tools; typed contracts with explicit side-effect metadata; argument gates; budgets; rate limits and anomaly detection on invocation patterns | Out-of-policy calls are attempted-and-blocked, never executed |
 | ASI03 | Identity and privilege abuse | Shared service accounts, token pass-through, delegation that widens rights, user identity asserted as a string, one identity that plans and executes | Per-agent identity; separate identities to recommend, prepare and execute; capability tokens bound to one action and time; verified user identity; token exchange per hop; no ambient authority | Calls carry the right agent and user identity; no cross-tenant access; scope never widens along a delegation chain; the log proves who authorised and who executed |
 | ASI04 | Agentic supply chain (tools, agents, schemas, registries) | Unpinned MCP servers or dependencies, runtime tool-list fetches, unvetted registries, unsigned releases, prompt packs or configs pulled at runtime | Pinned and hashed dependencies; signed, verified releases; definitions pinned per session; acceptance criteria for third-party servers; least privilege even for trusted dependencies ([mcp-hardening.md](mcp-hardening.md)) | A changed tool definition halts the call until re-approval; shadowed names are rejected |
@@ -27,7 +27,7 @@ Another bot writing to the agent through an ordinary channel (email, chat, web f
 Names follow the release as reproduced in [DEFGUIDE ch8] and [AISEC ch10]. Red-team tools ship this list as a ready-made
 framework (DeepTeam's `OWASP_ASI_2026`, per [DEFGUIDE ch8]).
 
-## OWASP Top 10 for LLM Applications 2026 (published 2026-08-04)
+## OWASP Top 10 for LLM Applications 2026 (published early August 2026)
 
 Use for the model-facing parts and for chat features without tools.
 
@@ -40,12 +40,13 @@ Use for the model-facing parts and for chat features without tools.
 | LLM05 | Data and Model Poisoning | Training or fine-tuning data, RAG corpora, memory |
 | LLM06 | Unbounded Consumption | Loops, fan-out, cost attacks; moved up from tenth |
 | LLM07 | Misinformation | Wrong answers acted on; grounding and verification |
-| LLM08 | Hidden Context Exposure | Replaces System Prompt Leakage; covers retrieved documents, agent memory, tool responses and application state, not only the prompt |
+| LLM08 | Hidden Context Exposure | Replaces System Prompt Leakage; covers retrieved documents, agent memory, tool responses and application state, not only the prompt, so it is rarely N/A for an agent that calls tools |
 | LLM09 | Vector and Embedding Weaknesses | Tenant leakage in vector stores, embedding inversion, poisoned chunks |
 | LLM10 | Improper Output Handling | Model output into SQL, HTML, shell or other systems; fell from fifth |
 
 The 2026 ranking weights practitioner votes at 75% and data from 6,639 classified incidents at 25% (Cloud Security
-Alliance research note, 2026-09). Sources older than August 2026 cite the 2025 list; flag them as outdated on ordering
+Alliance research note, 2026-09; list and weighting checked against it on 2026-10-19). The v1.0 document is dated
+2026-08-03, and most reports give the release as 2026-08-04. Sources older than August 2026 cite the 2025 list; flag them as outdated on ordering
 and on LLM08.
 
 ## MAESTRO (multi-agent threat modelling)
@@ -93,8 +94,8 @@ At that commit the map had no mapping to the OWASP Agentic Top 10; its framework
 Covered in [mcp-hardening.md](mcp-hardening.md). Points the current spec's security page adds or sharpens: SSRF through
 OAuth metadata discovery; state-handle hijacking (the protocol is stateless, so bind handles to the verified user);
 consent before one-click local server commands; authorization-URL scheme validation; mix-up attacks; progressive scope
-minimisation. Prompt injection and tool poisoning through tool content are out of scope for the spec and remain the
-host's responsibility.
+minimisation (all checked on the page on 2026-10-19). The page does not cover prompt injection or tool poisoning
+through tool content; those remain the host's responsibility.
 
 ## Other frameworks and when to use them
 
@@ -109,11 +110,11 @@ host's responsibility.
 ## External sources (fetched or dated as shown)
 
 - OWASP Top 10 for Agentic Applications 2026: https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/ (2025-12-09)
-- OWASP Top 10 for LLM Applications 2026: https://github.com/GenAI-Security-Project/GenAI-LLM-Top10 (2026-08-04; checked 2026-10)
+- OWASP Top 10 for LLM Applications 2026: https://github.com/GenAI-Security-Project/GenAI-LLM-Top10 (v1.0 dated 2026-08-03, released 2026-08-04; checked 2026-10-19)
 - OWASP Top 10 for LLM Applications 2025: https://genai.owasp.org/llm-top-10/
 - CSA research note on the 2026 list and the Agent Control Standard: https://labs.cloudsecurityalliance.org/research/csa-research-note-owasp-genai-top10-2026-agent-control-stand/ (2026-09)
 - CoSAI Risk Map data: https://github.com/cosai-oasis/secure-ai-tooling (commit of 2026-10-16)
-- MCP Security Best Practices: https://modelcontextprotocol.io/specification/latest/basic/security_best_practices (spec 2026-07-28)
+- MCP Security Best Practices: https://modelcontextprotocol.io/specification/latest/basic/security_best_practices (spec 2026-07-28; checked 2026-10-19)
 - Design Patterns for Securing LLM Agents against Prompt Injections: https://arxiv.org/html/2506.08837 (2025-06)
 - Claude for Chrome (browser-agent injection measurements): https://claude.com/blog/claude-for-chrome (2025-08, updated 2025-12)
 - Claude Code sandboxing: https://www.anthropic.com/engineering/claude-code-sandboxing (2025-10)

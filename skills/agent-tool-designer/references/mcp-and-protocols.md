@@ -7,7 +7,7 @@ Depth for step 11. Version-specific names, codes and dates are in [current-facts
 MCP is a standard client-server protocol between an agent host and capabilities it does not own. It turns M models × N tools of custom connectors into M + N [MCP ch1]. The host runs one MCP client per server, each client relays messages for one server and decides what reaches the model, and servers expose tools, resources and prompts over JSON-RPC [MCP ch2].
 
 Keep it in proportion:
-- MCP is an **integration contract**. It does not decide the workflow, enforce business policy or act as the primary security boundary [SYSTEMS ch7].
+- MCP is an **integration contract**. Choosing the workflow, enforcing business rules and being the main security boundary are jobs for other layers [SYSTEMS ch7].
 - To the model, an MCP tool is just another function definition. MCP changes who writes, hosts and distributes the tool, not how the model calls it.
 - Trust is split three ways. The **server** guards its own resources (tokens, scopes, per-tenant access). The **client** guards the user (which servers, which tools, which consents; tool definitions and results are untrusted input) [MCP ch4]. The **agent runtime** still enforces policy. None replaces the others.
 
@@ -53,7 +53,7 @@ Nothing enforces the controller column: a client may call anything. Design for t
 - [ ] stdio servers log to stderr only, because stdout carries the protocol [MCP ch8].
 - [ ] Every path parameter resolved and checked for containment before use. Tool parameters get no automatic traversal protection [MCP ch7].
 - [ ] Database and shell access through parameterised queries, allowlists, restricted accounts and sandboxing [MCP ch7]; free-form query tools follow the single rule in tool-design-rules §7.
-- [ ] Remote: TLS, authentication on every request, per-object and per-tool access control, rate limiting [MCP ch7], [MCP ch8].
+- [ ] Remote: TLS, authentication on every request, per-object and per-tool access control, rate limiting [MCP ch7], [MCP ch8], with limits and quotas per principal, per client and per tool (tool-design-rules §7).
 - [ ] No token pass-through: the server holds its own downstream credentials [MCP ch7].
 - [ ] No deprecated features in new code (sampling, roots, protocol logging).
 - [ ] Tested in an inspector, with automated tests on the critical paths and a tool-choice eval run against several models, since a server author does not pick the user's model [MCP ch7]. Tests run with the credentials and token scopes real callers have, not an admin's.
@@ -78,7 +78,7 @@ A server that adds `refund_approve` to its list once a refund is pending breaks 
 **Approval inside a tool call.** Use form-mode elicitation through the SDK's input mechanism. In Python SDK v2 that is a resolver-filled parameter hidden from the model's schema (code in current facts). Three rules:
 1. Decide in the resolver, from the arguments, whether to ask at all (small amounts can pass without a prompt).
 2. Treat decline and cancel as "do nothing", and say so in the result.
-3. Plan for clients without elicitation. The call then fails with a protocol error before the tool body runs, which is safe but leaves the user stuck. Offer a propose-only companion tool (`refunds_request`) that records the pending action and returns a reference for a human to approve in your UI. Never fall back to executing.
+3. Plan for clients without elicitation. The call then fails with a protocol error before the tool body runs, which is safe but leaves the user stuck. Offer a propose-only companion tool (`refunds_request`) that records the pending action and returns a reference for a human to approve in your UI: a signed-in page in the system of record that decides on an explicit submit, never on opening the link (tool-design-rules §7). Never fall back to executing.
 
 Host approval prompts (for example, Claude prompting on tools marked destructive) are a useful extra layer. Users and administrators can change those settings, so they do not replace the server's own gate. An elicitation answer only shows that the client said yes (a host can be set to answer automatically). Approvals that need a named, signed-in approver go through the propose-only path.
 
@@ -100,7 +100,7 @@ When the server runs inside Claude Desktop or claude.ai connectors, an IDE, or a
 | Main risks | Arbitrary code with the user's privileges; inherits environment variables | Network: TLS, per-request auth, DNS rebinding for local HTTP servers |
 | Use for | Personal and developer tooling, local files | Anything shared, multi-user or production |
 
-The MCP book's verdict: for production there is no real alternative to Streamable HTTP [MCP ch8]. For stdio, install only from trusted sources, pin versions, sandbox, and pass only the secrets the server needs instead of the whole environment. A "local" HTTP server is still a network server: bind it to 127.0.0.1 and validate the Origin header [MCP ch8]. For remote servers behind serverless platforms, CDNs or gateways that buffer responses, run stateless with plain JSON responses [MCP ch7]. The current spec defines only stdio and Streamable HTTP; anything else (WebSocket included) is a custom transport you maintain [MCP ch8].
+The MCP book's verdict: for production there is no real alternative to Streamable HTTP [MCP ch8]. For stdio, install only from trusted sources, pin versions, sandbox, and pass only the secrets the server needs instead of the whole environment. An HTTP server meant for one developer's machine is reachable over the network like any other, so listen on the loopback address (127.0.0.1) only and check the Origin header [MCP ch8]. For remote servers behind serverless platforms, CDNs or gateways that buffer responses, run stateless with plain JSON responses [MCP ch7]. The current spec defines only stdio and Streamable HTTP; anything else (WebSocket included) is a custom transport you maintain [MCP ch8].
 
 ## §5 Authorization (remote servers)
 
@@ -150,7 +150,7 @@ The protocol identifies the client application and binds tokens to a server. It 
 - [ ] Pin local server versions; prefer servers from a trusted registry or your own subregistry of approved servers [MCP ch4], [MCP ch9].
 - [ ] Log every call with server, tool, arguments, outcome and latency; propagate trace context.
 
-**Gateways.** A gateway puts many servers behind one authenticated endpoint, can expose a subset of tools, and can enforce per-request policy no single server sees. In the 2025 GitHub MCP incident a malicious pull request told an agent to copy private repository data into a public one. A gateway rule refusing cross-repository access within one request blocked it [MCP ch7]. Use a gateway or a private subregistry once you have many servers, one auth story to enforce, or a vetted-server policy [MCP ch9].
+**Gateways.** A gateway puts many servers behind one authenticated endpoint, can expose a subset of tools, and can enforce per-request policy no single server sees. In a 2025 researcher demonstration against the GitHub MCP server, a malicious issue in a public repository told an agent to copy private repository data into a public one (the MCP book describes the planted text as a pull request). A gateway rule refusing cross-repository access within one request blocked it [MCP ch7]. Use a gateway or a private subregistry once you have many servers, one auth story to enforce, or a vetted-server policy [MCP ch9].
 
 A gateway is a control only when it is the only route: the servers and backends behind it accept calls only from the gateway's identity, and the gateway itself authenticates every caller (without that, identity-aware rules have no caller to check). Its policy rules see the request, not the record's state, so servers keep their own state checks (tool-design-rules §7). Managed gateways also tend to rename tools with a target prefix, negotiate an older protocol revision by default and return denials in their own shape; check each (current facts, "Managed MCP gateways").
 
@@ -169,10 +169,10 @@ Design points:
 ## §8 Review order for an MCP server
 
 1. Transport and deployment fit (production on Streamable HTTP, stateless).
-2. Auth: the receiver checklist in §5 (missing claims fail closed), no pass-through, no user IDs accepted as plain strings, scopes, 401 and 403 behaviour; every backend reachable only through the server or gateway that applies the checks.
+2. Auth: the receiver checklist in §5 (missing claims fail closed), no pass-through (own credential or an exchanged token per backend), no user IDs accepted as plain strings, scopes, 401 and 403 behaviour; every backend reachable only through the server or gateway that applies the checks.
 3. Tool surface: intent-level, namespaced, count, descriptions, schemas (run the tool-design checks).
 4. Error mapping in the actual SDK and the actual client: does the model see the messages you wrote, with the error flag, and does the harness get the category?
 5. Contracts and side effects: receipts, idempotency under resend (key from run state, or a business-object key plus a state check), reversibility, approvals via elicitation, handles, next actions in results (tool-contracts).
-6. Injection surfaces: paths, SQL, shell, fetched content; the lethal trifecta across the server's tools (hand off if present).
+6. Injection surfaces: paths, SQL, shell, fetched content; all three Rule-of-Two legs (untrustworthy inputs; sensitive systems or private data; the ability to change state or communicate externally) across the server's tools in one session, the lethal trifecta included (hand off to agent-threat-modeler if present).
 7. Deprecated or removed features, SDK version pinning, and the catalogue entry (owner, version, namespace, retirement plan).
 8. Tests and inspector runs under real callers' credentials, tool-choice eval across models, distribution path.

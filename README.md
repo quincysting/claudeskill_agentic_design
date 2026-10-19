@@ -147,8 +147,11 @@ letters on agentic workflows. The changes:
 - Smaller additions elsewhere: graph or hybrid retrieval and governed memory entries; a first smoke suite, harness
   tests and error analysis in evals; cost per successful run and a run gate in operations; a data-readiness preflight
   and five-factor autonomy scoring in the business case; bake-offs that compare whole configurations.
-- The five most-changed skills were re-tested cold on new scenarios with planted problems. An independent judge
-  scored them 4.67 to 4.83 out of 5, with 38 of 39 planted problems caught, and its fixes are in this release.
+- Release hardening for public use. All nine skills were tested cold on new scenarios with planted problems and
+  scored by independent judges (4.50 to 5.00 out of 5; 73 of 74 planted problems caught). An independent safety
+  review, a check of 77 cited claims against their sources, a scan for verbatim text from the books, a link check,
+  bad-input tests of both scripts and an install test followed; every finding was fixed and the fixes were
+  verified by a separate reviewer.
 
 **October 2026: lessons from hands-on AWS labs.** The skills were checked against a set of hands-on AWS labs
 (AgentCore identity and token exchange, gateways and policy, memory, evaluations, observability, multi-agent state,

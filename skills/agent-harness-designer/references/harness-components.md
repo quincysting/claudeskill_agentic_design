@@ -2,9 +2,9 @@
 
 Citation keys such as [PRODGUIDE ch16] point to the book list under Sources in SKILL.md. A citation with `repo:` names a file in that book's companion repository, or in a related public repository when the key is RELATED (URLs under Sources).
 
-The harness is all the code around the model: the loop, tool dispatch, run record and state, checkpoints, budgets and stops, approval pauses, streams and cancel signals, and the operator's switches. The model contributes reasoning and selection; the runtime provides the loop, tools, validation, state and stopping rules [SYSTEMS ch6]. Keep that spine consistent and models, prompts and tools can change without rewriting it [PRODGUIDE ch16]. Ng's definition is the shortest: the software that wraps around the model to implement the agentic system, letting the model drive the loop that decides what to do next [NG Agents on the Desktop, 2026-06-12]. His list of harness design decisions makes a good agenda for a design review: workflow or harness, what to chain and what to parallelise, code or model per step, fallbacks, the tool surface (MCP, command line, sandboxed execution), memory, context over long sessions, one agent or several [NG The AI Engineering Skills Map Part 2, 2026-08-21]. Whatever the answers, the minimum stop condition is a turn cap.
+The harness is all the code around the model: the loop, tool dispatch, run record and state, checkpoints, budgets and stops, approval pauses, streams and cancel signals, and the operator's switches. In SYSTEMS's split the model reasons and chooses, and the runtime supplies everything else: the loop, the tools, validation, state and the rules for stopping [SYSTEMS ch6]. Keep that spine consistent and models, prompts and tools can change without rewriting it [PRODGUIDE ch16]. Ng's definition is the shortest: the software that wraps around the model to implement the agentic system, letting the model drive the loop that decides what to do next [NG Agents on the Desktop, 2026-06-12]. His list of harness design decisions makes a good agenda for a design review: workflow or harness, what to chain and what to parallelise, code or model per step, fallbacks, the tool surface (MCP, command line, sandboxed execution), memory, context over long sessions, one agent or several [NG The AI Engineering Skills Map Part 2, 2026-08-21]. Whatever the answers, the minimum stop condition is a turn cap.
 
-Control sits outside the loop: the caller's cancel, the operator's kill switch and safe-mode replay must not depend on the model cooperating or on a redeploy. Ng's reading of a 2026 incident, in which a lab's agent broke into another company's systems, puts the cause in buggy sandboxing and monitoring, which is where the fix belongs [NG Who's Responsible for Irresponsible AI?, 2026-09-18].
+Control sits outside the loop: the caller's cancel, the operator's kill switch and safe-mode replay must not depend on the model cooperating or on a redeploy. Ng's reading of a 2026 incident, in which a lab's agent broke into another company's systems, names buggy sandboxing and monitoring as key to enabling it, and that is where he puts the fix [NG Who's Responsible for Irresponsible AI?, 2026-09-18].
 
 Use this file as the audit checklist in review mode and as the coverage check for a new design.
 
@@ -65,7 +65,7 @@ The run record is the spine: resume, audit, replay, evaluation and incident revi
 
 **Run record and a framework checkpointer.** With a framework that has its own checkpointer, keep two stores with two jobs. The checkpointer holds the typed state the guard reads (counters, pending approval, cancel flag) and is what resumes the run. The record header and events are a separate append-only table, written in the same transaction as the state change or through an outbox, so neither moves without the other. Status and event endpoints read the record, never the checkpointer.
 
-**Pause and resume.** Pausing returns the thread; resuming loads it, appends the human's answer and re-enters the loop [RELATED repo: 12-factor-agents/packages/create-12-factor-agent/template/src/server.ts]. Because state lives outside the process, any worker can take the next step: the loop as a stateless reducer over the record [RELATED repo: 12-factor-agents/content/factor-12-stateless-reducer.md].
+**Pause and resume.** Pausing returns the thread; resuming loads it, appends the human's answer and re-enters the loop [RELATED repo: 12-factor-agents/packages/create-12-factor-agent/template/src/server.ts]. Because state lives outside the process, any worker can take the next step: the loop as a stateless reducer over the record [RELATED repo: 12-factor-agents/content/factor-12-stateless-reducer.md]. While it waits for a person the run holds no worker and no lease: it checkpoints, releases both, and the decision enqueues a resume message; the wall clock stays paused (control-loop.md, "Downstream decisions").
 
 **Retention.** Redact or reference sensitive fields; set a retention period per field class [PRODGUIDE ch16]. Keep enough to replay: raw input or a reference, prompt versions, permission tiers, retrieved sources [PRODGUIDE ch14 §Replay: The Fastest Way to Fix Agents].
 
@@ -93,9 +93,18 @@ def may_execute(appr, action, args, now=None):
 
 Two lifetimes, not one: the request's lifetime is how long a person has to decide (hours for an overnight queue, a product choice); the approval's lifetime is how long the decision stays usable before execution, and it should be short, like the specification's 15 minutes. Rules: silence never means yes (an expired request does nothing); an edit closes this approval as `edited` and opens a new one for the edited arguments, which goes back through the hard limits (agent-threat-modeler uses the same rule); mark the approval used in the same write as the intent. What the approver sees, who may approve and the autonomy policy belong to agent-threat-modeler.
 
+**Approvals delivered by a link.** Mail scanners, link previews and browser prefetch open links with nobody reading them, and a forwarded email hands the link to someone else. So a link or a GET that approves or executes is a Critical defect in itself (§8), whatever expiry it carries.
+- The link opens a read-only view of the stored approval: the exact action and arguments, the digest, the expiry. Opening it decides nothing.
+- The decision is a POST from an authenticated session, with CSRF protection, by an approver entitled to approve this action, and it carries the digest the approver saw. The executor still recomputes the digest. The recorded approver is the authenticated identity.
+- The link carries no authority. A token in it only says which approval to show, so forwarding it transfers nothing.
+- Retiring executing links already sent, in this order: change the old endpoint so it can only show the read-only view (or return 410 Gone); mark every approval the old links point at `expired`; rotate the key that signed the link tokens; reissue, through the new flow, the requests that are still needed. Then search the audit trail for decisions that arrived without an authenticated session and review those actions as unapproved.
+- Tests: harness-tests.md, "Approval link GET" and "Link holder without a session".
+
+Who may approve which action is agent-threat-modeler's (its human-oversight.md §3 states the same link rules from the approver's side).
+
 ## 4. Kill switch: the full contract
 
-PRODGUIDE's kill switch is a configuration control that disables execution while still allowing planning and drafting; in limited beta, flip it, investigate by run ID and resume once the root cause is understood [PRODGUIDE ch16 §The Production Spine: State, Retries, Approvals, and Control] [PRODGUIDE ch18 §Stage 2: Limited Beta, Controlled Execution, Monitor Everything]. AGENTICAI adds an emergency shutdown procedure and a human override that pauses any change the agent started [AGENTICAI ch11 §When Agents Go Rogue: Building Essential Safeguards for AI Systems]. Keep two levels.
+PRODGUIDE's kill switch is a configuration setting: execution stops, but the agent can still plan and draft; in limited beta, flip it, investigate by run ID and resume once the root cause is understood [PRODGUIDE ch16 §The Production Spine: State, Retries, Approvals, and Control] [PRODGUIDE ch18 §Stage 2: Limited Beta, Controlled Execution, Monitor Everything]. AGENTICAI adds an emergency shutdown procedure and a human override that pauses any change the agent started [AGENTICAI ch11 §When Agents Go Rogue: Building Essential Safeguards for AI Systems]. Keep two levels.
 
 | Level | Stops | Keeps | Flip when | Restart |
 |---|---|---|---|---|
@@ -124,9 +133,11 @@ Replay needs the captured input and state (raw input or a reference, prompt vers
 
 Framework replay from a checkpoint is an experiment, not a reproduction: steps after the checkpoint run again and may differ (framework-vocabulary-2026-10.md).
 
+Replays run under a credential with no write scope, so a bug in the guard cannot write. In an experiment, read tools may run live; the replay's record says which ones ran and what they returned. A home-made replay that re-runs the recorded tool calls is an experiment with side effects on: a defect to fix, not a replay mode.
+
 ## 6. Compensation
 
-Jobs whose steps can be undone get a revert per step keyed by the request ID, reverted in reverse order when the job fails or is cancelled; jobs and tasks get a maximum run time after which the engine cancels and reverts [RESTCOOK ch7 §7.1 Designing Workflow-Compliant Services] [RESTCOOK ch7 §7.6 Supporting RESTful Job Control Language]. A related prototype shows two limits of naive compensation: it "reverts" irreversible steps too, and only logs a revert that fails [RELATED repo: apis-and-agents/job-control/index.js]. Put irreversible steps last and behind approval; a failed revert escalates like an incident; when nothing automatic works, alert a named person with the job's description, progress and state [RESTCOOK ch7 §7.18 Calling for Help]. Whether a tool is reversible is a contract field (agent-tool-designer).
+Jobs whose steps can be undone get a revert per step keyed by the request ID, reverted in reverse order when the job fails or is cancelled; jobs and tasks get a maximum run time after which the engine cancels and reverts [RESTCOOK ch7 §7.1 Designing Workflow-Compliant Services] [RESTCOOK ch7 §7.6 Supporting RESTful Job Control Language]. A related prototype shows two limits of naive compensation: it "reverts" irreversible steps too, and only logs a revert that fails [RELATED repo: apis-and-agents/job-control/index.js]. Put irreversible steps last and behind approval; a failed revert escalates like an incident; when nothing automatic works, alert a named person with the job's description, progress and state [RESTCOOK ch7 §7.18 Calling for Help]. Whether a tool is reversible is a contract field (agent-tool-designer). Whether a cancel also reverts steps that completed correctly (a label that was right, say) is a product decision per run type; write it down.
 
 ## 7. The tutorial harness shipped to production
 
@@ -150,7 +161,9 @@ None of this makes the repositories bad teaching code. It means the step from pr
 
 | Severity | Harness examples |
 |---|---|
-| Critical | A write can run twice after a retry, resume or redelivered event; an approval executes changed arguments; no way to stop side effects without a redeploy; one caller can read or cancel another's runs |
+| Critical | A write can run twice after a retry, resume or redelivered event; an approval executes changed arguments; an approval link or GET that approves or executes; no way to stop side effects without a redeploy; one caller can read or cancel another's runs; a run can be left `running` for ever with nothing to recover it (no lease expiry or sweeper) |
 | High | Forced stops reported as `completed`; budgets checked per turn or reset on restart; in-memory state behind several workers; blocking inference on the event loop; loop inside a webhook handler |
 | Medium | No safe-mode replay; disconnect policy accidental; checkpoints without a schema version; no per-client limits |
 | Low | Event names inconsistent; stop reasons free text instead of a fixed list |
+
+Severity follows the consequence if the finding's fact holds. When that fact is inferred from a description rather than seen in code, config or traces, write the severity with "(inferred)", for example "Critical (inferred)", and put the fact in "Confirm first". Never downgrade a finding because its trigger is inferred. agent-threat-modeler writes the same convention as "P0 (assumed)".

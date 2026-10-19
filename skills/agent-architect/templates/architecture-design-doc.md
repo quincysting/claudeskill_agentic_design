@@ -6,6 +6,8 @@
 
 <4 to 6 sentences: what the system does, its overall shape (e.g. "a workflow with one bounded agent step"), agent count, the main bounds, where people approve, and the top open question.>
 
+**First actions:** <the three things to do first, in order>
+
 **Confirm first:** <the 3 to 5 assumptions that would change the design most if wrong, each with the decision it drives>
 
 **Lifecycle:** <stage this doc closes (usually Design); Decide gate items already passed or still open; starting level from the five-factor score, with any factor at 1 named>.
@@ -67,7 +69,7 @@ The numbers and choices the runtime must enforce. The runtime itself (run record
 | Tool | Tier | Gate |
 |---|---|---|
 
-**Budgets** (mark values provisional until the eval's worst case is known; unknown cost ceiling: state it as an assumption and bound tokens instead)
+**Budgets** (mark values provisional until the eval's worst case is known; unknown cost ceiling: state it as an assumption and bound tokens instead; no agent step: the contract applies per workflow run and loop steps = 0)
 
 | Budget | Value | Basis |
 |---|---|---|
@@ -81,7 +83,7 @@ The numbers and choices the runtime must enforce. The runtime itself (run record
 
 **Stop conditions:** <goal met, enough info, no progress rule, resource limits>
 
-**Exits:** completed / partial / awaiting_approval / handed_off / escalated / failed / cancelled: <what each returns and who sees it; the durable sink each non-completed exit lands in. A delivered draft or pack is completed; handed_off is for a pending action someone else decides on their own timeline: which ones, and which event starts the follow-up run>
+**Exits:** completed / partial / awaiting_approval / handed_off / escalated / failed / cancelled, with the meanings and stop reasons in agent-harness-designer's harness-tests.md §4 (skipped items, such as suppressed or ineligible ones, are recorded outcomes, not statuses): <what each returns and who sees it; the durable sink each non-completed exit lands in. A delivered draft or pack is completed; handed_off is for a pending action someone else decides on their own timeline: which ones, and which event starts the follow-up run>
 
 **Failure handling**
 
@@ -95,6 +97,8 @@ The numbers and choices the runtime must enforce. The runtime itself (run record
 **Execution mode:** sync / async / triggered / continuous, because <latency, waits; for ordered-stream triggers: retry bounds and failure sink>
 
 ## 5. Planning and reasoning
+
+(No agent step: replace this section with one line saying why it is skipped.)
 
 | Agent step | Strategy | Effort | Breadth (N, verifier) | Reflection trigger and cap | Model role size |
 |---|---|---|---|---|---|
@@ -112,7 +116,9 @@ The numbers and choices the runtime must enforce. The runtime itself (run record
 
 Client thresholds: <measure, where computed, aggregation rule, band plan below and above>
 
-Definitions used: reversible = <...>; cheap = <...>
+Definitions used: reversible = <...>; cheap = <...> (per batch for actions repeated at volume)
+
+Batch controls for high-volume actions: <daily cap and ramp; outcome breakers with minimum samples; sampled review with a weekly minimum; kill switch>
 
 **Decision records** (regulated or adverse decisions): <fields: decision, reason codes from fixed list, evidence refs, rule/policy version, model/prompt versions, recommender, decider, override reason>
 
@@ -134,6 +140,7 @@ Reliability note: <chain length, gates, direction of the arithmetic>
 ## 9. Validation plan
 
 - Baseline vs proposed per "build both" step: <cases, scorer, primary metric, guardrails, minimum gain and how it was derived, label adjudication for noisy ground truth>
+- Against the non-AI incumbent: <business outcome, randomised arms where possible, minimum gain set in advance; a tie goes to the simpler option>
 - Reasoning-effort sweep: <task families, settings>
 - Eval set design: agent-eval-designer.
 

@@ -99,7 +99,7 @@ def gate(run, name, args):
     tier = rule["tier"]
     if tier == "egress" and run.tainted:
         tier = "irreversible"                 # trifecta cut on the egress leg
-    if tier == "irreversible" or (tier == "reversible" and name not in run.earned):
+    if tier == "irreversible" or (tier in ("reversible", "egress") and name not in run.earned):
         return request_approval(run, name, args)   # resumes into execute() in a later step
     return execute(run, name, args)           # injects credential, sets run.tainted if rule["taints"]
 ```
@@ -174,6 +174,10 @@ AWS mapping: [aws-implementation-notes.md](aws-implementation-notes.md).
 - **Broker, not tool.** Non-LLM code that executes the call adds the credential from a vault, per the agent's
   configuration. The model decides *that* a call is needed and never sees the value. A "get_secret" tool is the wrong
   design because its output returns to the model [MESH ch11].
+- **A broker can't protect a credential placed in a process that runs arbitrary code.** A test runner, build or
+  package script the agent starts can read every environment variable and file its process can. Remove the credential
+  from that run, and move the privileged action (publish, deploy, release) to a separate pipeline or service with its
+  own identity, triggered by a person.
 - **Short-lived and scoped.** Per task or per resource where possible (single-repository tokens instead of personal
   access tokens [MCP ch7]); rotate on a schedule and on demand.
 - **Per-agent identity.** Each agent has its own workload identity (for example SPIFFE/SPIRE-style), separate from human
@@ -198,6 +202,9 @@ AWS mapping: [aws-implementation-notes.md](aws-implementation-notes.md).
 - **No pass-through.** A server accepts only tokens issued for itself (audience check) and uses its own credentials
   downstream [MCP ch7].
 - **Local servers.** Pass a stdio MCP server only the environment variables it needs [MCP ch8].
+- **Forges and CI.** For an agent that opens pull requests, its identity can't merge, approve or edit workflow files,
+  and release secrets live only in a separate pipeline a person triggers ([sandboxing.md](sandboxing.md), "Forge and
+  CI", with dated platform notes).
 - **Logs.** Scrub secrets and personal data from logs, traces and caches; set retention [BUILDAPPS ch12]. Platforms
   often copy the token subject into their own audit logs, so use opaque or pairwise subject IDs, not emails.
 - **Provider scope granularity.** Some providers can't separate reading from sending, or composing from sending, in
@@ -267,14 +274,20 @@ AWS mapping: [aws-implementation-notes.md](aws-implementation-notes.md).
 
 ## 4. Breaking the trifecta
 
-**Triage with the Rule of Two first.** Meta's Rule of Two (October 2025, in [PLAYBOOK ch9]) names the trifecta's three
-ingredients: private data, untrusted content, and the ability to act externally. An agent should hold at most two at
-once, and a task that needs all three requires human oversight. The trifecta says remove one [MCP ch7]; the Rule of
-Two allows all three under review. Treat them as one test with ordered fallbacks:
+**Triage with the Rule of Two first.** Meta published the Rule of Two on 2025-10-31 (external,
+https://ai.meta.com/blog/practical-ai-agent-security/, checked 2026-10-19), and [PLAYBOOK ch9] reports it. In one
+session an agent should hold at most two of three properties without human review: (A) it processes untrustworthy
+inputs; (B) it has access to sensitive systems or private data; (C) it can change state or communicate externally. A
+task that needs all three needs human oversight. PLAYBOOK paraphrases the legs as private data, untrusted content and
+the ability to act externally, which drops the integrity case: an agent with no secrets that can still change state
+in a sensitive system (merge to the main branch, deploy, change permissions, pay). Use Meta's wording. The lethal
+trifecta [MCP ch7] is the rule's confidentiality case and says remove one leg; the Rule of Two allows all three under
+review. Treat them as one test with ordered fallbacks:
 1. Cut a leg per request, in code, wherever the task allows (options below).
 2. Where the product needs all three, keep a person in the path, and because review alone is weak, add controls that
    hold without the reviewer: an egress allowlist, the provenance gate ([guardrails.md](guardrails.md) §3) and approvals
-   bound to the exact action ([human-oversight.md](human-oversight.md) §3).
+   bound to the exact action ([human-oversight.md](human-oversight.md) §3). For the integrity case, add hard limits on
+   what the change can touch: protected branches, caps, allowlisted targets.
 
 Run the triage once for the whole job (SKILL.md Step 1), then per flow (Step 5).
 
@@ -285,6 +298,7 @@ Cut one leg per request, in code. Options per leg:
 | Untrusted content | Allowlist sources (domains, repos, senders); fetch through a reader that extracts schema'd fields only; quarantined reader (dual LLM) | Less coverage; extraction can drop context |
 | Private data | Request-scoped tokens and tenant filters; don't load private data into a run that reads untrusted content; split into two agents with no shared context | Some tasks need both; then use a quarantine pattern |
 | External channel | Taint-gated egress (approval or deny after untrusted input); egress proxy with domain allowlist; recipient allowlists; no client-side rendering of remote images or auto-unfurled links from model output; drafts instead of sends | Friction on legitimate sends; approvals need a reviewer who can judge |
+| State change in a sensitive system (integrity) | Propose instead of act: a pull request, a draft or a pending change that a person or a protected pipeline applies; hard limits on what can change; a separate executor identity | Latency; the reviewer must be able to judge the change |
 
 ### When the product needs all three legs
 

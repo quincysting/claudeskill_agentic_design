@@ -6,7 +6,8 @@ transport, but injection through tool content, definitions that change after app
 are left to you. Give every control below a test that behaves like an anonymous or hostile caller and reruns on every
 deploy: a declared control proves nothing until the running system refuses [HARDMCP ch5].
 
-Dated facts (as of 2026-10, verify before quoting): the current specification is 2026-07-28. An early-2026 scan of
+Dated facts (as of 2026-10, verify before quoting): the current specification is 2026-07-28 (its changelog and
+security page checked 2026-10-19). An early-2026 scan of
 more than 11,500 public servers graded about one in fourteen as failing; about 78% pinned no dependencies, 81% ran
 unsandboxed, 86% published no way to report a vulnerability, and no release carried a verified signature
 [HARDMCP ch1]. Keep these figures out of rules; they show why defaults, not the spec, set most of the risk.

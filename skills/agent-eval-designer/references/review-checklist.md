@@ -8,17 +8,17 @@ Read the scorer and runner code, especially the early-return branches. These def
 
 | Defect | What to look for | Real instance | Fix |
 |---|---|---|---|
-| Scorer passes when the expectation is empty | `if not expected_tools: return 1.0` and similar | Both books' tool scorers return a perfect score when the expected tool list is empty, whatever the agent called. The "no tool should be called" cases the books recommend then test nothing (EVALS `ToolCallCorrectness`, BUILDAPPS `tool_metrics` and `param_accuracy`) | Mark no-tool tasks explicitly and assert `len(calls) == 0`; make an empty expectation on any other task a dataset error |
-| Scorer passes when labels or data are missing | `if not ground_truth: return pass`; `if not trajectory: return 1.0` | EVALS `ContextRecall` passes a case with no ground-truth contexts; `MultiTurnCoherence` returns 1.0 when there is no trajectory; BUILDAPPS `phrase_recall` returns 1.0 when no phrases are listed | Missing labels or transcripts fail loudly (exception or explicit "unscorable" status counted against the suite) |
-| Runner drops errored cases | `except: ... continue` or `return None` in the batch loop, then averaging what's left | BUILDAPPS batch runner prints `[SKIPPED]` and averages the remaining examples, so an agent looks better as it breaks more | Errored trial = failed trial; report the error rate; stop the run above about 5% errors [EVALS ch2] |
+| Scorer passes when the expectation is empty | `if not expected_tools: return 1.0` and similar | Both books' tool scorers return a perfect score when the expected tool list is empty, whatever the agent called. The "no tool should be called" cases the books recommend then test nothing (EVALS `ToolCallCorrectness`, BUILDAPPS `tool_metrics` and `param_accuracy`; as read 2026-10-18) [EVALS repo: project/cap08/evalkit/scorers/agent.py] [BUILDAPPS repo: src/common/evaluation/metrics.py] | Mark no-tool tasks explicitly and assert `len(calls) == 0`; make an empty expectation on any other task a dataset error |
+| Scorer passes when labels or data are missing | `if not ground_truth: return pass`; `if not trajectory: return 1.0` | EVALS `ContextRecall` passes a case with no ground-truth contexts; `MultiTurnCoherence` returns 1.0 when there is no trajectory; BUILDAPPS `phrase_recall` returns 1.0 when no phrases are listed (as read 2026-10-18) [EVALS repo: project/cap07/evalkit/scorers/rag.py] [EVALS repo: project/cap08/evalkit/scorers/agent.py] [BUILDAPPS repo: src/common/evaluation/metrics.py] | Missing labels or transcripts fail loudly (exception or explicit "unscorable" status counted against the suite) |
+| Runner drops errored cases | `except: ... continue` or `return None` in the batch loop, then averaging what's left | BUILDAPPS batch runner prints `[SKIPPED]` and averages the remaining examples, so an agent looks better as it breaks more [BUILDAPPS repo: src/common/evaluation/batch_evaluation.py] | Errored trial = failed trial; report the error rate; stop the run above about 5% errors [EVALS ch2] |
 | Platform average over a shrinking denominator | Hosted batch or online evaluators report a mean over the sessions they found, so failed invocations and sessions whose traces never arrived disappear | Lab practice: a sender logged and skipped invocations that threw, and the platform scored only sessions with spans, so the batch average covered an unknown subset | Compare sessions sent, sessions scored per evaluator, and errors. Recompute the headline from per-session results with missing = failed (the scale's floor for a mean score; statistics.md, "Mean scores"), and report sent / scored / errored |
 | Judge rubric cannot express the failure | Scale levels that describe only politeness or relevance; a scale copied from a template for another dimension; no level a fluent wrong answer would land in | Lab practice: a ready-made "response quality" judge gave top marks to any polite, on-topic answer; a tone judge kept a faithfulness template's scale | Run the judge on 5 to 10 known-bad outputs (fluent but wrong, off-policy). If any scores at the top level, the judge cannot gate. Rewrite the levels around the failure and add the known-bad outputs to the calibration set |
-| Judge errors become silent scores | `except: pass` inside a judge loop | EVALS `ContextRelevance` swallows judge errors, which then count as irrelevant chunks; other judge scorers turn API errors into a 0.0 "agent failure"; evalkit's concurrent runner scores a crashed scorer as 0 [EVALS repo: project/cap11/evalkit/runners/concurrent.py] | Separate infrastructure errors from verdicts; retry, then mark unscorable |
+| Judge errors become silent scores | `except: pass` inside a judge loop | EVALS `ContextRelevance` swallows judge errors, which then count as irrelevant chunks [EVALS repo: project/cap07/evalkit/scorers/rag.py]; other judge scorers turn API errors into a 0.0 "agent failure"; evalkit's concurrent runner scores a crashed scorer as 0 [EVALS repo: project/cap11/evalkit/runners/concurrent.py] | Separate infrastructure errors from verdicts; retry, then mark unscorable |
 | Hard check averaged away | Case passes when the *mean* of scorer scores clears a threshold | EVALS runner: a case passes on the average of its scorers, so a failed schema or safety check can be outweighed by good tone [EVALS ch2] | Hard checks are an all-must-pass gate; soft scores are reported separately |
 | Grading the reply, not the state | Scorer reads only `final_answer` | Common; the agent says "booked" and nothing was booked | Predicate on sandbox state after the run |
 | Oracle leaks to the system under test | Expected answer or route appears in the agent's prompt during replay | DEFGUIDE's replay helper puts the expected handoff and reference answer into the candidate model's prompt [DEFGUIDE ch9] | The oracle goes to the scorer only |
 | "Replay" that is not a run | A model is asked to describe the steps it would take | Same helper scores a JSON description of a run, not a run [DEFGUIDE ch9] | Re-execute the agent against recorded or stubbed tool responses |
-| Judge's self-reported aggregate trusted | Score taken from a `faithfulness_score` or `pass` field the judge writes | EVALS `Faithfulness` uses the judge's own score field rather than counting supported claims | Compute the score in code from per-claim or per-criterion verdicts |
+| Judge's self-reported aggregate trusted | Score taken from a `faithfulness_score` or `pass` field the judge writes | EVALS `Faithfulness` uses the judge's own score field rather than counting supported claims [EVALS repo: project/cap07/evalkit/scorers/rag.py] | Compute the score in code from per-claim or per-criterion verdicts |
 | Harness cannot credit correct behaviour | Asking a clarifying question or refusing is scored as failure | BUILDAGENTIC's 0% email-tool result: strong models asked for the missing recipient [BUILDAGENTIC ch5] | Read transcripts behind outlier results; add "must ask" as an accepted outcome |
 | Test passes on words already in the input | An assertion that a word appears anywhere in the transcript or messages, when the user's own turn contains it | A support-agent test asserts that "refund" appears in some message; the messages include the user's "Refund?", so it passes whatever the agent does [BUILDAPPS repo: tests/frameworks/langgraph_agents/test_langgraph_customer_support_agent.py] | Assert on the tool call, its arguments and its bounds, never on text that contains the input. Remove the tool once and confirm the test goes red |
 | Eval tests a copy, not the system | Tool definitions written into the eval by hand | A tool-choice eval hard-codes input schemas instead of loading the server's tools [MCP repo: ch7/01_simple_evaluation/test.py] | Load definitions from the live server or registry at run time |
@@ -32,13 +32,23 @@ Read the scorer and runner code, especially the early-return branches. These def
 
 - [ ] Tool scoring is set-based with precision as well as recall. Recall-only set scoring ignores extra calls; a "partial refund" agent that also calls `refund_full_order` passes.
 - [ ] Order is enforced only for pairs where it matters, not as an exact sequence.
-- [ ] Argument comparison normalises types and formats. Strict dict equality fails `"88412"` vs `88412` (BUILDAPPS `param_accuracy` compares dicts with `==`).
-- [ ] Efficiency penalises identical repeated calls, not distinct calls to the same tool. EVALS `TrajectoryEfficiency` penalises any repeated tool name, so looking up two orders counts as redundancy.
-- [ ] "Task success" is not a blend of soft metrics. BUILDAPPS `task_success` averages phrase recall and tool recall, so an agent that called the right tool and said nothing useful scores 0.5.
+- [ ] Argument comparison normalises types and formats. Strict dict equality fails `"88412"` vs `88412` (BUILDAPPS `param_accuracy` compares dicts with `==`) [BUILDAPPS repo: src/common/evaluation/metrics.py].
+- [ ] Efficiency penalises identical repeated calls, not distinct calls to the same tool. EVALS `TrajectoryEfficiency` penalises any repeated tool name, so looking up two orders counts as redundancy [EVALS repo: project/cap08/evalkit/scorers/agent.py].
+- [ ] "Task success" is not a blend of soft metrics. BUILDAPPS `task_success` averages phrase recall and tool recall, so an agent that called the right tool and said nothing useful scores 0.5 [BUILDAPPS repo: src/common/evaluation/metrics.py].
 - [ ] Embedding or BLEU-style similarity is not used where exact values matter (IDs, amounts, dates).
 - [ ] Negative, stress and safety tasks exist and are tagged.
 - [ ] Expected tools exist in the live tool registry; stale cases fail for dataset reasons [EVALS ch8].
 - [ ] Mocks can fail (timeouts, empty results, declines).
+
+## 2a. Is the comparison fair? (High)
+
+These three skew a comparison between models or versions without making the suite unable to fail.
+
+| Defect | Symptom | Evidence to look for | Fix |
+|---|---|---|---|
+| The judge sees which model, prompt or version produced the output | One candidate wins on judge scores but not on code checks; the gap shrinks when names are hidden | Model names, version tags or provider-specific formatting in the judge prompt; a fixed order in pairwise prompts | Blind the judge, randomise order, run both orders. Re-score a sample blind once to estimate the bias in past results |
+| The sample was filtered on a success signal | Pass rates far above production; few negative cases; no failures to learn from | The dataset query or export filter (`resolved = true`, thumbs up, no escalation) | Rebuild from all outcomes, tag the old set and report it separately; draw the held-out split from the rebuilt sample |
+| Recorded multi-turn conversations replayed against a different model or prompt | The user's turns stop making sense mid-conversation; long or looping transcripts | Replay code that feeds recorded user messages in order regardless of the agent's replies | A validated persona simulator, or scripted turns with branches (datasets-and-harness.md, requirement 10) |
 
 ## 3. Can the numbers support the decisions made on them? (High)
 
@@ -56,20 +66,20 @@ Read the scorer and runner code, especially the early-return branches. These def
 ## 4. Is the judge trustworthy? (High)
 
 - [ ] Rubric has defined levels, three to five criteria, practical questions, reasons before scores.
-- [ ] Calibrated on 50+ human-labelled cases from this task, with κ and false-pass rate, not only within-one agreement or correlation. EVALS's calibration and agreement code report neither.
+- [ ] Calibrated on 50+ human-labelled cases from this task, with κ and false-pass rate, not only within-one agreement or correlation. EVALS's calibration and agreement code report neither (as read 2026-10-18) [EVALS repo: project/cap05/evalkit/scorers/calibration.py] [EVALS repo: project/cap09/evalkit/annotation/agreement.py].
 - [ ] Calibration set includes fluent-but-wrong outputs and enough failures.
 - [ ] Judge from a different family than the agent; lowest-variance sampling it accepts (temperature 0, or fixed prompt plus majority of three where non-default sampling is rejected).
-- [ ] Judge model and rubric versions pinned and part of the verdict cache key. EVALS's cache keys on scorer name, output and expected answer only. A judge upgrade then silently reuses old verdicts, and two different questions with the same output share a verdict.
+- [ ] Judge model and rubric versions pinned and part of the verdict cache key. EVALS's cache keys on scorer name, output and expected answer only [EVALS repo: project/cap11/evalkit/runners/cache.py]. A judge upgrade then silently reuses old verdicts, and two different questions with the same output share a verdict.
 - [ ] Recalibration scheduled and triggered by judge or rubric changes.
 - [ ] If prompts are tuned against judge scores, a held-out evaluator nobody tunes against is reported at release (llm-judges.md).
 
 ## 5. Does the gate behave? (Medium to High)
 
-- [ ] Cases are keyed by stable IDs. EVALS's detector keys them by the first 100 characters of input, so cases with a shared preamble collide.
+- [ ] Cases are keyed by stable IDs. EVALS's detector keys them by the first 100 characters of input, so cases with a shared preamble collide [EVALS repo: project/cap06/evalkit/ci/regression.py].
 - [ ] Deterministic regressions block; judge-scored flips are rerun before they count.
 - [ ] Tolerance came from three runs of the unchanged system.
 - [ ] Baselines are saved by decision, with dataset and judge versions recorded.
-- [ ] Model migrations go through the same gate. EVALS `validate_migration` approves whenever the pass-rate drop is within tolerance, however many cases regressed.
+- [ ] Model migrations go through the same gate. EVALS `validate_migration` approves whenever the pass-rate drop is within tolerance, however many cases regressed [EVALS repo: project/cap13/evalkit/workflow/migration.py].
 - [ ] The suite has an owner, a flaky-case triage, and an incident-to-task loop.
 - [ ] The harness slice (resume, stop rules, budget, cancel, kill switch, kill while paused) runs and blocks on failure.
 - [ ] The suite is read-only to the agent, and its hashes are checked before scoring.
@@ -86,9 +96,9 @@ Go down the table and stop at the first row whose check confirms. In one book's 
 | Production inputs look different | Friendly or stale test set [SYSTEMS ch14] | Compare length, language, task mix, pasted content, multi-intent rate between suite and a sample of production traces | Add sampled production cases and the stress variants; weight tasks by traffic mix |
 | Failures happen mid-conversation | Suite is single-turn; simulator too cooperative [EVALS ch8] | Compare turns, clarifications and volunteered information against real conversations | Multi-turn tasks with persona simulators, adversarial personas |
 | Users report "it said it did X" | Reply graded, not state | Look for scorers that read only the final answer | State predicates; reply-matches-actions check |
-| Intermittent failures users can't reproduce | Single trial per task | Rerun failing production inputs 3–5 times; above about 80% failure means a systematic bug [BUILDAPPS ch10] | k ≥ 3 trials; report pass^k |
+| Intermittent failures users can't reproduce | Single trial per task | Rerun failing production inputs (de-identified) 3–5 times in the eval harness, with write tools stubbed; above about 80% failure means a systematic bug [BUILDAPPS ch10] | k ≥ 3 trials; report pass^k |
 | Tool errors, timeouts, partial data in production | Mocks always succeed | Inspect the mock layer | Fault injection in some tasks |
-| Score went up as prompts were tuned, production didn't | Overfit to the dev set [EVALS ch14] | Score the held-out split; if none, write 30 fresh tasks from recent traffic | Held-out split for release decisions |
+| Score went up as prompts were tuned, production didn't | Overfit to the dev set [EVALS ch14] | Score the held-out split; if none, write 30 fresh tasks from recent traffic, de-identified first (datasets-and-harness.md, "Real user data") | Held-out split for release decisions |
 | Users report wrong facts, quality scores are high | Only reference-free judges (helpfulness, coherence, tone) | List trials with a high reference-free score and a failed reference-based or state check; if no such check exists, that is the finding | Add reference-based or state checks on a labelled slice; use the divergent trials as calibration cases (scorers.md, "Divergence check") |
 | Judge says pass, humans say fail | Uncalibrated or lenient judge | Label 50 recent production outputs; compute false-pass rate | Rewrite rubric with practical questions; recalibrate |
 | Eval and production configs differ | Different model version, temperature, prompt, tool list, context or memory state | Diff the configs | Run evals from the production config |

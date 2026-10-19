@@ -2,7 +2,7 @@
 
 AWS mapping for this skill's principles. As of 2026-10; services change, verify before use.
 
-The principles live in the other reference files and stay vendor-neutral. This file says which AWS feature or setting implements each one and what tripped people up in hands-on labs. Status tags: **(lab)** seen in practitioner labs only; **(docs)** confirmed against AWS documentation on 2026-10-11 (the graph, hybrid-scoring and GraphRAG rows on 2026-10-19); **(established)** long-standing documented behaviour that the labs did not exercise; **(unverified)** not confirmed, check before relying on it.
+The principles live in the other reference files and stay vendor-neutral. This file says which AWS feature or setting implements each one and what tripped people up in hands-on labs. Status tags: **(lab)** seen in practitioner labs only; **(docs)** confirmed against AWS documentation on 2026-10-11 (the graph, hybrid-scoring and GraphRAG rows on 2026-10-19); **(established)** long-standing documented behaviour that the labs did not exercise; **(unverified)** not confirmed, check before relying on it. The lab notes are anonymised observations from the author's own hands-on labs and contain no client data; treat a lab-only item as unverified unless it also carries (docs).
 
 ## Mapping
 

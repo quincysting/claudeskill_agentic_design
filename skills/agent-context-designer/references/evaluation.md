@@ -23,10 +23,15 @@ Cover these slices explicitly:
 | Undated near-duplicates (old and new wiki pages on one topic, no version field) | Staleness detection (retrieval-pipeline.md §2.5) |
 | Cross-source conflicts (official doc against a case card or forum answer) | Trust order and per-source quotas (retrieval-pipeline.md §3.4) |
 | Per permission scope (tenant, role) | A correct filter must not look like a recall failure |
+| Walled or barred users (ethical wall, information barrier, legal hold), including one walled after earlier access | Deny rules hold inside the search, and through caches and memory (retrieval-pipeline.md §2.3) |
+| Citations that look right: a real source that doesn't support the claim; a quote from a dissent or an editor's summary | The cite-and-verify contract and section labels (retrieval-pipeline.md §3.8) |
+| Synthesis across several sources | Whether 3-5 chunks starve the answer; tune the number passed on this slice's recall and faithfulness |
 | Inputs that need no retrieval (greetings, chit-chat) | Forced retrieval mishandles them [BUILDAGENTIC ch2] |
 | Index health, run after every ingest | Per-source counts and one canary query per source catch an ingest that "succeeded" but indexed nothing (retrieval-pipeline.md §2.7) |
 
-Start with a few dozen real failing questions from logs, then grow it. Generating questions from the same chunks you train or tune on inflates scores. One book's fine-tuned embedder held recall@10 at 0.96, but its test questions were generated the same way as its training pairs [BUILDAGENTIC ch9 §Case Study 17: Fine-Tuning Matryoshka Embeddings].
+**Real user data in test sets.** Logged questions, conversations and tickets become test cases only after personal data and secrets are removed or pseudonymised, and only where the data owner (and any customer contract) allows evaluation use and sending the text to the judge's provider. Keep the sets under access control with a retention period, and make deletion requests reach them (memory-design.md §6).
+
+Start with a few dozen real failing questions from logs, de-identified as above, then grow it. Generating questions from the same chunks you train or tune on inflates scores. One book's fine-tuned embedder held recall@10 at 0.96, but its test questions were generated the same way as its training pairs [BUILDAGENTIC ch9 §Case Study 17: Fine-Tuning Matryoshka Embeddings].
 
 ## 2. Retrieval metrics
 
@@ -55,7 +60,7 @@ def recall_at_k(ranked_ids, gold_ids, k):
 
 - **Faithfulness:** split the answer into claims and check each against the retrieved context (8 of 10 supported scores 0.8). **Answer relevance** and **completeness** score the rest [EVALS ch7].
 - **Abstention:** on unanswerable cases, did it say "not found"? On answerable cases, did it avoid needless abstention?
-- **Citation correctness:** do the cited IDs support the claims they are attached to?
+- **Citation correctness**, enforced in code and measured (retrieval-pipeline.md §3.8): the share of cited IDs inside the request's evidence set (anything below 100% is a defect, not a quality dip), the share of quotes found verbatim, the support rate per cited claim from the calibrated check, the share of claims removed or shipped flagged "unverified", and how often a non-authoritative section was cited without its label.
 - Cost: faithfulness takes about one call plus one per claim. 10,000 queries a day with six claims each is about 70,000 judge calls. In production, sample (EVALS suggests 5%) and read the result as a population rate [EVALS ch7].
 - Judge with a different model family from the generator, because judges favour their own style [EVALS ch7].
 
@@ -94,6 +99,7 @@ Use the five abilities from LongMemEval as the template (external; provider-note
 | Temporal | "What did I ask you last Tuesday?" | Correct by timestamp |
 | Abstention | Ask about something never said | "I don't have that" instead of an invented answer |
 | Cross-scope leak | User A's fact, queried as user B, and as a team agent | Never returned |
+| Wall change | A user who used a matter before is walled off from it | Their memory, session state and caches from that matter are purged; nothing from it is recalled (memory-design.md §6) |
 | Scope binding in memory tools | Call the memory read tool with another session's or user's ID; try to write a turn with the user role from the model | Refused; scope and role come from the authenticated request (memory-design.md §10) |
 | Concurrent writes | Two appends to one thread at the same moment; two processes resuming one run | Both turns kept with distinct IDs in order; the losing resume gets a conflict and reloads (memory-design.md §8) |
 | Thread read contract | A three-turn fixture; a brand-new thread | Turns come back 1, 2, 3; the new thread returns an empty list |

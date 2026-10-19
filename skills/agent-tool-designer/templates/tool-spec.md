@@ -1,7 +1,7 @@
 # Tool specification: <agent or server name>
 
 ## Summary
-- **Tools:** <N> tools, cut from <M> agent stories; <why this cut, in one line>.
+- **Tools:** <N> tools, cut from <M> agent stories; <why this cut, in one line>. (Recount every number in this summary from the body before returning.)
 - **Integration:** <native function calling | MCP over stdio | MCP over Streamable HTTP | CLI | Skill | A2A>, because <reason>.
 - **Selection:** <load all | scoped by state/role | tool search with deferred loading | code mode | subagents>; definitions ≈ <tokens> tokens per call.
 - **Riskiest tool:** `<name>`, controlled by <authorization, idempotency, approval>.
@@ -43,15 +43,18 @@ Definition (what the model sees). Use the target's key: `inputSchema` for MCP, `
 - **Validation:** schema, then business rules: <list>
 - **Authorization:** <rule, decided from caller identity>
 - **Contract:** owner <team>, version <x.y.z>; operational constraints <when the tool may not be used>
-- **Result:** <envelope fields; receipt for writes (ID, link, applied fields, status, key, contract version); size bound; cursor or link for large data; next actions if state-dependent>
+- **Result:** <envelope fields; receipt for writes (ID, link, applied fields, status, key, contract version); size bound; opaque cursor (never a page number) or link for large data; next actions if state-dependent>
 - **Errors:**
 
   | Condition | Category | Route | Message |
   |---|---|---|---|
 
+  Wrapped backend: <how its HTTP status and error pages map to categories; a 5xx or timeout after a write was sent = outcome_unknown (tool-contracts §4a)>
+
 - **Side effects:** <what changes; update as a guarded replacement, or idempotency key = run_id + action + target (+ plan step), recorded before the first attempt, or a business-object key when there is no run ID; state check that blocks a repeat; backend honours the key: yes/no; reversible: yes (revert action) / no>
-- **Timeout and retries:** <timeout>; <retries with backoff for transient faults>; on a write timeout, verify with <lookup by key or read> before retrying with the same key; timeout message: "<may have completed; check with …>"
-- **Approval:** <none | runtime gate | elicitation>, threshold <…> (basis: <human policy limit / accepted loss>); fallback when the client cannot ask: <propose-only tool>
+- **Timeout and retries:** <timeout>; <retries with backoff for transient faults>; on a write timeout or a 5xx after sending, verify with <lookup tool by key, or a repeat that returns the existing record> before retrying with the same key; timeout message: "<may have completed; check with …>"
+- **Rate limits:** <per principal / per client / per tool; quota per day; what the description tells the model>
+- **Approval:** <none | runtime gate | elicitation | propose-only>, threshold <…> (basis: <human policy limit / accepted loss>); fallback when the client cannot ask: <propose-only tool>; approval page: <in the system of record, signed-in and entitled approver, decides on submit (POST), never on opening the link>
 - **Fallback if unavailable:** <backup or escalation> (critical tools only)
 
 (repeat per tool)
@@ -63,7 +66,7 @@ Definition (what the model sees). Use the target's key: `inputSchema` for MCP, `
 ## Protocol (if MCP or A2A)
 - Primitives: <which capabilities are tools, resources, prompts, and why>
 - Transport and deployment: <stdio | Streamable HTTP stateless, JSON responses>; <hosting>
-- Auth: <OAuth resource server, scopes, audience check, no pass-through> or <env credentials for stdio>
+- Auth: <OAuth resource server, scopes, audience check, no pass-through: own credential or token exchange per backend> or <env credentials for stdio>
 - Human input: <elicitation form or URL mode for …>
 - Long jobs: <Tasks extension | start/status pair>
 - Client obligations: <namespacing, consent on list change, dedupe on resend, name translation>
@@ -79,7 +82,8 @@ Definition (what the model sees). Use the target's key: `inputSchema` for MCP, `
 ## Change and catalogue (tools other teams or agents call)
 - Catalogue entry: owner, namespace, lifecycle stage, calling agents.
 - Change rule: additive changes only; a break ships as `<tool>_v2` beside the old tool; deprecation date and replacement.
-- CI: schema diff (proved with a planted break), one contract test per tool and failure category through the real client.
+- CI: schema diff (proved with a planted break), one contract test per tool and failure category through the real client, against a sandbox with test credentials (no production secrets in CI; `pull_request`, never `pull_request_target`).
+- Upstream API: <name, version, owner>; the adapter absorbs renames; upstream spec diffed in CI; a change of meaning ships as v2.
 
 ## Assumptions and open questions
 - <assumption> (**blocking** if a recommendation flips when it is wrong; how to check)

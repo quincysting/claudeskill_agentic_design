@@ -2,7 +2,9 @@
 
 AWS mapping for this skill's principles. As of 2026-10; services change, verify before use.
 
-Load this when the agent runs on AWS. The principles live in the other reference files; this file only says which AWS feature or setting carries each one and where the labs tripped. Items marked "(unverified)" were seen in practice labs or inferred, but not confirmed against current AWS documentation.
+Load this when the agent runs on AWS. The principles live in the other reference files; this file only says which AWS feature or setting carries each one and where the labs tripped. Items marked "(unverified)" were seen in practice labs or inferred, but not confirmed against current AWS documentation. The lab notes are anonymised observations from the author's own hands-on labs and contain no client data; treat a lab-only point as unverified until you have checked it against the documentation.
+
+Steps below that act on a live account (sending a test request, updating a runtime's configuration) are for you to propose to the user and run only after they confirm, with the permissions they choose.
 
 ## Mapping
 
@@ -51,15 +53,15 @@ Bedrock counts quota differently from billing, so the peak capacity check (cost-
 - **When a request starts**, Bedrock deducts its input tokens plus `max_tokens` from the tokens-per-minute and tokens-per-day quotas, and throttles the request if that is more than what is left. In the docs' worked example this reservation counts uncached input and cache writes, not cache reads.
 - **When it ends**, the request settles at `InputTokenCount + CacheWriteInputTokenCount + OutputTokenCount × burndown rate`, and the unused part of the reservation goes back to the quota. `CacheReadInputTokenCount` is not counted. Billing still uses the actual tokens.
 - **The burndown rate depends on the model and model version.** The docs' Claude Sonnet 4 example uses 5, and the page lists higher rates for some newer models. Read the current rate for the exact model on the burndown page and date it; never carry one model's rate over to another. Models served only on the `bedrock-mantle` endpoint have separate input and output quotas, and burndown does not apply to them.
-- **Peak check per model.** Settled use per minute = (uncached input + cache write) tokens/min + output tokens/min × burndown rate. Reserved use per minute, an upper bound = (uncached input + cache write) tokens/min + calls/min × `max_tokens`. Compare both with the tokens-per-minute quota and keep headroom for retries. At a rate of 5, for example, 350,000 output tokens a minute use 1.75M quota tokens a minute. If the settled figure fits and the reserved one does not, lower `max_tokens` before asking for a quota increase.
-- **Set `max_tokens` near the real p99 output** of each step (from `OutputTokenCount` or the traces), not at the model's maximum, so the reservation stays close to what the call uses. Keep `max_tok_out` in `cost_model.py` equal to the `max_tokens` you set, so the capped ceiling and the quota check use the same cap.
+- **Peak check per model.** Settled use per minute = (uncached input + cache write) tokens/min + output tokens/min × burndown rate. Reserved use per minute, the admission check = (uncached input + cache write) tokens/min + calls/min × `max_tokens`. Neither is an upper bound on the other: settled use exceeds the reservation whenever output × burndown rate is larger than `max_tokens`. Size the quota on the larger of the two, with headroom for retries. At a rate of 5, for example, 350,000 output tokens a minute use 1.75M quota tokens a minute. If the settled figure fits and the reserved one does not, look at `max_tokens` before asking for a quota increase.
+- **Set `max_tokens` above the observed maximum output** of each step (from `OutputTokenCount` or the traces), with a margin, not at the model's maximum and not at the p99: a cap at the p99 cuts off about one response in a hundred, tool-call JSON included. Treat a `max_tokens` stop as a failure in the trace and the alerts. Keep `max_tok_out` in `cost_model.py` equal to the `max_tokens` you set, so the capped ceiling and the quota check use the same cap.
 
 ## Instrumentation and span delivery
 
 - On Lambda, use the ADOT layer; in containers, use the auto-instrumentation launcher. Both configure the exporter and AWS SDK spans.
 - On AgentCore Runtime, the runtime ships spans. A unified-traces option routes spans into the agent's own runtime log group and needs a recent ADOT distro version (the lab used 0.18 or later; current minimum unverified).
 - Runtime containers are linux/arm64 and serve the platform's invocation and health routes.
-- Send one test request and confirm the span lands in the expected log stream before building dashboards or online evaluators on it.
+- Propose one test request (run it only after the user confirms) and check that the span lands in the expected log stream before building dashboards or online evaluators on it.
 
 ## Alarm math in CloudWatch
 
@@ -71,5 +73,5 @@ Bedrock counts quota differently from billing, so the peak capacity check (cost-
 ## Runtime releases
 
 - Each AgentCore Runtime update creates a version, and the default endpoint follows it, so callers on the default endpoint get every update at once. Keep production callers on a named endpoint pinned to the released version, and point a canary share at a second endpoint on the candidate (whether the platform can weight traffic across endpoints natively is unverified; otherwise split in your gateway).
-- Read the current configuration, merge your change and write the whole map back; a partial update drops the rest.
+- An update must read the current configuration, merge the change and write the whole map back; a partial update drops the rest. Propose the merged configuration to the user and apply it only after they confirm.
 - Release the prompt the same way when it lives in a parameter: new parameter version, then gate, then canary.

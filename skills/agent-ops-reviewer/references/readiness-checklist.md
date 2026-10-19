@@ -2,7 +2,7 @@
 
 Score each item **0** (absent or only planned), **1** (partial, or present without evidence it works) or **2** (in place, with evidence: file and line, config, dashboard, runbook, test). Mark **N/A** with a reason when an item cannot apply (for example, no self-hosted models), and leave it out of the percentages. A framework default nobody chose (a default recursion limit, a default retry policy) scores at most 1. Score on evidence only; "we plan to" is 0, and a setting that exists but is never exercised (an untested fallback) is 1.
 
-**Evidence tags.** Tag every score with where it came from: **seen** (you inspected the file, config, trace or dashboard), **told** (an owner described it but you have not seen it; scores at most 1) or **U, unverified** (no access and no description; scores 0). A U-tagged 0 means "go and look"; a seen 0 means "build it". Keep the two apart in the review.
+**Evidence tags.** Tag every score with where it came from: **seen** (you inspected the file, config, trace or dashboard), **told** (an owner described it but you have not seen it; scores at most 1) or **U, unverified** (no access and no description; scores 0). A U-tagged 0 means "go and look"; a seen 0 means "build it". Keep the two apart in the review. The "told: at most 1" cap is for claims that something exists. An owner's explicit statement that something is absent ("we don't trace tool calls", "stopping it needs a redeploy") scores 0 and counts like a seen 0: it makes "Not ready" firm.
 
 **N/A.** J4 is N/A whenever every model runs on a managed API; that is the normal case, so leave it out of the denominator rather than scoring 0. For G1, list every tool and its side effect first, and ask when you cannot see the tool code. Search, fetch and query tools are reads; anything that sends, writes, books, pays, deletes or changes state outside the agent is a write. No write tools (common for research and Q&A agents) makes G1 N/A. Write tools but no shadow or replay path yet is also N/A, with the recorder made a precondition of the fix that introduces shadow. Side effects unknown means G1 is U, not N/A.
 
@@ -12,12 +12,12 @@ Score each item **0** (absent or only planned), **1** (partial, or present witho
 
 - **Not ready**: any blocker scores 0, or the total is below 50% of applicable points.
 - **Ready with conditions**: every blocker scores at least 1 and the total is at least 50%. The conditions are every blocker at 1 plus all P0 fixes, each with an owner and a date before launch or scale-up.
-- **Ready**: every blocker scores 2, the total is at least 75%, no area is below 50%, and the Run gate passes (next section).
+- **Ready**: every blocker scores 2, the total is at least 75%, no area is below 50%, the Run gate passes (next section), and, when any tool writes, a written staged-rollout plan exists (shadow with stubbed writes, then a canary with rollback triggers; G1, G2).
 
 Percent = points / (2 × applicable items). Report per area and overall.
 
 **Missing evidence.**
-- **Provisional**: put "Provisional" in front of the verdict when any blocker is U or more than a quarter of applicable items are U. Report a floor (U items at 0) and a ceiling (U items at 2) and the verdict each one gives; the gap shows how far the verdict rests on evidence nobody has seen. A blocker *seen* at 0 makes "Not ready" firm, whatever else is unverified.
+- **Provisional**: put "Provisional" in front of the verdict when any blocker is U or more than a quarter of applicable items are U. Report a floor (U items at 0) and a ceiling (U items at 2) and the verdict each one gives; the gap shows how far the verdict rests on evidence nobody has seen. A blocker *seen* at 0, or stated absent by its owner, makes "Not ready" firm, whatever else is unverified.
 - **Too speculative to score**: when the run map is assumed (you have not seen the loop, caps and tool code or config), or more than half of the blockers or half of the applicable items are U, do not hand back item-by-item scores as findings. Deliver a discovery plan (the evidence per blocker: one production trace followed end to end, loop and retry config, exporter and masking config, prompt and tool registry, tool router per mode; who holds each and how long it takes) plus the provisional verdict from what you know. Rescore when the evidence arrives.
 
 **Lite mode** (internal pilot, under about 100 requests a day, no write tools): score only the blockers plus B2, C2, F2, I1 and I2, report Run gate rows 1, 4 and 6 only, and say so in the review.
@@ -70,7 +70,7 @@ Rows 2 and 5 are N/A when no tool writes, and row 3 then comes down to G5. The a
 
 | ID | Item | Evidence |
 |---|---|---|
-| C1 **B** | No raw PII, credentials or secrets in telemetry: masked or dropped before export | Masking code before attributes are set; collector redaction config; a spot check of real traces |
+| C1 **B** | No raw PII, credentials or secrets in telemetry: masked or dropped before export | Masking code before attributes are set; collector redaction config; a spot check of real traces. On a running system that scores 0, the data is already stored: the P0 fix also finds and purges or re-masks every stored copy (observability.md §3, "When sensitive data is already stored") and escalates to the privacy or legal owner |
 | C2 | Content capture off by default in production; full payloads only for a sampled share, failures, escalations and incidents, in a store with references on the span | Capture flags per environment |
 | C3 | Audit log (actions, approvals, outcomes; long retention; tamper-evident) separate from the debug payload store (short retention; restricted access) | Two sinks with different policies |
 | C4 | Retention schedules automated and verified | Deletion jobs and their last run |
@@ -117,7 +117,7 @@ Rows 2 and 5 are N/A when no tool writes, and row 3 then comes down to G5. The a
 | ID | Item | Evidence |
 |---|---|---|
 | G1 **B** | Shadow runs and offline replay cannot execute write tools: they hit a recorder or dry-run stub | Tool router config per mode; a test proving it. N/A if the agent has no write tools, or if no shadow or replay path exists yet; in that case make the recorder a precondition of the fix that introduces shadow |
-| G2 | Canary at 1 to 5% for at least 24 hours with version-tagged telemetry and automatic rollback on written triggers: success under the SLA, p95 latency, duplicate side effects, cost per successful run and review minutes | Deploy config; a rollback rule naming each trigger; on a trigger the canary flips to draft-only or rolls back [PRODGUIDE ch17 §Performance Tuning Without Breaking Reliability] |
+| G2 | Canary at 1 to 5% for at least 24 hours [EVALS ch10] with version-tagged telemetry and automatic rollback on written triggers: success under the SLA, p95 latency, duplicate side effects and review minutes [PRODGUIDE ch17 §Performance Tuning Without Breaking Reliability], plus cost per successful run (this skill's addition). When any tool writes, an all-at-once cutover with no shadow and no canary is P0 | Deploy config; a rollback rule naming each trigger; on a trigger the canary flips to draft-only or rolls back [PRODGUIDE ch17 §Performance Tuning Without Breaking Reliability] |
 | G3 | Rollback has been rehearsed and its time is known | Drill record |
 | G4 | In-flight sessions survive deploys (sticky versions, rainbow deploys, checkpoints) | Deploy strategy |
 | G5 **B** | Kill switch in two levels: draft-only (execution off, planning and previews on) and abort (every call off, credentials revoked, restart only with a person's approval); flags the gate reads at every call, flipped without a redeploy, drilled, and able to stop one tool as well as the whole agent | The flag store the gate reads; the last drill and how long a flip took to reach running workers. A switch that needs a redeploy scores 0. A blocker only when a tool writes; otherwise scored as a normal item |
@@ -140,7 +140,7 @@ Rows 2 and 5 are N/A when no tool writes, and row 3 then comes down to G5. The a
 | ID | Item | Evidence |
 |---|---|---|
 | I1 | Written performance budget per task type (latency, calls, tokens, tool calls, steps, retries, cost) with an action at each limit (stop, degrade, go async) | Budget doc or config |
-| I2 | Expected, likely high (about p95) and capped ceiling cost per request known; monthly projection at expected volume and at peak (busiest day × 30) | Cost model with dated prices |
+| I2 | Expected, likely high (every step at its p95; above a true p95) and capped ceiling cost per request known; monthly projection at expected volume and at peak (busiest day × 30) | Cost model with dated prices |
 | I3 | Cost attributed per workflow, tenant, feature and step from traces, not read off the invoice | Cost dashboard; a per-call ledger that reconciles with the invoice within a few percent; cost metric dimensions low-cardinality (no session or user IDs) |
 | I4 | Cache-read token share and cache write-to-read ratio on a dashboard, with an alert when a deploy breaks the cache | Panel; rule |
 | I5 | Deterministic work done in code; tool results trimmed; token ceiling per prompt section | Code; token budgets |
@@ -163,7 +163,7 @@ Rows 2 and 5 are N/A when no tool writes, and row 3 then comes down to G5. The a
 
 ## K. Servers and supply chain
 
-These rows cover the agent service and every tool or MCP server your team runs: operational defaults that nobody chose but that decide the blast radius [HARDMCP ch10]. Score what you can see; for a third-party server, score what you can verify (signature, pinned version, inventory entry) and hand the rest to **agent-threat-modeler**, which also owns the attacker-style tests and the host-side controls (definition pinning, `server::name`). K1 is N/A when nothing listens locally.
+These rows cover the agent service, every tool or MCP server your team runs and the trace collector: operational defaults that nobody chose but that decide the blast radius [HARDMCP ch10]. Score what you can see; for a third-party server, score what you can verify (signature, pinned version, inventory entry) and hand the rest to **agent-threat-modeler**, which also owns the attacker-style tests, the authentication design and the host-side controls (definition pinning, `server::name`). K1 is N/A when nothing listens locally. K8 is N/A only when every server is reached over stdio or loopback and traces never leave the host.
 
 | ID | Item | Evidence |
 |---|---|---|
@@ -174,10 +174,11 @@ These rows cover the agent service and every tool or MCP server your team runs: 
 | K5 | The full resolved dependency tree is pinned to versions and hashes; a vulnerability audit is a build gate, on a tighter clock for auth and crypto libraries; installs use verified wheels from a vetted index | Lock file with hashes; audit job; index config [HARDMCP ch3] |
 | K6 | Every call is answerable: a structured log line per call with actor, tool, arguments (or their hash) and request ID, redacted inside the logging path | Log schema; redaction in the logger, not after storage |
 | K7 | Runtime abuse is resisted: idempotency keys reject replays, per-identity rate limits stop floods, and delegated tasks carry signed provenance | A replayed request refused; limiter config; the provenance check on delegated calls |
+| K8 **B** | Every server reachable beyond stdio or loopback authenticates every request, `tools/list` included (OAuth as the MCP specification describes, or mutual TLS): MCP and tool servers, the agent's own API, and the trace collector. Anonymous access is never acceptable. The OTLP collector is not internet-exposed and requires authentication plus TLS, because traces carry prompts and tool arguments. A blocker when the server can reach private data or a write tool; a collector that receives prompts or tool arguments counts as private data | An unauthenticated request (and one with another client's token) refused, on each endpoint; collector bind address and auth config |
 
 ## Fix priorities
 
-- **P0**: any blocker below 2; any Run gate row that fails; anything that can spend without bound, leak data or act twice; peak load above provider limits; K items on a server that can reach private data or a write tool. Fix before launch or scale-up.
+- **P0**: any blocker below 2; any Run gate row that fails; anything that can spend without bound, leak data or act twice; peak load above provider limits; K items on a server that can reach private data or a write tool; an all-at-once cutover with no shadow or canary when any tool writes (G2). For C1 at 0 on a running system, the P0 covers the stored copies as well as future export: purge or re-mask them, keep a deletion log, and hand the notification question to the privacy or legal owner (observability.md §3). Fix before launch or scale-up.
 - **P1**: gaps that stop you detecting or diagnosing a regression (B2 to B4, B8, D1 to D3, E1 to E2, E6, F2 to F5, G2 to G3, G6, H1); K items on other servers.
 - **P2**: cost and latency optimisations, hygiene, tooling.
 

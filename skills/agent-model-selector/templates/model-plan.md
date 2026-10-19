@@ -47,6 +47,7 @@ Fine-tuning verdict: <not now / yes for role X> because <criteria>.
 
 - Method and base model: <SFT with LoRA on <open model>, or encoder classifier, or DPO, or GRPO>
 - Data: <source, size, verification, splits, per-class counts, no-tool and failure cases>
+- Privacy and rights: <personal data and secrets removed or pseudonymised by …; training use and the tuning provider and region allowed by <data owner, terms>; retention; deletion requests and retrain trigger; extraction test before release>
 - Reward (RL only): <gate, partial credit, adversarial tests, independent held-out scorer>
 - Comparison: <what the tuned model replaces, on the same held-out tasks: untrained base for generative tuning; best prompted candidate for an encoder classifier>
 - Regression set: <general capabilities checked>
@@ -60,7 +61,8 @@ Fine-tuning verdict: <not now / yes for role X> because <criteria>.
 - Candidate grid: <models × effort levels × loop (one shot, or k check-and-revise rounds) × prompt version>
 - Held fixed across candidates: <harness, tools, budgets, provider layer @version>; effective request parameters and native stop reasons logged
 - Fair prompting budget: <…>
-- Trials per task: <k>; production settings: <…>
+- Trials per task: <k>; production settings: <…>; side-effecting tools: <sandbox / recorder / dry-run stub>, non-production credentials
+- Task data: <de-identified; providers and regions allowed to receive it>
 - Scoring: <program checks; judge (family, calibration)>
 - Analysis: <paired differences, bootstrap over tasks, sign test on discordant tasks, Wilson intervals>
 - Decision rule: <cheapest config passing target, margin, latency, vetoes>

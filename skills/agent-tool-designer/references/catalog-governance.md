@@ -20,6 +20,8 @@ A catalogue entry holds the SYSTEMS registry fields (owner, contracts, risk clas
 | Reversible writes and their revert actions | MCP annotations cannot carry this (tool-contracts §6) |
 | Release signature and disclosure contact | Whether you know what you run and who to report a flaw to |
 | Deprecation date and replacement | Empty until §5 starts |
+| Rate limits and quotas | Per principal, per client and per tool, lower for tools that create, spend, send or search expensively (tool-design-rules §7) |
+| Upstream API and its version | Whose change can break the contract; the adapter absorbs renames (tool-contracts §8) |
 
 **No shadow endpoints.** APIARCH's "improper assets management" example is a forgotten `/beta` endpoint, still public and still returning fields that newer versions removed; the defence is a catalogue of everything deployed and a gateway that knows what exists [APIARCH ch6]. The agent equivalents are an MCP server on a laptop, a tool defined inline in agent code, an old version still registered, and a fallback tool someone forgot. An agent uses whatever it holds: when Ng's research agent hit a rate limit on web search during a demo, it switched to a Wikipedia tool he had forgotten he had given it [NG Agentic Design Patterns Part 4, Planning, 2024-04-10]. That time the fallback helped, but a forgotten tool is an unreviewed path. List fallbacks, and tier them, like any other tool.
 
