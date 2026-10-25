@@ -107,9 +107,10 @@ folder and commit it.
 Whichever way you install, start a new Claude Code session afterwards. The skills load automatically and trigger
 when your request matches their description. You can also call one by name, for example `/agent-architect`.
 
-On a short question Claude sometimes answers from general knowledge without loading a skill. In our tests, "Can
-someone trick our support bot into revealing other customers' orders?" loaded no skill, while "Threat-model our
-email assistant agent that can read the inbox and send replies" loaded `agent-threat-modeler` in every trial. When it matters, name the skill: "Use agent-threat-modeler:
+On a short question Claude sometimes answers from general knowledge without loading a skill. In our tests, with
+about 540 other skills installed, the right skill loaded for 44 of 45 plain requests; the miss was "Should we
+fine-tune a model for our ticket classifier or keep prompting?". In a setup with only these skills, "Can someone
+trick our support bot into revealing other customers' orders?" loaded no skill in four tries. When it matters, name the skill: "Use agent-threat-modeler:
 can someone trick our support bot...", or start with `/agent-threat-modeler`.
 
 ### Claude apps and the API
@@ -163,7 +164,8 @@ letters on agentic workflows. The changes:
   observed, told, inferred, assumed), credentials cited by location and never by value, a code-only review mode,
   rules for stub tools, and a cost model that reports UNBOUNDED when the code sets no token cap. The trigger
   descriptions were rewritten and tested on 55 plain requests in a clean setup: the right skill loaded in 81 of 90
-  trials, and none of the nine loaded on 20 of 20 unrelated requests.
+  trials, and none of the nine loaded on 20 of 20 unrelated requests. In a setup with about 540 other skills
+  installed, the right skill loaded for 44 of 45 requests (one trial each) and none loaded on 10 unrelated ones.
 
 **October 2026: lessons from hands-on AWS labs.** The skills were checked against a set of hands-on AWS labs
 (AgentCore identity and token exchange, gateways and policy, memory, evaluations, observability, multi-agent state,
@@ -240,8 +242,8 @@ not affiliated with the authors or publishers. If you find the guidance useful, 
   material in `agentic-business-case` is not legal advice.
 - The skills are written for Claude. Other agents that read `SKILL.md` files may use them, but they were only
   tested with Claude.
-- Triggering is not guaranteed. Short questions, and setups with many other skills installed, can lead Claude to
-  answer without loading a skill; name the skill when the answer matters (see [Install](#install)).
+- Triggering is not guaranteed. On a short question Claude may answer without loading a skill; name the skill when
+  the answer matters (see [Install](#install)).
 
 ## Contributing
 
