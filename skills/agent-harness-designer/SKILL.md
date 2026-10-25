@@ -210,7 +210,7 @@ Check every item before returning; fix and re-check any that fail. An item that 
 
 ## Sources
 
-Distilled from the books below. These are independent notes, not affiliated with or endorsed by the authors or publishers cited. In `references/`, a citation such as [PRODGUIDE ch16] names one of these books and a chapter, and a citation with `repo:` names a file in a companion or related repository; each reference file restates the point it relies on, so the sources are not needed to use the skill.
+These notes draw on the books below. They are independent notes, not affiliated with or endorsed by the authors or publishers cited. In `references/`, a citation such as [PRODGUIDE ch16] names one of these books and a chapter, and a citation with `repo:` names a file in a companion or related repository; each reference file restates the point it relies on, so the sources are not needed to use the skill.
 
 - PRODGUIDE: *Agentic AI Systems: The Complete Guide for Building Production AI Agents*, ch2, 14, 16, 17, 18.
 - SYSTEMS: *Systems Thinking for Agentic AI*, ch6, 8, 10, 13, 16, 17.

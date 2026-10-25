@@ -233,7 +233,7 @@ Before returning, check that:
 
 ## Sources
 
-Distilled from the books below (model selection and adaptation, reasoning and planning, LLM fundamentals, the agent harness). These are independent study notes, not affiliated with or endorsed by the authors or publishers cited. Book chapters by the key used in the references:
+These notes draw on the books below (model selection and adaptation, reasoning and planning, LLM fundamentals, the agent harness). They are independent study notes, not affiliated with or endorsed by the authors or publishers cited. Book chapters by the key used in the references:
 - BUILDAPPS: *Building Applications with AI Agents*: ch1 and ch2 (model selection), ch7 (learning without weights, when to fine-tune, SFT for function calling, DPO, RLVR), ch11 (continuous learning), and its companion fine-tuning and reflexion code.
 - DLLMA: *Designing Large Language Model Applications*: ch5 (choosing an LLM, open versus proprietary, model flavours), ch6 (the need for fine-tuning, recipe, datasets), ch7 (continual pre-training, PEFT, merging), ch8 (RLHF, hallucination after fine-tuning, reasoning data), ch11 (fine-tuning embedding models).
 - DEFGUIDE: *AI Agents: The Definitive Guide*: ch3 (GRPO, GSPO, RULER, ART), ch4 (models as team members, thinking modes and budgets, open versus closed, LoRA), and its companion notebooks.

@@ -246,7 +246,7 @@ Check every item before returning; fix and re-check any that fail. An item that 
 
 ## Sources
 
-Independent notes, not affiliated with or endorsed by the authors or publishers cited. Distilled from the following books. In `references/`, a citation such as [SYSTEMS ch8] names one of these books and a chapter; each reference file restates the point it relies on, so the books are not needed to use the skill.
+Independent notes, not affiliated with or endorsed by the authors or publishers cited. These notes draw on the following books. In `references/`, a citation such as [SYSTEMS ch8] names one of these books and a chapter; each reference file restates the point it relies on, so the books are not needed to use the skill.
 - SYSTEMS: *Systems Thinking for Agentic AI*, ch3, 6, 8, 10, 13, 16, 17, 18.
 - DEFGUIDE: *AI Agents: The Definitive Guide*, ch1, 2, 3, 4, 5, 10, 11.
 - BUILDAPPS: *Building Applications with AI Agents*, ch1, 3, 5, 7, 8, 12.

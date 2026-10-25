@@ -229,7 +229,7 @@ Before returning, check:
 
 ## Sources
 
-These are independent notes that paraphrase and cite the works below; they are not affiliated with or endorsed by the authors or publishers. Distilled from these books (chapter numbers as in the original editions):
+These are independent notes that paraphrase and cite the works below; they are not affiliated with or endorsed by the authors or publishers. They draw on these books (chapter numbers as in the original editions):
 - *The Agentic Enterprise* (ENTERPRISE): ch2 value layers, fit and readiness; ch3 applications and figures; ch4 ROI, five risk categories, build vs buy, pilot and scale criteria; ch5 where to start; ch6 central registry and configuration hash; ch7 accountability, second-layer RACI, compliance logging; ch8 action catalog, neutral gateway, prompt portability, central platform with federated builders; ch9 mass-review cost case.
 - *Agentic Artificial Intelligence* (AGENTICAI): ch1 adoption study; ch8 Three Circles, 35-point scorecard, prioritisation matrix; ch9 agent business models; ch10 four-part business case, balanced scorecard, governance council, J-curve; ch11 workload mapping, insurer business case and staged rollout; ch12 Pets at Home case.
 - *Agentic Mesh* (MESH): ch5, ch7, ch8, ch9 registry and certification; ch12 trust framework; ch13 operating model, team roles, transition; ch14 factories and templates; ch15 roadmap.

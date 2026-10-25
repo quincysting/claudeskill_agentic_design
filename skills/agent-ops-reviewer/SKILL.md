@@ -212,7 +212,7 @@ Check the output against each item before returning it:
 
 ## Sources
 
-These are independent notes that paraphrase and cite the works below; they are not affiliated with or endorsed by the authors or publishers. Distilled from these books (citation key in brackets, then chapter numbers), plus current public documentation. In `references/`, a citation such as [PRODGUIDE ch17] names one of these books and a chapter; each reference file restates the point it relies on, so the books are not needed to use the skill.
+These are independent notes that paraphrase and cite the works below; they are not affiliated with or endorsed by the authors or publishers. They draw on these books (citation key in brackets, then chapter numbers), plus current public documentation. In `references/`, a citation such as [PRODGUIDE ch17] names one of these books and a chapter; each reference file restates the point it relies on, so the books are not needed to use the skill.
 - *Systems Thinking for Agentic AI* (SYSTEMS): ch. 3 (prompt versioning), 4, 8, 10, 12 (performance and cost: budgets, cost drivers, latency, routing, caching, backpressure, timeouts, metrics), 14, 15 (observability: logs, metrics, traces, instrumentation, privacy, the architect's rules), 16.
 - *AI Evals in Practice* (EVALS): ch. 1, 6 (regression testing and CI), 10 (online evals, sampling, guardrails, alerting, shadow and canary evals), 11 (eval cost and latency), 12 (tooling and lock-in), 13, 14 (improvement case study), 15.
 - *Building Applications with AI Agents* (BUILDAPPS): ch. 2, 8, 10 (monitoring in production), 11 (improvement loops, experimentation).

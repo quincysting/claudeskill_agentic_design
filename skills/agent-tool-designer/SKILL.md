@@ -302,7 +302,7 @@ Before returning, check that the output:
 
 ## Sources
 
-Distilled from the books below (tool use and tool design; MCP and agent protocols; tool and API contracts). These are independent study notes, not affiliated with or endorsed by the authors or publishers cited. Book chapters by key:
+These notes draw on the books below (tool use and tool design; MCP and agent protocols; tool and API contracts). They are independent study notes, not affiliated with or endorsed by the authors or publishers cited. Book chapters by key:
 - MCP: *AI Agents with MCP* (Kyle Stratis), ch1, ch2, ch3, ch4, ch5, ch6, ch7, ch8, ch9: tool design, the REST antipattern, error rule, client trust boundary, transports, OAuth, security taxonomy, evaluations, registry and extensions. Written against MCP 2026-07-28 and Python SDK 2.0.
 - SYSTEMS: *Systems Thinking for Agentic AI*, ch4, ch7, ch18: the model requests and the runtime executes, system-level enforcement, the tool registry.
 - BUILDAPPS: *Building Applications with AI Agents*, ch4, ch5, ch8: narrow stateful tools, validate-retry-fallback, selection strategies.

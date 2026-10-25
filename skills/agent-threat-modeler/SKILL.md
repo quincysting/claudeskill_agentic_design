@@ -432,7 +432,7 @@ Before returning, check:
 
 ## Sources
 
-Independent notes, not affiliated with or endorsed by the authors or publishers cited. Distilled from these books
+Independent notes, not affiliated with or endorsed by the authors or publishers cited. They draw on these books
 (chapter numbers), cited in the reference files by key:
 - DEFGUIDE: *AI Agents: The Definitive Guide*, ch. 2 (human-in-the-loop interrupts), 6 (tool governance, sandboxing,
   code mode), 8 (OWASP agentic red-teaming), 10 (memory hygiene), 12 (threat modeling, runtime scanner).

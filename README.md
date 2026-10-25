@@ -5,11 +5,12 @@ AI agent from decision to production. Each one turns Claude into a reviewer or d
 system: the business case, architecture and the end-to-end plan, model choice, the threat model and guardrails, the
 runtime harness, tool and API contracts, retrieval and memory, evals, and operations and cost.
 
-The guidance was distilled from 20 books on agentic AI, MCP security and API design (listed below), Andrew Ng's
-letters and talks, and the books' companion code. It was cross-checked against current public sources such as the MCP
-and A2A specifications, OWASP's lists and Anthropic's engineering posts. Then it was tested: a fresh Claude instance
-that had never seen each skill ran it on a realistic scenario with planted problems, and an independent judge scored
-the result.
+The skills come from my own practice designing, building and reviewing AI agents, and from what I learned along
+the way: 20 books on agentic AI, MCP security and API design (listed below) with their companion code, Andrew Ng's
+letters and talks on agentic workflows, and hands-on AWS labs on agent identity, gateways, memory, evaluations and
+observability. The guidance is checked against current public sources such as the MCP and A2A specifications, OWASP's
+lists and Anthropic's engineering posts. Every skill is tested too: a fresh Claude instance that has never seen it
+runs it on a realistic scenario with planted problems, and an independent judge scores the result.
 
 **Quick install** (Claude Code, all skills, every project):
 
@@ -136,9 +137,9 @@ Two skills include Python helpers that need only the standard library:
 
 ## What's new
 
-**October 2026, v2: one end-to-end approach.** Nine books were added to the sources (production agent books, MCP
-hardening, agent security and API design), together with their companion repos, related public repos and Andrew Ng's
-letters on agentic workflows. The changes:
+**October 2026, v2: one end-to-end approach.** I added nine more books to my reading (production agent books, MCP
+hardening, agent security and API design), along with their companion repos, related public repos and Andrew Ng's
+letters on agentic workflows. What changed:
 
 - A new skill, `agent-harness-designer`, for the runtime around the model: the loop, run record, checkpoints and
   resume, budgets checked before every call, a kill switch with a draft-only level, safe-mode replay, streaming and
@@ -167,7 +168,7 @@ letters on agentic workflows. The changes:
   trials, and none of the nine loaded on 20 of 20 unrelated requests. In a setup with about 540 other skills
   installed, the right skill loaded for 44 of 45 requests (one trial each) and none loaded on 10 unrelated ones.
 
-**October 2026: lessons from hands-on AWS labs.** The skills were checked against a set of hands-on AWS labs
+**October 2026: lessons from my AWS labs.** I checked the skills against hands-on AWS labs I worked through
 (AgentCore identity and token exchange, gateways and policy, memory, evaluations, observability, multi-agent state,
 graph and vector data). Where a lab exposed a gap, the fix went into the vendor-neutral core as a rule, checklist
 item or common mistake. Examples: exchange the token at every hop instead of forwarding it, fail closed on missing
@@ -179,18 +180,23 @@ planted problems, and an independent judge passed all four.
 
 ## How these skills were built
 
-1. Eleven books were converted to text and each was read in full, chapter by chapter, to produce a per-book digest.
-   In October 2026 nine more books, their companion repos, related public repos and Andrew Ng's letters were reviewed
-   for agent-building signal, and the earlier companion repos were re-read for harness, contract and guardrail
-   patterns.
-2. All chapters (137, then 96 more) were mapped onto 20 topics, down to section level, and the books'
-   disagreements were listed.
-3. A 20-chapter reference guide (about 170,000 words) was written from those chapters plus companion code and
-   current public sources, with citations checked and claims spot-checked against the books.
-4. The skills were distilled from the guide: decisions, defaults, thresholds and checklists rather than summaries.
-5. Each skill was dry-run by its author, then tested cold by a separate Claude instance on a held-out scenario.
-   An independent judge scored the outputs (all eight passed, 4.0 to 4.8 out of 5 on followed-the-procedure,
-   specific, correct, actionable and well-scoped), and the testers' notes were fixed in the published versions.
+The skills encode how I approach agent work. I learned and tested that approach against the books, Andrew Ng's
+material and my AWS labs, so the skills are not a summary of any one of them.
+
+1. I learned from twenty books and their companion code, Andrew Ng's letters and talks on agentic workflows, and
+   related public repos. Their material is mapped onto 20 topics, down to section level, and where the sources
+   disagree, the skills say which position holds up better and why.
+2. I worked through hands-on AWS labs on agent identity and token exchange, gateways and policy, memory,
+   evaluations, observability, multi-agent state, and graph and vector data. What went wrong in the labs became
+   rules, checklist items and common mistakes in the vendor-neutral core, and the AWS specifics are in the skills'
+   `references/aws-implementation-notes.md` files.
+3. A 20-chapter reference guide (about 170,000 words) came first, with citations checked and claims spot-checked
+   against their sources.
+4. Each skill turns that work into decisions, defaults, thresholds and checklists that Claude applies to your task.
+5. Each skill was dry-run, then tested cold by a separate Claude instance on a held-out scenario and scored by an
+   independent judge. In the first release all eight passed (4.0 to 4.8 out of 5 on followed-the-procedure,
+   specific, correct, actionable and well-scoped). Later rounds, including reviews of real agent code and trigger
+   tests, are under [What's new](#whats-new).
 
 Citations such as `[DEFGUIDE ch5]` in the reference files point to the books below; each skill's Sources section
 maps the keys to titles. You do not need the books to use the skills.

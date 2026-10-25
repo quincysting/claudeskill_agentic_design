@@ -291,7 +291,7 @@ In review mode (and the review half of "Both"), also check that the output:
 
 ## Sources
 
-Distilled from the books below. These are independent study notes, not affiliated with or endorsed by the authors or publishers cited. Book chapters by key:
+These notes draw on the books below. They are independent study notes, not affiliated with or endorsed by the authors or publishers cited. Book chapters by key:
 - EVALS: *AI Evals in Practice* (Caio Incau, 2026), ch1 to ch9, ch11, ch13, ch14, and its companion `evalkit` code (scorers, runner, regression detector, calibration and agreement modules).
 - ILLUSTRATED: *An Illustrated Guide to AI Agents*, ch7 (benchmarks, trajectory evaluation, pass@k and pass^k, safety by threat model).
 - SYSTEMS: *Systems Thinking for Agentic AI*, ch14 (path and result, negative cases, practical judge rubrics, human failure labels).
