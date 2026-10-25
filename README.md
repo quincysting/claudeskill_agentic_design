@@ -167,6 +167,14 @@ letters on agentic workflows. What changed:
   descriptions were rewritten and tested on 55 plain requests in a clean setup: the right skill loaded in 81 of 90
   trials, and none of the nine loaded on 20 of 20 unrelated requests. In a setup with about 540 other skills
   installed, the right skill loaded for 44 of 45 requests (one trial each) and none loaded on 10 unrelated ones.
+- Real-use tests for the other five skills. Architecture, context, evals, model choice and the business case were
+  each run on real material no skill cites: open-source agent code, and a vendor-commissioned ROI study for the
+  business case. Independent judges checked every finding against the source. Three passed first time (4.14 to
+  4.29 out of 5). Two failed, and the failures were useful: the eval skill computed a zero-failure bound over the
+  wrong number of scenarios and allowed a pilot before access checks existed, and the model selector misread how a
+  framework combines model settings. Both were fixed and passed fresh re-tests (4.14 and 4.43). The ROI script also
+  gained an input for automation you already have, so a current chatbot's deflection is no longer counted as
+  savings from the agent.
 
 **October 2026: lessons from my AWS labs.** I checked the skills against hands-on AWS labs I worked through
 (AgentCore identity and token exchange, gateways and policy, memory, evaluations, observability, multi-agent state,
@@ -249,7 +257,8 @@ not affiliated with the authors or publishers. If you find the guidance useful, 
 - The skills are written for Claude. Other agents that read `SKILL.md` files may use them, but they were only
   tested with Claude.
 - Triggering is not guaranteed. On a short question Claude may answer without loading a skill; name the skill when
-  the answer matters (see [Install](#install)).
+  the answer matters (see [Install](#install)). In our tests the right skill loaded for 45 of 45 plain
+  requests on Opus and 81 of 90 trials on Sonnet, but only 25 of 45 on Haiku, so on Haiku, name the skill.
 
 ## Contributing
 

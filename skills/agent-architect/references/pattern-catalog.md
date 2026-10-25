@@ -54,6 +54,7 @@ Use the order as the default for what to try first, with two qualifiers. It is 2
 - **Avoid:** outputs can conflict and there is no merge rule.
 - **Failure:** contradictory outputs with no reconciliation [MESH ch3].
 - **Guard:** a deterministic merge rule written before launch; per-branch timeouts; partial results labelled as such.
+- **Provenance through the merge:** when the output must be sourced, each branch returns its tool-produced source records (citation annotations, result IDs, retrieved document IDs), not just text. Code gives each record an ID and the merge keeps the IDs with the content they support. The writer cites IDs, and the citation check compares them with the tool-produced set. Do not have the model write source URLs or titles: checking a citation against a list the model wrote proves nothing.
 
 ### Orchestrator-workers
 - **Use:** subtasks depend on the input and cannot be listed up front.

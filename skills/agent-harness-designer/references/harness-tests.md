@@ -88,7 +88,9 @@ Scorers read only fields the harness writes. Without a contract they read fields
 | Field | Content |
 |---|---|
 | `run_id` | The run's ID, also on every trace span |
-| `versions` | Agent, prompt, policy, model, tool-schema and dataset versions |
+| `versions` | Agent, prompt, policy, model, tool-schema and dataset versions, plus index snapshot and dependency versions where they apply, and the effective configuration when it can be overridden per request. A per-request override or a re-indexed store changes behaviour without a code change, so a run that does not record them cannot be compared with its baseline |
+| `caller` (retrieval agents) | The identity and scopes the request ran as. Access checks need it to know whose permissions the retrieval should have applied |
+| `retrieved[]` (retrieval agents) | Each retrieved document's stable ID, access label and rank, per turn. Access checks compare it with what the caller may see, and citation checks with what the answer cites |
 | `tool_calls[]` | Tool, arguments, `mode` (`rejected` by the gate, `preview` only, or `executed`), result, error category (agent-fixable or infrastructure), idempotency key, receipt |
 | `approvals[]` | Approval ID, requested action, digest, decision, approver, requested and decided times, `expires_at`, `used` |
 | `usage` | Model calls, tool calls, steps, tokens, cost, active time, wall time |

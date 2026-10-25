@@ -130,7 +130,20 @@ Diagnosis [EVALS ch7]:
 
 In one fintech's 400 diagnosed failures, about 55% were retrieval, 25% generation and 20% mixed; the mixed ones are the most dangerous because they sound plausible [EVALS ch7]. Include unanswerable questions, where the right answer is to abstain. Judge with a different model family than the generator. Set relevance thresholds per query type (about 0.7 for factual lookups, 0.3 for exploratory ones) [EVALS ch7]. Build labelled sets per permission scope, or a correct access filter looks like a retrieval failure.
 
+**Size and gate the retrieval slice.** Hit rate at k (a gold document in the top k) is a pass or fail per query, so the Wilson table in statistics.md applies: about 60 to 100 labelled queries give ±10 points. Report recall@k as a soft metric with a floor taken from the reviewed baseline. Make it hard only where a missing document is itself a critical failure. The index needs distractor documents: with one or a few documents every query returns the right one, and retrieval cannot fail (datasets-and-harness.md, "Changing read data, including search indexes").
+
 For agentic retrieval, also score the path. Did it search when it had to? An agent given a search tool but no instruction to use it almost never called it [BUILDAGENTIC ch5]. Which sources did it use, how many hops, and did it stop for the right reason?
+
+### Access checks for retrieval
+
+When the corpus holds documents some users may not see, per-user access is a critical hard check:
+- Assert on the retrieved document IDs and their access labels, never on the reply. A reply can omit a restricted document the model was shown, and that document has still leaked into the context.
+- The slice has at least two callers with different scopes and at least one restricted gold document that the narrower caller must not retrieve. Count only these scenarios toward the access bound (statistics.md, "Zero failures is not zero risk").
+- The run record carries the caller's identity and scopes, and each retrieved document's stable ID and access label (datasets-and-harness.md, "Run-record contract").
+- When the interface accepts caller-supplied retrieval parameters (a filter, k, an index name), include a caller who sets their own. Attack design for that goes to agent-threat-modeler.
+- Size the slice for the claim instead of accepting a small-n bound. The check is scored in code on retrieved IDs, so it needs no expert or judge time, and its scenarios can be generated mechanically: each restricted document × each caller who must not see it, each pair also run with a caller-supplied filter and k where the interface accepts them. Count each document-caller pair as one scenario and its request variants as variants. 30 restricted documents × 10 non-entitled callers gives 300 pairs, and 0 failures in 300 bounds the rate below 1%; the cost is a few hundred agent runs. That bound assumes the pairs fail independently, but pairs that share one filter tend to fail together. Read the sampled bound as evidence about the agent's behaviour around the filter; the deterministic test below covers the filter code itself.
+- Beside the sampled bound, test a deterministic filter deterministically, at the retrieval boundary: for every caller role and every request parameter the interface accepts (filter, k, index name), assert that nothing outside the caller's scope comes back and that no caller or request parameter can widen the scope. A server-set filter is code, so this test covers every role and parameter instead of a sample, and it runs pre-merge.
+- When no access mechanism exists, the slice is a capability suite expected to fail. Every stage that exposes the agent to real users or real data is then blocked until the control exists (ci-gates.md, "Floors versus zero tolerance").
 
 ## Multi-turn behaviour
 

@@ -99,6 +99,7 @@ Use the five abilities from LongMemEval as the template (external; provider-note
 | Temporal | "What did I ask you last Tuesday?" | Correct by timestamp |
 | Abstention | Ask about something never said | "I don't have that" instead of an invented answer |
 | Cross-scope leak | User A's fact, queried as user B, and as a team agent | Never returned |
+| Thread ownership | As user B, read, resume, fork and list user A's thread by its ID; start a run with no identity | Refused or not found; B's list never shows A's threads; a run with no identity fails closed instead of using a default user (memory-design.md §6, §8) |
 | Wall change | A user who used a matter before is walled off from it | Their memory, session state and caches from that matter are purged; nothing from it is recalled (memory-design.md §6) |
 | Scope binding in memory tools | Call the memory read tool with another session's or user's ID; try to write a turn with the user role from the model | Refused; scope and role come from the authenticated request (memory-design.md §10) |
 | Concurrent writes | Two appends to one thread at the same moment; two processes resuming one run | Both turns kept with distinct IDs in order; the losing resume gets a conflict and reloads (memory-design.md §8) |
@@ -114,6 +115,7 @@ Use the five abilities from LongMemEval as the template (external; provider-note
 | Tried-step repeat | The user reports a step failed at turn 4; the same problem continues to turn 30, past a compaction | The agent never re-suggests that step as new; the ledger shows it |
 | Task switch | The user moves to an unrelated problem mid-chat | The current-task line changes, the old ledger is closed, and steps from the old problem are not applied to the new one |
 | Scale and failure | Store grows 10-100x; store down; corrupted record | Latency within budget; graceful degradation [BUILDAPPS ch9] |
+| Recall at projected size | Seed a shared index to the size the growth worksheet projects (memory-design.md §5); query old items and a user with few items | Recall per age bucket and per small scope within target; no misses from a filter applied after the search cut-off |
 
 Memory often looks fine in single-turn demos and fails after summarisation or weeks of accumulation [DEFGUIDE ch10]. Run multi-session scripts, not single prompts.
 

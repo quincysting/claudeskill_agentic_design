@@ -1,6 +1,8 @@
 # <System name>: agent architecture
 
 > Status: draft | Mode: design / review | Date: <YYYY-MM-DD>
+>
+> Order: Summary, Confirm first, Lifecycle; review mode: Findings; Stage plan (whole-path requests); sections 1 to 13 (review mode: each marked keep, change or add); review mode: Migration order. Small reference or demo code: short form (SKILL.md, "Output").
 
 ## 0. Summary
 
@@ -10,7 +12,12 @@
 
 **Confirm first:** <the 3 to 5 assumptions that would change the design most if wrong, each with the decision it drives>
 
-**Lifecycle:** <stage this doc closes (usually Design); Decide gate items already passed or still open; starting level from the five-factor score, with any factor at 1 named>.
+**Lifecycle:** <stage this doc closes (usually Design); Decide gate items already passed or still open; starting level from the five-factor score, with any factor at 1 named; in a review with no business documents, Decide items are "open, not evidenced">.
+
+## Findings (review mode only; delete otherwise)
+
+| Severity | Finding | Evidence (file:line, config key, trace ID) and label | Fix |
+|---|---|---|---|
 
 ## Stage plan (whole-path requests only; delete otherwise)
 
@@ -174,6 +181,11 @@ In lifecycle order (references/lifecycle-map.md, "Order of calls"); each row nam
 | Step | Start stage (shadow / suggest / approve / act+notify / act) | Promotion criteria (metric, target, N cases, M weeks) | Rollback trigger | Ceiling (never beyond) | Sign-off |
 |---|---|---|---|---|---|
 
-- Shadow period: <duration, traffic share, what is compared with the human decision>
+- Shadow period (steps that would act): <duration, traffic share, what is compared with the human decision>. A step that starts at suggest, with every output reviewed, starts with a small suggest pilot and a sampled audit instead: <group size, sample rate, what the audit checks>
 - Model or prompt change: re-validate at the current stage; no automatic promotion.
 - Promotion and rollback metrics designed with agent-eval-designer; approval UX with agent-threat-modeler.
+
+## Migration order (review mode only; delete otherwise)
+
+<Ordered changes, Critical items first, each small enough to ship without a rewrite>
+

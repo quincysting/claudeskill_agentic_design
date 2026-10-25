@@ -6,28 +6,36 @@ combined pessimistic case and funding verdict.
 
 inputs.json may also hold:
   "currency": "EUR"
+  "scope": "chat and email cases"          what `volume` counts; every kill line names it as its denominator
   "measured": ["volume", "rate", ...]      inputs backed by own data (system history counts)
-  "ranges": {"contained": [0.4, 0.85], ...} realistic low/high per input (default x0.5..x2)
+  "ranges": {"contained": [0.4, 0.85], ...} realistic low/high per input (default x0.5..x2, marked ~)
   "range_evidence": {"contained": "shadow run, 400 items, Sep 2026"}  what each range rests on
-Without a realistic "contained" range the script gives no funding verdict, and without evidence for
-that range (a shadow run, a ticket sample, a comparable deployment) the verdict is not firm.
+`volume` is the in-scope slice only (the channels and item types the agent will serve); run cost is charged
+on it. `contained` is total containment of that slice, including `baseline_contained`, the share existing
+automation (a current chatbot, say) already closes; checks, wrong outcomes and per-closed fees fall on the
+closures above it only.
+The verdict rests on its levers: containment when net crosses zero inside 0..1, and escalated_min when it is
+below human_min (assisted handling). Each lever needs a realistic range, and without evidence for that range
+(a shadow run, a ticket sample, a time study, a comparable deployment) the verdict is not firm.
 A verdict built on an assumed baseline is provisional in both directions.
 """
 import json
+import math
 import sys
 
 DEFAULTS = {
-    "volume": 20_000,        # items per month in scope
+    "volume": 20_000,        # items per month in scope: only the channels and types the agent will serve
     "human_min": 5.0,        # person-minutes of effort per item today (not open-to-close time)
     "rate": 40.0,            # loaded cost per person-hour
     "human_err_rate": 0.0,   # wrong outcomes per item people produce today; the agent is charged only above it
-    "contained": 0.70,       # share the agent closes with no person (0 for an assist-only agent)
-    "escalated_min": 5.0,    # person-minutes per item the agent does not close
-    "qa_share": 0.10,        # share of agent-closed items a person checks (1.0 = approve every item)
+    "baseline_contained": 0.0,  # share existing automation already closes today with no person
+    "contained": 0.70,       # share closed with no person after launch, existing automation included (total)
+    "escalated_min": 5.0,    # person-minutes per item the agent does not close (assist: the new handling time)
+    "qa_share": 0.10,        # share of new agent closures a person checks (1.0 = approve every item)
     "qa_min": 1.0,           # minutes per check or approval
     "run_cost": 0.04,        # agent cost per item in scope: model, tools, infra
-    "fee_per_closed": 0.0,   # vendor price per item the agent closes (outcome pricing), on top of run_cost
-    "err_rate": 0.02,        # wrong outcomes per agent-closed item (the agent's absolute rate)
+    "fee_per_closed": 0.0,   # vendor price per new closure (outcome pricing), on top of run_cost
+    "err_rate": 0.02,        # wrong outcomes per agent closure (the agent's absolute rate)
     "err_cost": 25.0,        # cost per wrong outcome: refund, rework, goodwill, exposure
     "platform": 8_000.0,     # monthly share of platform, monitoring, on-call
     "pilot_cost": 60_000.0,  # one-off spend before the scale decision: money at risk if killed
@@ -36,19 +44,28 @@ DEFAULTS = {
     "fte_hours": 160.0,      # paid hours per person per month
 }
 BASELINE = ("volume", "human_min", "rate")      # facts: measure them before the pilot
-TODAY = BASELINE + ("human_err_rate",)          # shown with the baseline facts; 0 (no offset) is the cautious default
+TODAY = BASELINE + ("human_err_rate", "baseline_contained")  # shown with the baseline facts
 PILOT = ("contained", "escalated_min", "err_rate", "err_cost", "qa_share", "qa_min")  # only a pilot measures these
 ESTIMATES = ("run_cost", "fee_per_closed", "platform")  # quotes and engineering estimates
-SHARES = {"contained", "qa_share", "err_rate", "human_err_rate", "cash_share"}
-
-
+SHARES = {"contained", "qa_share", "err_rate", "human_err_rate", "cash_share", "baseline_contained"}
 POSITIVE = {"volume", "human_min", "rate", "fte_hours"}  # divided by, or meaningless at zero
+MARGIN = 0.10   # floor rule: 10 points of containment, or a tenth of human_min when escalated_min decides
+EDGE = 0.02     # an end within 2 points (or 2% of human_min) of its floor makes a knife-edge verdict
 
 
-def validate(p, ranges, evidence=None):
+def num(v):
+    return f"{v:,.0f}" if abs(v) >= 1000 else f"{v:.3g}"
+
+
+def be_min(x):
+    """A breakeven in person-minutes; below 0, no handling time makes the case pay."""
+    return f"{num(x)} min" if x >= 0 else "none: net is negative even at 0 min"
+
+
+def validate(p, ranges, evidence=None, scope="in-scope items"):
     """Exit with a one-line message on bad input, before any arithmetic (no tracebacks, no impossible values)."""
     def check(key, v, where):
-        if isinstance(v, bool) or not isinstance(v, (int, float)):
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
             sys.exit(f"{where}: need a number, got {v!r}")
         if key in POSITIVE and v <= 0:
             sys.exit(f"{where}: {v} must be above 0")
@@ -56,6 +73,8 @@ def validate(p, ranges, evidence=None):
             sys.exit(f"{where}: {v} is out of range ({'0 to 1' if key in SHARES else '>= 0'})")
     for key in DEFAULTS:
         check(key, p[key], key)
+    if p["baseline_contained"] >= 1:
+        sys.exit("baseline_contained: must be below 1 (existing automation already closes everything in scope)")
     for key, pair in ranges.items():
         if len(pair) != 2:
             sys.exit(f"ranges.{key}: need [low, high]")
@@ -66,6 +85,20 @@ def validate(p, ranges, evidence=None):
     for key, text in (evidence or {}).items():
         if not isinstance(text, str) or not text.strip():
             sys.exit(f"range_evidence.{key}: need a short description of the evidence, got {text!r}")
+    if not isinstance(scope, str) or not scope.strip():
+        sys.exit(f"scope: need a short name for what volume counts, e.g. \"chat and email cases\", got {scope!r}")
+
+
+def check_meta(user, where="inputs"):
+    """One-line error unless the non-numeric keys have the right shape."""
+    if not isinstance(user.get("ranges", {}), dict) or not isinstance(user.get("range_evidence", {}), dict):
+        sys.exit(f"{where}: \"ranges\" and \"range_evidence\" must be objects")
+    m = user.get("measured", [])
+    if not isinstance(m, list) or not all(isinstance(k, str) for k in m):
+        sys.exit(f"{where}: \"measured\" must be a list of input names, e.g. [\"volume\", \"rate\"], got {m!r}")
+    c = user.get("currency", "USD")
+    if not isinstance(c, str) or not c.strip():
+        sys.exit(f"{where}: \"currency\" must be a short code such as \"EUR\", got {c!r}")
 
 
 def load_inputs(path):
@@ -79,21 +112,20 @@ def load_inputs(path):
         sys.exit(f"{path}: not valid JSON ({e.msg}, line {e.lineno})")
     if not isinstance(user, dict):
         sys.exit(f"{path}: inputs must be a JSON object, not {type(user).__name__}")
-    if (not isinstance(user.get("ranges", {}), dict) or not isinstance(user.get("measured", []), list)
-            or not isinstance(user.get("range_evidence", {}), dict)):
-        sys.exit(f"{path}: \"ranges\" and \"range_evidence\" must be objects and \"measured\" a list")
+    check_meta(user, path)
     return user
 
 
 def monthly(p):
     hour = p["rate"] / 60
     closed = p["volume"] * p["contained"]
+    new = p["volume"] * max(p["contained"] - p["baseline_contained"], 0.0)  # closures people make today
     people = {"escalated work": (p["volume"] - closed) * p["escalated_min"] * hour,
-              "checks and approvals": closed * p["qa_share"] * p["qa_min"] * hour}
-    cash = {"agent run cost": p["volume"] * p["run_cost"] + closed * p["fee_per_closed"],
-            "wrong outcomes above today's rate": closed * (p["err_rate"] - p["human_err_rate"]) * p["err_cost"],
+              "checks and approvals": new * p["qa_share"] * p["qa_min"] * hour}
+    cash = {"agent run cost": p["volume"] * p["run_cost"] + new * p["fee_per_closed"],
+            "wrong outcomes above today's rate": new * (p["err_rate"] - p["human_err_rate"]) * p["err_cost"],
             "platform share": p["platform"]}
-    baseline = p["volume"] * p["human_min"] * hour
+    baseline = p["volume"] * (1 - p["baseline_contained"]) * p["human_min"] * hour
     labour = baseline - sum(people.values())          # freed hours priced at the loaded rate
     net = labour - sum(cash.values())                 # capacity-valued
     net_cash = labour * p["cash_share"] - sum(cash.values())
@@ -117,9 +149,22 @@ def span(p, ranges, key):
 
 
 def breakeven_containment(p):
-    """Net is linear in containment, so two points give the share where net = 0."""
-    n0, n1 = monthly({**p, "contained": 0.0})["net"], monthly({**p, "contained": 1.0})["net"]
-    return None if n1 == n0 else -n0 / (n1 - n0)
+    """Total containment where net = 0; net is linear above baseline_contained, so two points give it.
+    -inf: net is positive with no new closures (the value rests on escalated_min); inf: never positive."""
+    b = p["baseline_contained"]
+    nb, n1 = (monthly({**p, "contained": c})["net"] for c in (b, 1.0))
+    if nb > 0:
+        return -math.inf
+    if n1 < 0 or n1 <= nb:
+        return math.inf
+    return b + (1 - b) * -nb / (n1 - nb)
+
+
+def breakeven_escalated(p, c):
+    """Person-minutes per item not closed at which net = 0, at total containment c (net is linear in them)."""
+    q = {**p, "contained": c}
+    per_min = p["volume"] * (1 - c) * p["rate"] / 60   # cost of one more minute on every escalated item
+    return math.inf if per_min == 0 else q["escalated_min"] + monthly(q)["net"] / per_min
 
 
 def sensitivity(p, ranges, keys):
@@ -127,7 +172,7 @@ def sensitivity(p, ranges, keys):
     for key in keys:
         lo, hi = span(p, ranges, key)
         n_lo, n_hi = monthly(vary(p, key, lo))["net"], monthly(vary(p, key, hi))["net"]
-        rows.append((abs(n_hi - n_lo), key, lo, hi, n_lo, n_hi))
+        rows.append((abs(n_hi - n_lo), key, lo, hi, n_lo, n_hi, key not in ranges))  # last: default span
     return sorted(rows, reverse=True)
 
 
@@ -140,6 +185,17 @@ def pessimistic(p, ranges):
     return q
 
 
+def above(x, p):
+    """The incremental points a total containment share adds over existing automation."""
+    b = p["baseline_contained"]
+    return f"; {(x - b) * 100:.0f} points above the {b:.0%} existing automation closes" if b else ""
+
+
+def of_scope(x, p, scope):
+    """A containment level with its denominator, as the pilot measures it."""
+    return f"{x:.0%} of {scope} ({p['volume']:,.0f}/month{above(x, p)})"
+
+
 def cash_view(p, r, cur):
     """The cash basis, stated next to any positive verdict that rests on capacity value alone."""
     if r["net"] > 0 and r["net_cash"] < 0:
@@ -149,52 +205,107 @@ def cash_view(p, r, cur):
     return []
 
 
-def verdicts(p, ranges, measured, r, cur, evidence=()):
+def warnings(p, ranges):
+    out = [f"WARNING: ranges.{k} is pinned at {num(lo)} (low = high): its sensitivity row has no swing and the "
+           "verdict is about that one value." for k, (lo, hi) in ranges.items() if lo == hi]
+    if p["contained"] < p["baseline_contained"]:
+        out.append(f"WARNING: contained {p['contained']:.0%} is below baseline_contained "
+                   f"{p['baseline_contained']:.0%}; contained is total containment, existing automation included.")
+    return out
+
+
+def verdicts(p, ranges, measured, r, cur, evidence=(), scope="in-scope items"):
     """Verdict lines. An assumed baseline heads them UNVALIDATED, with "pilot required" only on a positive verdict."""
-    out = funding(p, ranges, measured, r, cur, evidence)
+    out = funding(p, ranges, measured, r, cur, evidence, scope)
     assumed = [k for k in BASELINE if k not in measured]
     if assumed:
-        positive = any(line.startswith(("PILOT ONLY", "Net is positive")) for line in out)
+        positive = any(line.startswith("PILOT ONLY") for line in out)
         out.insert(0, f"UNVALIDATED{': pilot required' if positive else ''}. Baseline facts assumed "
                       f"({', '.join(assumed)}): measure them first; system history over a stated period counts.")
     return out
 
 
-def funding(p, ranges, measured, r, cur, evidence):
+def funding(p, ranges, measured, r, cur, evidence, scope):
     out = []
     assumed = [k for k in BASELINE if k not in measured]
     open_pilot = [k for k in PILOT if k not in measured]
     if open_pilot:
         out.append(f"Pilot must measure: {', '.join(open_pilot)}.")
+    out += warnings(p, ranges)
+    h, e, b = p["human_min"], p["escalated_min"], p["baseline_contained"]
+    e_lo, e_hi = span(p, ranges, "escalated_min") if "escalated_min" in ranges else (e, e)
+    assist = min(e, e_lo) < h          # assisted handling faster than today's: a value lever, like containment
+    if assist and "escalated_min" not in ranges:
+        out.append(f"No funding verdict: the net rests on escalated_min {num(e)} min, below today's {num(h)} min "
+                   f"(assist value); breakeven escalated_min {be_min(breakeven_escalated(p, p['contained']))} per item "
+                   "the agent does not close. Give a realistic escalated_min range and its evidence (a time study of assisted "
+                   "items); the default span is not evidence.")
+        return out + cash_view(p, r, cur)
     be = breakeven_containment(p)
-    if be is None or not 0 <= be <= 1:
-        if r["net"] > 0:
-            out.append("Net is positive at any containment; set kill lines on error rate and guardrails.")
-        elif assumed:
-            out.append("NOT FUNDABLE on assumed inputs: net is negative at every containment level on an assumed "
-                       "baseline. Not a firm verdict: measure the baseline before any pilot spend, then re-run.")
-        else:
-            out.append("NOT FUNDABLE: net is negative at every containment level.")
+    if be == math.inf:                 # can faster escalated handling at its realistic low end rescue it?
+        be = breakeven_containment({**p, "escalated_min": e_lo})
+    by_c = math.isfinite(be)           # containment decides
+    by_e = be == -math.inf             # escalated_min decides: net is positive with no new closures
+    if by_c and "contained" not in ranges:
+        out.append(f"No funding verdict: give a realistic containment range (breakeven {of_scope(be, p, scope)}; "
+                   f"needs a low end of {min(be + MARGIN, 1.0):.0%} or more).")
         return out + cash_view(p, r, cur)
-    floor = min(be + 0.10, 1.0)
-    if "contained" not in ranges:
-        out.append(f"No funding verdict: give a realistic containment range (breakeven {be:.0%}, needs a low end of {floor:.0%} or more).")
-        return out + cash_view(p, r, cur)
-    low, high = span(p, ranges, "contained")
-    if high < floor:
-        name, why = "NOT FUNDABLE", (f"even the realistic high end {high:.0%} is under breakeven + 10 points "
-                                     f"({floor:.0%}); a pilot could not pass its own kill line")
-    elif low >= floor:
-        name, why = "FUNDABLE", (f"kill below {low:.0%} containment (the realistic low end); exit threshold = net at "
-                                 f"that level, {cur} {monthly({**p, 'contained': low})['net']:,.0f}/month")
+    c_lo, c_hi = span(p, ranges, "contained") if "contained" in ranges else (p["contained"],) * 2
+    cands = [c for c in (c_lo, c_hi, b) if c_lo <= c <= c_hi]   # net is linear on each side of b
+
+    def stressed(c, x, k=0.0):
+        """Net with the deciding lever moved past breakeven by its margin, plus k more (k > 0 is worse)."""
+        if by_c:
+            c -= MARGIN + k
+        elif by_e:
+            x += (MARGIN + k) * h
+        return monthly({**p, "contained": max(0.0, c), "escalated_min": x})["net"]
+
+    pess = min(cands, key=lambda c: stressed(c, e_hi))
+    opt = max(cands, key=lambda c: stressed(c, e_lo))
+    name = ("FUNDABLE" if stressed(pess, e_hi) >= 0 else "NOT FUNDABLE" if stressed(opt, e_lo) < 0 or not (by_c or by_e)
+            else "PILOT ONLY")
+    net_at = lambda c, x: f"{cur} {monthly({**p, 'contained': c, 'escalated_min': x})['net']:,.0f}/month"
+    if by_c:
+        e_kill = next((x for x in (e_hi, e, e_lo) if math.isfinite(breakeven_containment({**p, "escalated_min": x}))))
+        floor = min(breakeven_containment({**p, "escalated_min": e_kill}) + MARGIN, 1.0)
+        f_opt = breakeven_containment({**p, "escalated_min": e_lo})
+        f_opt = f"{min(f_opt + MARGIN, 1.0):.0%}" if math.isfinite(f_opt) else "none at any level"
+        at = f" with escalated_min at {num(e_kill)} min; re-run with the measured value" if "escalated_min" in ranges else ""
+        e_line = f" or escalated_min above {num(e_hi)} min" if "escalated_min" in ranges else ""
+        why = {"FUNDABLE": f"kill below {of_scope(c_lo, p, scope)} (the realistic low end){e_line}; exit threshold = "
+                           f"net there, {net_at(c_lo, e_hi)}",
+               "PILOT ONLY": f"realistic low end {c_lo:.0%} is under breakeven + 10 points ({floor:.0%}). Fund the "
+                             f"pilot ({cur} {p['pilot_cost']:,.0f}) and kill below {of_scope(floor, p, scope)}{at}; "
+                             f"exit threshold = net at that line, {net_at(floor, e_kill)}. The full build waits for "
+                             "measured containment. Do not move the range to pass this test",
+               "NOT FUNDABLE": f"even the realistic high end {c_hi:.0%} is under breakeven + 10 points ({f_opt}); "
+                               "a pilot could not pass its own kill line"}[name]
+    elif by_e:
+        ceil_pess = min(breakeven_escalated(p, c) for c in cands) - MARGIN * h
+        ceil_opt = max(breakeven_escalated(p, c) for c in cands) - MARGIN * h
+        rest = "the case rests on escalated_min (person-minutes per item the agent does not close), not on containment"
+        c_line = f" or containment below {of_scope(pess, p, scope)}" if "contained" in ranges and pess < c_hi else ""
+        why = {"FUNDABLE": f"{rest}. Kill above {num(e_hi)} min (the realistic high end){c_line}; exit threshold = "
+                           f"net there, {net_at(pess, e_hi)}",
+               "PILOT ONLY": f"{rest}. Its realistic high end {num(e_hi)} min is above breakeven less a tenth of "
+                             f"today's time ({num(ceil_pess)} min). Fund the pilot ({cur} {p['pilot_cost']:,.0f}) and "
+                             f"kill above {num(ceil_pess)} min{c_line}; exit threshold = net there, "
+                             f"{net_at(pess, ceil_pess)}. Do not move the range to pass this test",
+               "NOT FUNDABLE": f"{rest}. Even its realistic low end {num(e_lo)} min is above breakeven less a tenth "
+                               f"of today's time ({num(ceil_opt)} min); a pilot could not pass its own kill line"}[name]
     else:
-        name, why = "PILOT ONLY", (f"realistic low end {low:.0%} is under breakeven + 10 points ({floor:.0%}). "
-                                   f"Fund the pilot ({cur} {p['pilot_cost']:,.0f}) and kill below {floor:.0%}; "
-                                   "the full build waits for measured containment. Do not move the range to pass this test")
-    if "contained" not in measured and "contained" not in evidence:
-        out.append("No firm funding verdict: the containment range has no evidence behind it (give a shadow run, "
-                   "ticket sample or comparable deployment in range_evidence). First step: a shadow sample of a few "
-                   f"hundred real items; re-run with the range it gives. On the current range the model would say {name}.")
+        why = "net is negative at every containment level" + (
+            f", escalated_min at its realistic low end ({num(e_lo)} min) included" if e_lo != e else "")
+    levers = ["contained"] * by_c + ["escalated_min"] * assist
+    missing = [k for k in levers if k not in measured and k not in evidence]
+    first = {"contained": "a shadow sample of a few hundred real items",
+             "escalated_min": "a time study of a few hundred assisted items against today's handling"}
+    if missing:
+        out.append(f"No firm funding verdict: the {' and '.join(missing)} range has no evidence behind it (give a "
+                   "shadow run, ticket sample, time study or comparable deployment in range_evidence). First step: "
+                   f"{'; '.join(first[k] for k in missing)}; re-run with the range it gives. On the current range the "
+                   f"model would say {name}.")
     elif name == "NOT FUNDABLE" and assumed:
         out.append(f"NOT FUNDABLE on assumed inputs ({', '.join(assumed)}): not a firm verdict. Measure the baseline "
                    f"before any pilot spend, then re-run. On these inputs {why}.")
@@ -204,15 +315,23 @@ def funding(p, ranges, measured, r, cur, evidence):
         out.append(f"FUNDABLE: fund the pilot; scale on meeting exit criteria. {why[0].upper() + why[1:]}.")
     else:
         out.append(f"{name}: {why}.")
+    lever, unit, ends = (("containment", "2 points", ("low", "high")) if by_c else
+                         ("escalated_min", "2% of today's handling time", ("high", "low")))
+    for end, c, x in ((ends[0], pess, e_hi), (ends[1], opt, e_lo)):
+        if (by_c or by_e) and (stressed(c, x, EDGE) < 0) != (stressed(c, x, -EDGE) < 0):
+            out.append(f"KNIFE EDGE: the realistic {end} end of {lever} is within {unit} of its floor, so a small "
+                       f"change flips the verdict. Treat it as unsettled until the pilot measures {lever}.")
     return out + (cash_view(p, r, cur) if name != "NOT FUNDABLE" else [])
 
 
-def report(p, ranges, measured, cur, evidence=()):
+def report(p, ranges, measured, cur, evidence=(), scope="in-scope items"):
     r = monthly(p)
     m = lambda v: f"{cur} {v:>10,.0f}"
-    fmt = lambda v: f"{v:,.0f}" if abs(v) >= 1000 else f"{v:.3g}"
     pay = lambda x, what="payback": f"no {what}" if x == float("inf") else f"{what} {x:.1f} months"
     parts = lambda d: "; ".join(f"{k} {v:,.0f}" for k, v in sorted(d.items(), key=lambda kv: -kv[1]))
+    b = p["baseline_contained"]
+    print(f"in scope                  {p['volume']:,.0f} {scope}/month (run cost charged on these only)"
+          + (f"; existing automation already closes {b:.0%}" if b else ""))
     print(f"baseline cost             {m(r['baseline'])} /month")
     print(f"people time still needed  {m(sum(r['people'].values()))}  ({parts(r['people'])})")
     note = "capacity, not cash" if r["hours_freed"] >= 0 else "negative: the agent adds human work"
@@ -223,40 +342,50 @@ def report(p, ranges, measured, cur, evidence=()):
           f"{p['cash_share']:.0%} of freed hours turned into savings (cash_share)")
     print(f"pilot spend at risk       {m(p['pilot_cost'])}")
     be = breakeven_containment(p)
-    if be is not None and 0 <= be <= 1:
-        print(f"breakeven containment     {be:.0%}; floor = breakeven + 10 points = {min(be + 0.10, 1.0):.0%}")
+    if math.isfinite(be):
+        floor = min(be + MARGIN, 1.0)
+        print(f"breakeven containment     {of_scope(be, p, scope)}; floor = breakeven + 10 points = "
+              f"{floor:.0%}{above(floor, p)}")
+    elif be == -math.inf:
+        print("breakeven containment     none needed: net is positive with no new closures (assist value)")
+    be_e = breakeven_escalated(p, p["contained"])
+    if (not math.isfinite(be) or p["escalated_min"] < p["human_min"]) and math.isfinite(be_e):
+        print(f"breakeven escalated_min   {be_min(be_e)} per item the agent does not close, at "
+              f"{p['contained']:.0%} containment (today {num(p['human_min'])} min)")
     for key, text in evidence.items():
         print(f"range evidence            {key}: {text}")
     q = pessimistic(p, ranges)
     rq = monthly(q)
-    bad = ", ".join(f"{k}={fmt(q[k])}" for k in PILOT + ESTIMATES)
+    bad = ", ".join(f"{k}={num(q[k])}" for k in PILOT + ESTIMATES)
     print(f"combined pessimistic      {m(rq['net'])} /month; {pay(rq['payback'])} ({bad})")
     for title, keys in (("baseline facts: measure before the pilot", TODAY),
                         ("pilot uncertainties: the pilot measures these", PILOT),
                         ("estimates: firm up with quotes", ESTIMATES)):
         print(f"\nsensitivity, {title} (net/month at low .. high)")
-        for swing, key, lo, hi, n_lo, n_hi in sensitivity(p, ranges, keys):
+        for swing, key, lo, hi, n_lo, n_hi, default in sensitivity(p, ranges, keys):
             label = key + ("*" if key == "human_min" else "")
-            print(f"  {label:14} {fmt(lo):>8} .. {fmt(hi):<8} net {n_lo:>10,.0f} .. {n_hi:<10,.0f} swing {swing:,.0f}")
-    print("  * escalated_min scales with human_min")
+            hi_txt = num(hi) + ("~" if default else "")
+            print(f"  {label:18} {num(lo):>8} .. {hi_txt:<9} net {n_lo:>10,.0f} .. {n_hi:<10,.0f} swing {swing:,.0f}")
+    print("  ~ default span x0.5..x2, not evidence; * escalated_min scales with human_min")
     print("\nverdict")
-    for line in verdicts(p, ranges, measured, r, cur, evidence):
+    for line in verdicts(p, ranges, measured, r, cur, evidence, scope):
         print("  - " + line)
     return r
 
 
 if __name__ == "__main__":
     user = load_inputs(sys.argv[1]) if len(sys.argv) > 1 else {}
-    cur = str(user.pop("currency", "USD"))
+    cur = user.pop("currency", "USD")
+    scope = user.pop("scope", "in-scope items")
     measured = set(user.pop("measured", []))
     ranges = {k: tuple(v) if isinstance(v, (list, tuple)) else (v,) for k, v in user.pop("ranges", {}).items()}
     evidence = user.pop("range_evidence", {})
     unknown = (set(user) | set(ranges) | measured | set(evidence)) - set(DEFAULTS)
     if unknown:
         sys.exit(f"unknown inputs: {sorted(unknown)}")
-    validate({**DEFAULTS, **user}, ranges, evidence)
-    result = report({**DEFAULTS, **user}, ranges, measured, cur, evidence)
-    if not user:  # self-check on the demo inputs
+    validate({**DEFAULTS, **user}, ranges, evidence, scope)
+    result = report({**DEFAULTS, **user}, ranges, measured, cur, evidence, scope)
+    if len(sys.argv) == 1:  # self-check on the demo inputs (an inputs file never runs it)
         assert round(result["net"]) == 29_933 and round(result["payback"], 1) == 4.0
         assert round(monthly({**DEFAULTS, "contained": 0.40})["net"]) == 13_333
         assert abs(monthly({**DEFAULTS, "contained": breakeven_containment(DEFAULTS)})["net"]) < 1e-6
@@ -279,6 +408,7 @@ if __name__ == "__main__":
         assert "CASH VIEW" not in " ".join(verdicts(DEFAULTS, {"contained": (0.4, 0.9)}, set(BASELINE),
                                                     monthly({**DEFAULTS, "cash_share": 1.0}), "USD", ev))
         assert "PILOT ONLY: realistic low end" in v({"contained": (0.2, 0.8)}, BASELINE)
+        assert "exit threshold = net at that line" in v({"contained": (0.2, 0.8)}, BASELINE)  # pilot-only exit
         assert "NOT FUNDABLE: even" in v({"contained": (0.1, 0.2)}, BASELINE)
         assert "CASH VIEW" not in v({"contained": (0.1, 0.2)}, BASELINE)  # no cash note on a negative verdict
         assert v({"contained": (0.4, 0.9)}).startswith("UNVALIDATED: pilot required") and "PILOT ONLY until" in v({"contained": (0.4, 0.9)})
@@ -290,9 +420,40 @@ if __name__ == "__main__":
         assert "No firm funding verdict" in no_ev and "shadow sample" in no_ev and "NOT FUNDABLE:" not in no_ev
         assert "No firm funding verdict" in v({"contained": (0.4, 0.9)}, BASELINE, ())
         assert "FUNDABLE: fund" in v({"contained": (0.4, 0.9)}, BASELINE + ("contained",), ())  # measured counts
+        # knife edge: the high end 27% sits 1 point above the 26% floor; a 20-80% range is clear of it
+        assert "KNIFE EDGE" in v({"contained": (0.10, 0.27)}, BASELINE) and "KNIFE EDGE" not in v({"contained": (0.2, 0.8)}, BASELINE)
+        assert "pinned" in v({"contained": (0.4, 0.4)}, BASELINE) and "pinned" not in v({"contained": (0.4, 0.9)}, BASELINE)
+        rows = sensitivity(DEFAULTS, {"contained": (0.4, 0.9)}, PILOT)  # default spans are flagged, not evidence
+        assert {row[1]: row[6] for row in rows} == {k: k != "contained" for k in PILOT}
+        # existing automation (BC-M2): 10% already closed, so baseline 60,000 and checks/errors on 12,000 new closures
+        bot = {**DEFAULTS, "baseline_contained": 0.10}
+        assert round(monthly(bot)["net"]) == 24_400 and round(breakeven_containment(bot), 3) == 0.259
+        assert abs(monthly({**bot, "contained": breakeven_containment(bot)})["net"]) < 1e-6
+        kill = " ".join(verdicts(bot, {"contained": (0.3, 0.5)}, set(BASELINE), monthly(bot), "USD", ev, "chat cases"))
+        assert "kill below 36% of chat cases (20,000/month; 26 points above the 10% existing" in kill  # denominator named
+        # assist value (BC-M1): net 4,533 with no closures; it rests on escalated_min, breakeven 4.34 min
+        aid = {**DEFAULTS, "contained": 0.0, "escalated_min": 4.0}
+        assert breakeven_containment(aid) == -math.inf and round(breakeven_escalated(aid, 0.0), 2) == 4.34
+        va = lambda rng, e=(), meas=BASELINE: " ".join(verdicts(aid, rng, set(meas), monthly(aid), "USD", e))
+        assert "No funding verdict: the net rests on escalated_min" in va({}) and "Net is positive" not in va({})
+        unval = va({}, (), ())  # assumed baseline and a point estimate: no "pilot required"
+        assert unval.startswith("UNVALIDATED.") and "pilot required" not in unval
+        crossing = va({"escalated_min": (3.0, 6.0)})  # realistic range crosses breakeven, no evidence
+        assert "No firm funding verdict: the escalated_min range" in crossing and "would say PILOT ONLY" in crossing
+        assert "pilot required" not in va({"escalated_min": (3.0, 6.0)}, (), ())
+        firm = va({"escalated_min": (3.0, 6.0)}, ("escalated_min",))
+        assert "PILOT ONLY: the case rests on escalated_min" in firm and "kill above 3.84 min" in firm
+        assert "FUNDABLE: fund" in va({"escalated_min": (3.0, 3.5)}, ("escalated_min",))
+        assert "NOT FUNDABLE: the case rests on escalated_min" in va({"escalated_min": (4.5, 6.0)}, ("escalated_min",))
+        # deflection plus assist: containment decides, escalated_min taken at its high end for the kill line
+        both = {**DEFAULTS, "escalated_min": 4.5}
+        vb = " ".join(verdicts(both, {"contained": (0.2, 0.8), "escalated_min": (4.0, 5.5)}, set(BASELINE),
+                               monthly(both), "USD", {"contained": "x"}))
+        assert "No firm funding verdict: the escalated_min range" in vb  # both levers need evidence
         for bad, rng, ev_bad in (({"contained": 1.5}, {}, {}), ({"volume": -100}, {}, {}), ({"rate": 0}, {}, {}),
                                  ({"volume": "x"}, {}, {}), ({"qa_share": True}, {}, {}),
                                  ({"human_err_rate": 1.2}, {}, {}), ({"fee_per_closed": -1}, {}, {}),
+                                 ({"baseline_contained": 1.0}, {}, {}), ({"rate": float("nan")}, {}, {}),
                                  ({}, {"contained": (0.9, 0.4)}, {}), ({}, {"contained": (0.4,)}, {}),
                                  ({}, {}, {"contained": 5}), ({}, {}, {"contained": " "})):
             try:
@@ -301,4 +462,24 @@ if __name__ == "__main__":
                 assert isinstance(e.code, str) and e.code  # a message, not a traceback
             else:
                 raise AssertionError(f"accepted bad input {bad} {rng} {ev_bad}")
+        # costs above any saving: no negative breakeven minutes, in the report or the assist message
+        costly = {**aid, "run_cost": 10.0}
+        assert be_min(breakeven_escalated(costly, 0.0)) == "none: net is negative even at 0 min" and be_min(4.34) == "4.34 min"
+        assert "breakeven escalated_min none: net is negative" in " ".join(
+            verdicts(costly, {}, set(BASELINE), monthly(costly), "USD", ()))
+        for bad_meta in ({"measured": [["volume"]]}, {"measured": [1, "rate"]}, {"measured": "volume"},
+                         {"currency": ["EUR"]}, {"currency": " "}, {"ranges": []}, {"range_evidence": "x"}):
+            try:
+                check_meta(bad_meta)
+            except SystemExit as e:
+                assert isinstance(e.code, str) and e.code  # a message, not a traceback
+            else:
+                raise AssertionError(f"accepted bad input {bad_meta}")
+        for bad_scope in (5, " "):
+            try:
+                validate(DEFAULTS, {}, {}, bad_scope)
+            except SystemExit as e:
+                assert isinstance(e.code, str) and e.code
+            else:
+                raise AssertionError(f"accepted bad scope {bad_scope!r}")
         print("\nself-check ok")

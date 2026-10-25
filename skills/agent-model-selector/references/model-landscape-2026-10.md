@@ -8,6 +8,16 @@ Everything in this file goes stale. This is the skill set's price snapshot: if a
 2. Check whether the provider still offers fine-tuning for that model and which methods (SFT, DPO, RL). These menus change more than anything else (see below).
 3. For open-weight candidates, check the licence text for use restrictions and terms on training with other models' outputs.
 4. Replace the examples in your plan with the refreshed names. Keep the role classes ("small fast model", "frontier model") in the plan so it still reads correctly after the names change.
+5. When a refresh is impossible (no network access, say), keep the role classes, mark every model name in the plan "not refreshed, unpriced", and put the refresh first in the plan's actions. A name found in the code that is missing from this snapshot:
+   - map the role to a class from what it does (SKILL.md table A), not from the model's name;
+   - look the name up on the provider's model, pricing and deprecation pages for its tier, current list price and lifecycle status (current, legacy, deprecated, retirement date), and date what you find;
+   - if the lookup is impossible, mark the name "not refreshed, unpriced" and do not guess a tier or a price from the name. Leave the incumbent's tier blank until the refresh and describe candidates relative to the incumbent (one tier up, one tier down in its vendor's lineup).
+6. When a framework's default-model table and this snapshot disagree on which names are current, say so in the plan and check the provider's model page before naming either; one of the two lags. Defaults keyed by model name in that table apply only to the names it lists (`bakeoff-protocol.md` §4).
+7. Hosted tools are not covered here (next section).
+
+## Hosted tools (not priced in this snapshot)
+
+This file has no prices for provider-hosted tools such as web search, file search or code execution. They can be billed per call or per session on top of tokens, and their settings (search context size, maximum uses) move both cost and quality. Read them from the provider's pricing page on the day you plan, date them, and add them to cost per solved task (`role-model-mapping.md` §7). A provider-hosted tool also works only with that provider's models (`role-model-mapping.md` §6).
 
 ## Anthropic lineup (provider overview page, fetched 2026-10-06; overview, pricing and deprecations pages re-checked 2026-10-19)
 
@@ -40,7 +50,7 @@ On 2026-10-06 the Anthropic lineup had no small tier with a long runway, so a wi
 - Fixed thinking budgets (`budget_tokens`) are deprecated on the 4.6 generation and not accepted on later models; adaptive thinking steered by effort replaces them. On Opus 5.5 thinking cannot be disabled. On Sonnet 5.5 the lowest setting is thinking only between tool calls.
 - Changing top-level effort between requests invalidates the prompt cache. Newer models accept a per-message effort change (beta) that keeps the cache. Pick one level per conversation otherwise.
 - The provider's documented advice for its newest models is to run an effort sweep on your own evals instead of carrying settings over from an earlier model, because levels are recalibrated between generations.
-- Related API changes: a non-default `temperature`, `top_p` or `top_k` returns a 400 error on Claude 4.7 and later models (deprecations page, checked 2026-10-19), and the tokenizer introduced with Opus 4.7 uses roughly 1 to 1.35 times as many tokens for the same text (effort and migration docs, 2026-10). Re-measure token budgets after a generation change.
+- Related API changes: on API version 2023-06-01 a non-default `temperature`, `top_p` or `top_k` returns a 400 error on Claude 4.7 and later models, and API version 2026-10-21 removes all three for every model, so a request that sends any of them gets a 400 even at the default value (deprecations page and https://platform.claude.com/docs/en/api/migration-2026-10-21, checked 2026-10-25). Omit them in Claude requests, and get repeatability from pinned model versions, fixed prompts and inputs, and repeated trials. The tokenizer introduced with Opus 4.7 uses roughly 1 to 1.35 times as many tokens for the same text (effort and migration docs, 2026-10). Re-measure token budgets after a generation change.
 
 Self-hosted open-weight reasoning models (Qwen3 family and similar) expose a thinking on/off switch in the chat template and can be budget-forced: cap reasoning tokens, then append an end-of-thinking marker so the model answers.
 

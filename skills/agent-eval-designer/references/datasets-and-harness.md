@@ -54,6 +54,7 @@ Rules:
 - Key cases by `id`, never by input text. Two prompts that share a long preamble will otherwise collide.
 - Variants of one base scenario (rephrasings, personas, stress variants, fixture changes) share a `scenario_id`. Statistics count scenarios, not variants, where outcomes are correlated (statistics.md, "Correlated tasks").
 - `clock` fixes "now" for the trial (see "Time-dependent data" below).
+- Retrieval tasks add `gold_docs`, a list of stable source identifiers (a source path or URI, plus a section where needed), and `index_version`, the snapshot they were labelled against. Never key gold documents by a hash of their content or an ID the store assigns at insert: editing a document or re-indexing then breaks the label silently (see "Changing read data, including search indexes").
 - `expected_exit` holds the status the trial should end with, optionally with a stop reason as `status:stop_reason` (`partial:max_steps`): usually `completed`; `escalated`, `awaiting_approval` or `handed_off` for must-escalate and approval cases. Scorers compare it with the record's `status`, and with `stop_reason` when the case names one. A trial that ends any other way fails (see "Run-record contract").
 - A policy rule becomes a hard check only after its owner has signed it off (SKILL.md step 2). Until then, score it as report-only.
 
@@ -132,7 +133,7 @@ For multi-part requests, list the subtasks and score the fraction completed, but
 |---|---|---|
 | Discovery | 5–10 already show where an agent breaks [ILLUSTRATED ch7]; about 20 to start [EVALS ch1]; 20–50 from real failures (Anthropic, external) | Find failures; claim no rates |
 | Comparing versions, reporting rates | Several hundred | See statistics.md: ±5 points needs about 250 to 400 tasks |
-| Low-rate safety claims | ~3/r tasks for rate r | Zero failures in 300 tasks bounds the rate below about 1% |
+| Low-rate safety claims | ~3/r tasks for rate r, counting only tasks that can produce the failure | Zero failures in 300 such tasks bounds the rate below about 1% |
 
 Coverage beats volume: 100 cases that cover the real distribution beat 1,000 random ones [EVALS ch3]. Tasks generated from one document or one template are correlated and count for less than their number.
 
@@ -156,17 +157,19 @@ What 30 cases support (statistics.md, "What a 30-case first suite can and cannot
 
 ## Harness requirements
 
-1. **Fresh environment per trial.** Shared state produces correlated failures and inflated scores (Anthropic, external, 2026-01). Build the sandbox, database fixture or mock API from `initial_state` each time.
+1. **Fresh environment per trial.** Shared state produces correlated failures and inflated scores (Anthropic, external, 2026-01). Build the sandbox, database fixture or mock API from `initial_state` each time. For a read-only agent over a frozen index snapshot, a fresh session (new thread, empty state) over the same snapshot is enough; only tests that write to the index need an index of their own.
 2. **Write tools are stubbed or sandboxed.** Payment, email, booking and delete calls go to a sandbox or a recorder that returns realistic results, including failures. The eval environment holds test credentials only; production credentials are never present, so no misrouted call can reach a real system. Record every *attempted* and *executed* call (the run record's `mode` field). Then a scorer can tell an agent that never tried a forbidden action from one that was blocked [DEFGUIDE ch8].
 3. **Mocks must be able to fail.** Inject timeouts, empty results, declines and malformed responses in some tasks; a mock that always succeeds tests nothing about recovery.
 4. **Record two things per trial:** the transcript (each tool call with arguments, result, latency, error; tokens; cost; stop reason) and the final state. Field names and exit statuses follow the run-record contract below.
 5. **Errors are failures.** Crashes, timeouts and unparseable outputs count as failed trials, and the error rate is reported. If more than about 5% of trials error, something systematic is broken [EVALS ch2]. Faults in the eval's own machinery (simulator breaking character, recorder bug, unmatched recording) are different: rerun those trials rather than scoring them, and report the harness fault rate separately.
 6. **Production settings.** Same model version, temperature, prompt version, tool list and step limit as production. Do not lower the agent's temperature to make results stable; evaluate what users get (Miller, external). Record the prompt and config version actually used on every trial, read back from the trace or the agent's response rather than from what you meant to deploy. Before scoring, assert that a run contains exactly one version per component; a mixed run is a harness error and is rerun. If the agent reads its prompt or config from a store at runtime, point it at a pinned version (name plus version number or label), never "latest", and don't edit the store while a run is still sending.
+   - **The interface production uses.** Run evals through the interface production serves. On a server API with persistent threads, state (messages, retrieved documents, route) carries between turns and the client sends only the new turn, so a multi-turn task sent as one direct call with the whole message list tests a different system. Choose the harness tests that apply (resume, kill while paused) from the served shape, not from how the code assembles the agent.
+   - **Overridable settings.** When a caller or console can override settings per request (models, prompts, retrieval parameters), production settings are whatever the deployment's configuration says, not the repository defaults. Log the effective configuration per trial, and the dependency versions (from a lock file; with none, the run is not reproducible and that is a finding).
 7. **Oracle isolation.** Expected answers, routes and handoffs are passed to scorers only. A replay helper that puts them in the candidate's prompt produces perfect routing scores that mean nothing [DEFGUIDE ch9].
 8. **Re-execute, don't describe.** Replaying a trace means running the agent against recorded or stubbed tool responses, not asking a model to describe what it would have done [DEFGUIDE ch9].
 9. **Component tests too.** Test tools, retrieval, planning and memory separately before end-to-end runs, so an end-to-end failure can be located [BUILDAPPS ch9][SYSTEMS ch14]. Infrastructure (schemas, auth, telemetry, recovery) takes ordinary deterministic tests [MESH ch6].
 10. **Multi-turn.** A cheaper model plays a persona with a goal and hidden facts it reveals only when asked. Compare simulated conversations with real ones on length, number of clarification exchanges and how often users volunteer information; a too-cooperative simulator flatters the agent [EVALS ch8]. Keep some adversarial personas. Sizing and validation are below. Recorded conversations are not multi-turn tests for a different model or prompt: replayed turn by turn, the user's recorded lines answer replies the new agent never gave. Use them to build personas and goals, or as scripted turns with branches for the replies you expect.
-11. **Fixed clock and frozen read data.** See "Time-dependent data".
+11. **Fixed clock and frozen read data.** See "Time-dependent data" and, for search indexes, "Changing read data, including search indexes".
 12. **Lost acknowledgements on writes.** See "Side-effecting tools: write succeeded, response lost".
 13. **When the scorer reads trials from telemetry.** Platform evaluators and trace-based tools score what the tracing pipeline delivered, not what the harness recorded. The pipeline is then part of the instrument, and its failures look like agent failures or vanish from the denominator.
     - Check that trace export is live before sending eval traffic, and stop the run if it isn't. Spans sent before the destination is ready can be lost.
@@ -195,6 +198,15 @@ Read tools that return live data (prices, seat maps, inventory, weather, FX rate
 - **Write predicates against the fixture, not the world.** "Booked the cheapest fare in the fixture that meets the constraints", not "booked fare $412". Then refreshing a fixture doesn't break the expectation.
 - **Version fixtures and recordings with the dataset.** Refresh recordings on a schedule (for example quarterly, or when the vendor API changes), as a new dataset version.
 - **Script changes between steps.** The fixture can change state mid-trial: the price rises between search and book, the last seat sells between hold and purchase. These are stress tasks with clear rules: re-quote and ask before charging the new price, report the sell-out honestly.
+
+### Changing read data, including search indexes
+
+A search index is live read data too: re-chunking, a new embedding model or an added document changes what every retrieval task sees.
+- **Freeze it.** The eval runs against a frozen index snapshot with an ID. The corpus, the chunking settings and the embedding model and version are part of the dataset version. Re-indexing means a new dataset version and a new baseline, saved by decision like any other.
+- **Stable gold IDs.** Gold documents are keyed by a stable source identifier, never by an ID derived from the content or assigned by the store at insert.
+- **Ingestion check.** Indexing the same corpus twice leaves the document count unchanged, and an edited document replaces its old version rather than sitting beside it. Without a stable ID to upsert on, re-indexing tends to add duplicates and leave stale versions retrievable. Tests that index use their own index name, never the application's.
+- **Distractors.** The eval index includes documents that are near the topic but wrong (other regions, other versions, other products). A one-document index returns that document for every query, so retrieval cannot fail.
+- **Access labels.** Where content is restricted, each document carries its access label in the snapshot, so access checks can be scored (scorers.md, "Access checks for retrieval").
 
 ## Side-effecting tools: write succeeded, response lost
 
@@ -237,13 +249,17 @@ agent-harness-designer owns how the runtime writes the record (harness-tests.md 
 | Field | What the scorers use it for |
 |---|---|
 | `run_id`: the run's ID, also on every trace span | Joins the record to its task and its trace spans |
-| `versions`: agent, prompt, policy, model, tool-schema and dataset versions | One version per component per run (requirement 6); baseline validity |
+| `versions`: agent, prompt, policy, model, tool-schema and dataset versions, plus index snapshot and dependency versions where they apply, and the effective configuration when it can be overridden per request | One version per component per run (requirement 6); baseline validity |
 | `tool_calls[]`: tool, arguments, `mode` (`rejected` by the gate, `preview` only, or `executed`), result, error category (agent-fixable or infrastructure), idempotency key, receipt | Trajectory scores, forbidden-action checks (every mode counts as an attempt), exactly-one-write checks (`executed` only), agent versus infrastructure error counts |
 | `approvals[]`: approval ID, requested action, digest, decision, approver, requested and decided times, `expires_at`, `used` | Confirmation before irreversible actions; approval expiry and single use |
 | `usage`: model calls, tool calls, steps, tokens, cost, active time, wall time | Budgets, cost per task, efficiency |
 | `status`: one of `completed`, `partial`, `awaiting_approval`, `handed_off`, `escalated`, `failed`, `cancelled` | Compared with the task's `expected_exit` |
 | `stop_reason`: from the fixed list in agent-harness-designer's harness-tests.md §4; empty for `completed` and `awaiting_approval` | Compared when `expected_exit` names a reason; capped and partial runs flagged |
 | `final`: the output, or what was not done for a non-completed status | Outcome scoring |
+
+Retrieval agents add two fields, listed in agent-harness-designer's harness-tests.md §4 too: `caller` (the identity and scopes the request ran as) and `retrieved[]` (each retrieved document's stable ID, access label and rank, per turn). Access checks and citation checks read them (scorers.md, "Access checks for retrieval").
+
+Where the fields come from: prefer what the agent's returned state already carries (a route, a plan, the retrieved documents) and read it through the served interface. Add a recorder only where a nested component, such as a subgraph or sub-agent, hides per-query data (its queries and each query's results) that a scorer needs. A citation check needs identifiers in the context the model answers from; if the prompt asks for cited numbers or IDs and the context carries none, the check is report-only and the gap is a finding (review-checklist.md, §3).
 
 The field contents match harness-tests.md §4 in agent-harness-designer. Status and stop-reason names come from the one list there, each reason tied to its status; this file does not restate them. Short names in reports (`budget_exhausted`, `killed`) are display labels only: the record has no `exit` field, and no scorer reads one. Rules for the eval side:
 

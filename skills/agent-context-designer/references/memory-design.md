@@ -2,7 +2,7 @@
 
 Depth for Procedure steps 2 and 5. Citation keys are expanded in SKILL.md under Sources.
 
-Contents: 1 Information map (state, memory, knowledge) · 2 Do you need long-term memory · 3 Types by update semantics (temporal graph memory) · 4 Write policy (4.5 governed entry; 4.6 write gate; 4.7 proposed and approved writes, expiry, correction) · 5 Read policy · 6 Scope, privacy, deletion (6.1 cleaning up a running system) · 7 Consolidation and forgetting · 8 Threads, checkpoints and concurrent writers · 9 Multi-agent memory · 10 Agent-written notes and memory tools · 11 Poisoning (summary)
+Contents: 1 Information map (state, memory, knowledge) · 2 Do you need long-term memory · 3 Types by update semantics (temporal graph memory) · 4 Write policy (4.5 governed entry; 4.6 write gate; 4.7 proposed and approved writes, expiry, correction) · 5 Read policy (growth worksheet) · 6 Scope, privacy, deletion (binding every store, employer-run assistants; 6.1 cleaning up a running system) · 7 Consolidation and forgetting · 8 Threads, checkpoints and concurrent writers · 9 Multi-agent memory · 10 Agent-written notes and memory tools · 11 Poisoning (summary)
 
 Keep three things apart. The **context window** is the input of one call. **Memory** is state outside the model that survives the call. **Context** is what you put in the window for this step. Storing something is not the same as putting it in the prompt [SYSTEMS ch9]. There are two decisions to design: what the assembler reads into each call, and what the write gate lets into durable memory.
 
@@ -95,17 +95,18 @@ reason, created_at, updated_at, supersedes, last_retrieved_at, retrieval_count
 - **Reason** names the future friction the entry removes. An entry nobody can justify in one sentence ("this saves time later") is deleted at the next review.
 
 ### 4.6 Minimal write gate (pattern sketch)
-Validation runs on every candidate, whatever its source: tool output and web pages carry API keys and account numbers as often as user text does. The gate only decides what becomes a proposal; the approval rule in 4.7 decides what becomes active. The explicit-request pattern is narrow on purpose: "always" or "never" would turn "I never got my refund" into memory.
+Validation runs on every candidate, whatever its source: tool output and web pages carry API keys and account numbers as often as user text does. The gate only decides what becomes a proposal; the approval rule in 4.7 decides what becomes active. The explicit-request pattern is narrow on purpose: "always" or "never" would turn "I never got my refund" into memory. The 0.8 cut-off is an example threshold on the candidate classifier's score. It is a different knob from the fact-confidence threshold in 4.4 rule 4 (the book's example uses 0.7); set each from a labelled sample of your own candidates.
 ```python
 import re
 EXPLICIT = re.compile(r"\b(remember (that|this|my)|from now on|call me)\b", re.I)
 AUTO_OK = set()  # categories that have earned automatic writes (4.7): empty at launch, e.g. {"units"} later
+CLASSIFIER_MIN = 0.8  # example cut-off on the classifier score; not the fact-confidence threshold (4.4)
 
 def gate(candidate, source, session):
     validate(candidate)                        # every source: size cap + secret/PII patterns; raises on failure
     if source != "user":                       # tool, web, document or agent text: a proposal at most
         return ("proposed", candidate)
-    if EXPLICIT.search(candidate.text) or classifier(candidate.text) >= 0.8:
+    if EXPLICIT.search(candidate.text) or classifier(candidate.text) >= CLASSIFIER_MIN:
         return ("proposed", candidate)         # user text is a proposal too; promote() applies 4.7
     return ("drop", None)
 
@@ -139,12 +140,30 @@ The gate decides what becomes a candidate; the proposal decides what becomes mem
 - Use a canonical **profile** per user as the source of truth, small and always injected, and treat semantic-search rows as projections of it. Ad hoc captures sit under transient keys as `proposed` until promoted. Keep extraction and application of updates as separate, testable steps (the companion notebook to [DEFGUIDE ch10]).
 - Freshness: expiry per category; volatile data is fetched, not recalled; stored state must not stop the agent from re-verifying when the situation needs it [SYSTEMS ch9].
 - **Inspectable trail:** log which memory IDs were injected into each call, with their scores and the reason they were selected. Otherwise a bad answer gets blamed on the model when an injected memory caused it [SYSTEMS ch9].
+- **Memory search over a shared index is filtered retrieval.** When every user's memories sit in one vector index and a namespace or user filter picks out the caller's, apply retrieval-pipeline.md §3.2. Check that the scope filter runs inside the approximate search, not after its candidate cut-off, and keep a per-scope recall slice in the tests. A memory-only review runs this check too. It fails first for users with few items and for old items that newer ones crowd out.
+
+**Growth worksheet.** For an assistant with many users over months, size the store before launch, mark every input "est." until the pilot measures it, and re-run the sheet with measured write rates:
+
+| Quantity | Work it out as | Check |
+|---|---|---|
+| Items per user | writes per user per month × months kept, minus expiries and merges | Against the per-user cap (4.4 rule 5): what is merged or evicted when the cap is hit |
+| Index rows | items per user × users (× embedded fields per item, if more than one) | Against the engine's limits per index and per partition |
+| Index size | rows × (vector size + metadata) | Storage cost and memory needed to serve the index |
+| Embedding cost per month | new or changed items per month × tokens per item × price per token | Changing the embedding model re-embeds every row |
+| Recall by item age | the recall slice split by age (for example under 1, 1 to 6, over 6 months) and by items per user | A drop for old items or small scopes as the store grows |
 
 ## 6. Scope, privacy and deletion
 
 - Namespace every record by organisation, user and memory type. Keep an organisation-shared segment that only admins can write [DEFGUIDE ch10].
+- **Bind every store a client-supplied identifier can reach.** The memory namespace is one per-user store. Thread state and checkpoints are another, and they hold every turn verbatim; run histories, thread lists and caches are more. Bind each one to the authenticated user:
+  - scope keys (organisation, user) come from the authenticated request; remove any shared default user and any environment-variable fallback for them, and fail closed when identity is missing;
+  - a thread or run records its owner at creation, and every read, resume, list and delete checks that owner against the caller (section 8), because knowing a thread ID chosen by the client grants no access by itself;
+  - name the framework hook that carries the authenticated identity into the run (an auth handler, request context or config injection) and the store's access-control hook, and verify both at the version pinned in the lock file; until checked they are inferred.
+
+  Leak tests cover reading, resuming and listing another user's thread as well as their memory (evaluation.md §6).
 - Scope by agent kind: personal agents default to isolated memory; team agents get shared, access-controlled spaces; organisation-wide agents run under retention, logging and audit rules; users can inspect and delete what is kept about them [BUILDAPPS ch13 §Shared Memory and Context Boundaries].
 - Typical obligations under privacy law (for example GDPR or CCPA; which apply depends on the jurisdiction, so confirm with the privacy owner): collect only what is needed, pseudonymise before storing, let users view, edit and delete, and make "forget this" reach every copy, backups included within a documented window [AGENTICAI ch7]. Whether a duty applies, and whether anything already exposed must be reported, is the organisation's privacy or legal owner's decision. The design flags it; it doesn't decide it, and none of this is legal advice.
+- **Employer-run assistants.** When an organisation runs the assistant for its staff, the employment lifecycle drives scope. A leaver's memory is deleted on a documented schedule. A transfer or role change deletes or rescopes entries tied to the old role, team or clients, and removes the person's write access to shared segments they no longer belong to. Who inside the organisation may read an employee's memory (the employee only, a manager, HR, IT support, auditors) is an explicit scope rule with an audit log, never an admin default. Which readers are allowed, the retention after leaving, and whether staff must be consulted are open questions for the privacy owner.
 - A wall or barrier change (retrieval-pipeline.md §2.3) is a deletion for the newly barred user: purge their recalled memory, session state and checkpoints that hold content from that scope, and invalidate their scope-keyed caches.
 - **Deletion map.** A deletion must reach every copy:
 
@@ -157,7 +176,7 @@ The gate decides what becomes a candidate; the proposal decides what becomes mem
 | Graph nodes and edges extracted from deleted items | Delete by source link, which needs traceability from every triplet to its source (retrieval-pipeline.md §5.2) |
 | Thread checkpoints and transcripts | Redact or expire per retention policy |
 | Retrieval and answer caches | Invalidate by user scope |
-| Logs, traces, eval datasets | Retention policy; redact on request |
+| Logs, traces, eval datasets | Retention policy; redact on request. A hosted tracing service holds every conversation and recalled memory, so it is a copy here and a third party to name to the privacy owner |
 | Backups | Erase within a documented window, or record the deletion and suppress the item on any restore |
 
 - Storage location is also a UX choice. Client-side context is fast but lost across devices; server-side gives continuity at some privacy and latency cost; hybrids are common [BUILDAPPS ch3 §Context Retention and Continuity].
@@ -190,7 +209,9 @@ LLM-curated memory (A-MEM's linked, self-rewriting notes; MemoryBank's portraits
 - Checkpoint thread state after every step, keyed by thread ID. That gives crash recovery, human-in-the-loop pauses and replay [DEFGUIDE ch10].
 - Time travel (rewind to an earlier checkpoint, edit, fork) is useful for debugging and audit. It **rewinds the thread, not the long-term store**, so decide explicitly whether durable memory is versioned or rolled back on replay [DEFGUIDE ch10].
 - Treat checkpoint payloads and stored memory as untrusted text when they are read back.
+- **Thread ownership.** The checkpointer keys state by thread ID, and that ID usually comes from the client. Store the owner (organisation and user from the authenticated request) with the thread when it is created, and check it before every read, resume, fork, list and delete; a list returns only the caller's threads. Enforcing this in the runtime belongs to agent-harness-designer; this skill checks that the rule exists and that a leak test covers it (evaluation.md §6).
 - **Concurrent writers.** Two writers can hold the same thread or record: a retry and a resume, two replicas, a redelivered event, two turns arriving together, one user in two tabs or on two devices writing user-scoped memory. Make writes conditional. Create only if the key doesn't exist; update only if the stored version equals the version you read, then increment it. When the condition fails, reload and decide again. Never blind-overwrite. The alternative is one writer by construction: every event for a thread goes through a single consumer (partitioning by thread or case belongs to agent-architect).
+- **When the store has no conditional write** (some key-value and memory stores accept only a plain put), pick one of two: route every write for a scope through one writer (a per-user queue), or accept last-writer-wins for low-value free-text items and say so. Size the finding by how likely a collision is. New items with fresh unique IDs never collide, so only two simultaneous updates of the same existing item can lose one. That is usually minor for a free-text preference and serious for state that other people act on.
 - **Append-only logs** (turns, episodes, ledger entries) need IDs that can't collide: a conditional create with retry, an atomic counter, or a time-ordered unique ID (UUIDv7, ULID). Reading the last ID and adding one is a race. Two concurrent appends get the same ID and the second silently replaces the first.
 
 ```python

@@ -107,15 +107,23 @@ Open models' main advantage is transparency and control (weights, logits, any tr
 
 **Lock-in sits in the framework more than in the model.** Switching model providers costs a few lines of code, while switching orchestration frameworks after an agent is built on one is a lot of work [NG The Falling Cost of Building AI Applications, 2024-12-04]. Treat the model choice as the reversible decision it is: keep calls behind a thin provider layer (`bakeoff-protocol.md` §4) and avoid leaning on one provider's request features where a portable option exists. Give the framework choice the lock-in review instead; that decision belongs to agent-harness-designer.
 
+**Provider-hosted tools tie a role to that provider.** A web search, file search or code-execution tool that the model vendor runs works only with that vendor's models. Trying another vendor's model for that role means replacing the tool as well, which changes the harness. So compare the tool swap first as a harness comparison with the model held fixed (`bakeoff-protocol.md` §4), then compare models on the tool you keep.
+
 ## 7. Cost per solved task, not per call
 
 Compare candidates on:
 
 ```
-cost_per_solved_task = (total spend for the configuration on the eval run, including retries, repairs, escalation calls, reasoning tokens and judge calls that are part of the production loop) / (tasks that met the role's success definition)
+cost_per_solved_task = (total spend for the configuration on the eval run, including retries, repairs, escalation calls, reasoning tokens, hosted-tool fees and judge calls that are part of the production loop) / (tasks that met the role's success definition)
 ```
 
 and on p95 latency including retries. This is the one cost term this skill uses, defined here only. It covers model and tool spend at configuration level and leaves out human review minutes. When the variants differ in review time (one needs longer human checks or more cleanup), compare them on agent-ops-reviewer's cost per successful run instead, which prices review minutes in (cost-latency.md §2, step 8, in that skill). Add a rough cost for each failure that escapes (human repair, escalation, refund) when that dominates. A model at one fifth of the token price that needs two retries and causes extra escalations may cost more per solved task than the expensive model.
+
+Three rules for this number:
+- **Hosted-tool fees count.** Web search, code execution and file search run by the provider can be billed per call or per session on top of tokens. Their settings (search context size, maximum uses per request) are cost levers to list beside effort, and they can also change quality, so sweep them like effort. The snapshot does not price them (`model-landscape-2026-10.md`); read them from the provider's pricing page.
+- **The success signal is independent.** When a verifier, critic or judge is one of the roles being chosen, "met the role's success definition" is decided by a scorer that is not a candidate, never by that component's own verdict (`bakeoff-protocol.md` §6).
+- **Trimming must not remove what a checker checks.** A verifier or reviser given IDs instead of the evidence text has nothing left to check claims against. To cut repeated payloads, put the content that repeats across calls (instructions, then shared evidence) before the content that changes (the draft under review), so repeated calls can share a cached prefix. Check the current order first; an input that already puts the shared content first needs no change.
+- **Without prices, rank the savings.** When names cannot be priced (no refresh possible, or a name missing from the snapshot), rank each role's savings potential by calls per run × tokens per call, plus hosted-tool calls, retries and repeat calls. Count calls up to what the code allows (turn limits, caps on searches or tool calls), not only the typical path. Label the result a ranking, not a cost figure, and replace it with cost per solved task once prices are refreshed.
 
 In agentic systems the number that moves cost is tokens per task. A run that reflects, plans, calls tools or coordinates agents can generate hundreds of thousands of tokens before the user sees anything, so fast token generation matters for latency as well as for spend, and faster, cheaper tokens also make evals cheaper to run [NG Why We Need More Compute for Inference, 2024-04-24]. Record input, output and reasoning tokens per solved task for each role and configuration: a model with a lower price per token that takes more turns, longer reasoning or more loop rounds can cost more per task. For multi-call roles, put output speed (tokens per second at p95) in the latency budget. Once the system runs at scale, keep cost per unit of work (per query, per conversation) on a dashboard [NG What Comes After Tokenmaxxing?, 2026-08-07]; agent-ops-reviewer owns that dashboard.
 

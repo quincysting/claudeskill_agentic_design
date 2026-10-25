@@ -6,7 +6,7 @@ Sponsor: <name, role> · Process owner: <name> · Business owner / safety owner 
 
 | Field | Content |
 |---|---|
-| Evidence status | Validated: baseline facts measured (<source, period>) / **UNVALIDATED** (assumed: <inputs>; "UNVALIDATED: pilot required" only on a positive script verdict). Containment range rests on: <shadow run / ticket sample / comparable deployment / none yet>. Script verdict: fundable / pilot only / not fundable / provisional (on assumed inputs or an unsupported range) |
+| Evidence status | Validated: baseline facts measured (<source, period>) / **UNVALIDATED** (assumed: <inputs>; "UNVALIDATED: pilot required" only on a positive script verdict). Containment range rests on: <shadow run / ticket sample / comparable deployment / none yet>; escalated_min range, if assisted handling carries value: <time study / none yet>. Script verdict: fundable / pilot only / not fundable / provisional (on assumed inputs or an unsupported range) |
 | Decision requested | <fund a pilot of N weeks for <pilot spend> / scale at <full one-off cost> / stop>. An unvalidated case asks for pilot spend only |
 | Decide gate | Concreteness test: pass / fail · Data preflight: pass / pass after narrowing to <slice> / fail · Starting autonomy: five factors <V,Va,R,J,A> = <total>, level <L>, factors at 1: <none / which> · Funding verdict: fundable / pilot only / not fundable |
 | Job (one sentence) | This agent owns <outcome>, for <scope>, under <constraints>, and produces <artifacts> |
@@ -16,7 +16,7 @@ Sponsor: <name, role> · Process owner: <name> · Business owner / safety owner 
 | Baseline | <value, measured over <period>, source system (exported history counts if it records effort)>, or "not yet measured: pilot week 0-N measures it" |
 | Benefit type | Capacity / cash. Destination of freed hours: <backlog, hiring freeze, redeployment> |
 | Costs | Pilot spend <x> (at risk if killed) · full one-off to deployment <x>, of which build & integration <x> · change mgmt & training <x> · escalations & QA <x/month> · wrong outcomes <x/month> · run cost <x/item> · platform share <x/month> · knowledge clean-up <x> |
-| Net value (model) | Capacity-valued <x/month>, payback <n> months · net cash <x/month>, cash payback <n months / none> (both are the verdict's basis; say which one the sponsor needs); combined pessimistic <x/month>; breakeven containment <p%>; kill line <q%> → net <y/month> |
+| Net value (model) | Capacity-valued <x/month>, payback <n> months · net cash <x/month>, cash payback <n months / none> (both are the verdict's basis; say which one the sponsor needs); combined pessimistic <x/month>; breakeven containment <p% of <scope>, total; points above existing automation>; kill line <q% of <scope>> → net <y/month> |
 | What decides it | Top 2-3 pilot uncertainties from the sensitivity table and how the pilot measures each; baseline facts still to measure |
 | Risks | Strategic: <..> · Organisational: <..> · Governance/compliance: <..> · Operational: <..> · Liability: <..> (each with owner + mitigation) |
 | Build / buy | <per layer: what is bought, what is built, exit route> |
@@ -24,7 +24,7 @@ Sponsor: <name, role> · Process owner: <name> · Business owner / safety owner 
 | Measurement | <control design, split, stabilisation weeks, measurement window, sample size> |
 | SLA | Response time <...> · success as artifacts <...> · failure handling: missing context → questions and pause; conflicting sources shown; failed tool → retry rule or escalate · run report: done / not done / assumptions · cost of a bad run <...>, bounded by <...> |
 | Exit criteria | Value: <threshold> · Risk: <error ceiling, SLA breaches, no unbounded failure mode> · Platform: <tracing, eval suite, on-call, cost metering> |
-| Kill criteria | <containment floor by date> · <wrong-outcome ceiling> · <any unbounded failure mode> |
+| Kill criteria | <containment floor as a share of <scope>, by date> · <wrong-outcome ceiling> · <any unbounded failure mode> |
 
 ## Evidence used
 
@@ -39,8 +39,8 @@ Context only (grade C-E, not in the numbers): <published figures, labelled>
 Inputs (each marked measured / assumed). `measured` and `range_evidence` start empty, so the script's provisional verdicts stay on: add an input to `measured` only when your own data backs it, and a `range_evidence` entry only when a shadow run, ticket sample or comparable deployment exists, for example `"contained": "shadow run, 400 items, Sep 2026"`.
 
 ```json
-{"currency": "EUR", "measured": [],
- "volume": 0, "human_min": 0, "rate": 0, "human_err_rate": 0, "contained": 0, "escalated_min": 0,
+{"currency": "EUR", "scope": "<what volume counts, e.g. chat and email cases>", "measured": [],
+ "volume": 0, "human_min": 0, "rate": 0, "human_err_rate": 0, "baseline_contained": 0, "contained": 0, "escalated_min": 0,
  "qa_share": 0, "qa_min": 0, "run_cost": 0, "fee_per_closed": 0, "err_rate": 0, "err_cost": 0, "platform": 0,
  "pilot_cost": 0, "build": 0, "cash_share": 0,
  "ranges": {"contained": [0, 0], "escalated_min": [0, 0], "err_cost": [0, 0]},

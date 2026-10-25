@@ -61,6 +61,7 @@ If more than two or three items are not ready, narrow the pilot to the workflow 
 | Moving live volume over anyway | **Staged rollout as control**: 10 → 25 → 50 → 75 → 100%, comparing each stage's agent traffic with the traffic still handled the old way | Gets speed and rigour together | Don't jump stages while metrics are unstable |
 | Revenue, retention or quality outcomes | **Holdout**: a fixed set of customers or accounts never gets the agent | These effects are slow and noisy | Keep the holdout long enough, and big enough |
 | Low volume, high stakes | **Shadow mode**: the agent runs on live inputs, a person decides, compare agent vs human decisions | Measures accuracy with no exposure | Proves accuracy, not value; human time doesn't fall yet |
+| Two claims bundled (items deflected and faster handling by people) | **One arm per claim**: today's process, people with the assist tool only, and assist plus agent | Shows which lever carries the value; a single split of agent against today can't separate them | Spillover: when the same staff serve several arms, randomise staff or staff-days for the assist arm, and size the handling-time sample for clustering by person |
 | None of the above possible | **Before/after** with a seasonally matched baseline | Better than nothing | Grade B at best. Avoid peak-month baselines and holiday end points |
 
 **Rough sample size** (standard statistics, Lehr's rule: 80% power, two-sided 5% significance): per arm, n ≈ 16 x variance / (difference to detect)². For a rate p, variance = p(1 − p).
@@ -73,6 +74,7 @@ Divide by monthly volume per arm to get the window. If it's longer than about th
 
 - **Stabilisation period first.** Agree 2-4 weeks of tuning before the measurement window opens. The transition dip (J-curve) makes early weeks look worse than steady state [AGENTICAI ch10]. Novelty can make them look better.
 - **Measurement window**: at least one full business cycle (month-end, weekly peaks), and long enough for the sample size above.
+- Place both windows from a real start date, clear of seasonal peaks and holidays. A stabilisation period that runs over a holiday dip leaves you tuning on unusual traffic.
 - Set controls up early. Once a tool is indispensable, people stop accepting the no-agent arm. METR found developers withholding tasks they didn't want to do without AI ([METR 2026](https://metr.org/blog/2026-02-24-uplift-update/), external).
 
 ## 6. What to measure
@@ -97,7 +99,7 @@ Scale only when all three hold [ENTERPRISE ch4]:
 
 Also check change readiness (training, process change, frontline adoption) and report to senior management on the same criteria.
 
-**Kill criteria**: the containment kill line from the floor rule (business-case-and-roi.md §6), applied after the tuning period; a wrong-outcome ceiling; any unbounded failure mode. Write them as numbers with dates. Without them the pilot never scales and never dies, which ENTERPRISE calls "pilot purgatory".
+**Kill criteria**: the containment kill line from the floor rule (business-case-and-roi.md §6), applied after the tuning period and stated as a share of the in-scope items the pilot routes, the same denominator the model uses; a wrong-outcome ceiling; any unbounded failure mode. Write them as numbers with dates. Without them the pilot never scales and never dies, which ENTERPRISE calls "pilot purgatory".
 
 ## 8. Scaling up
 

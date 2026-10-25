@@ -38,7 +38,7 @@ Also grep for: retry decorators around side-effecting calls (idempotency?), `tem
 
 ## 4. Red flags
 
-Severity: **Critical** = can cause irreversible harm or data loss; **High** = bug or major cost/reliability problem; **Medium** = maintainability or efficiency; **Low** = style.
+Severity: **Critical** = can cause irreversible harm or data loss; **High** = bug or major cost/reliability problem; **Medium** = maintainability or efficiency; **Low** = style. A system that cannot meet its stated core requirement is High, or Critical when its output is acted on or sent onward without review.
 
 | Red flag | Severity | Fix |
 |---|---|---|
@@ -55,7 +55,7 @@ Severity: **Critical** = can cause irreversible harm or data loss; **High** = bu
 | Run held open for days waiting on a decision made in another system | Medium | End with `handed_off`; start a new run on the decision event (agent-harness-designer: references/control-loop.md) |
 | Regenerated drafts overwrite each other with no version | Medium | Versioned outputs with a current pointer; reject decisions on superseded versions |
 | Critical constraint exists only in the prompt | High (Critical if destructive) | Enforce in orchestrator, tool layer or policy engine [ENTERPRISE ch7] |
-| No step, time or cost cap, or caps left at framework defaults nobody chose | High | Budgets with numbers, sized from eval worst case (agent-harness-designer: references/control-loop.md) |
+| No step, time or cost cap, or caps left at framework defaults nobody chose; this includes a framework agent object used as a single call, which still runs the framework's turn loop (some frameworks start another turn after a hosted-tool call that returns no message) | High | Budgets with numbers, sized from eval worst case (agent-harness-designer: references/control-loop.md) |
 | No no-progress detection | High | Stop on repeated (tool, args) or N steps without new facts [SYSTEMS ch8] |
 | Cap-hit, error and success exits produce the same output, or a step's flag reads the same for "not needed" and "failed" | High | Exit statuses carried to the output; partial results say what is missing; per-step status `called` / `not_needed` / `failed: <reason>` |
 | Off-list or unparseable model output (a label, yes/no, a timeout) defaults to a real answer | Critical if it defaults to an adverse decision, else High | Treat it as `invalid`: re-ask once, then escalate (agent-harness-designer: references/control-loop.md, failure table) |
@@ -64,6 +64,7 @@ Severity: **Critical** = can cause irreversible harm or data loss; **High** = bu
 | Run state or checkpoints written with an unconditional overwrite where more than one writer can exist (retry plus resume, replicas, redelivered events) | High | Conditional create/update on a version, or one consumer per case (agent-harness-designer: references/control-loop.md, "One writer per run") |
 | Checkpoints stored as untyped JSON with no schema version, or resume tested only inside one process | High | Serialise through the typed state schema, version it, test write-kill-reload across processes (agent-harness-designer: references/control-loop.md) |
 | Ordered-stream trigger with unbounded retries, or a poison event that blocks its partition | High | Bounded retries by count and age, batch splitting, report the first failure, a tested failure sink (agent-harness-designer: references/control-loop.md, "Ordered streams") |
+| Required provenance (citations, evidence links) dropped at a hand-off or merge, or source fields (URLs, titles) written by the model and then checked against themselves | High (Critical when outputs reach their consumer without review) | Sources from tool-produced records (citation annotations, result IDs, retrieved document IDs), given IDs in code and carried through every hand-off and merge; the writer cites IDs; the check compares them with the tool-produced set (pattern-catalog.md, "Parallel fan-out and merge") |
 | Required check failure lets the run continue | High | Stop or escalate; degrade only for optional steps [SYSTEMS ch10] |
 | Model calls for deterministic work (fetching the obvious next thing, formatting, arithmetic) | Medium (High at volume) | Prefetch and compute in code [SYSTEMS ch16] |
 | Several agents with the same context, tools and output schema (role theatre) | High | Merge; apply the split test [SYSTEMS ch13] |
@@ -143,4 +144,4 @@ Severity: **Critical** = can cause irreversible harm or data loss; **High** = bu
 
 ## 6. Report shape
 
-Findings first, sorted by severity: finding, evidence (file:line, config key, or trace ID) with its label (seen, observed, told, inferred or assumed; SKILL.md step R), impact, fix. Then the target architecture using the design-doc template, marking each section **keep**, **change** or **add**, and a migration order that fixes Critical items first without a rewrite.
+One order (SKILL.md, "Output"): Summary and first actions, Confirm first, the lifecycle line, then the findings sorted by severity: finding, evidence (file:line, config key, or trace ID) with its label (seen, observed, told, inferred or assumed; SKILL.md step R), impact, fix. Then the Stage plan if the whole path was asked for, the target architecture using the design-doc template with each section marked **keep**, **change** or **add**, and a migration order that fixes Critical items first without a rewrite. For small reference or demo code, use the short form in SKILL.md "Output".

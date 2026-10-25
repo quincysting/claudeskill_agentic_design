@@ -176,6 +176,8 @@ Authority is raised per step, on evidence, never because a model got better. A m
 | Act and notify | Executes; people review a sample | Sustained acceptance, zero Critical incidents, a rollback tested |
 | Act | Fully automatic | Only for reversible or cheap steps |
 
+Shadow is for steps that would act. A step that starts at suggest, with a person reviewing every output, skips it: run a small suggest pilot and audit a sample of the outputs, which gives the same evidence without people redoing every case by hand.
+
 Each stage also needs a rollback trigger (metric drop below a floor, any Critical incident) that reverts automatically to the previous stage, and a named person who signs off promotion. Above-threshold actions and adverse decisions stop at `approve` unless governance decides otherwise.
 
 **Act and notify at volume needs batch controls.** For a high-volume external action, act-and-notify is safe only with a daily cap and a ramp; circuit breakers on outcome rates (bounces, complaints, reversals) that fire only above a minimum sample size; sampled review with a weekly minimum; and the kill switch. Approving each action at that volume is a pilot control: compute its reviewer-hours, and plan when, and on what evidence, it graduates to sampled review.

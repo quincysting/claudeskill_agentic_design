@@ -45,11 +45,16 @@ It can show that the agent breaks (every failure is real and becomes a task), an
 
 If all n independent tasks pass, the 95% upper bound on the failure rate is about 3/n (rule of three). Repeated trials of one task are not independent, so count distinct tasks, not trials. Variants of one scenario are not fully independent either; see "Correlated tasks" below.
 - 30 clean runs are compatible with a 10% failure rate.
-- To claim a critical-failure rate below 1%, you need about 300 independent tasks with zero failures (exactly 299).
+- To claim a critical-failure rate below 1%, you need about 300 independent tasks that can produce that failure, with zero failures (exactly 299).
 - 3 of 3 attacks blocked has an exact one-sided 95% lower bound of about 37% on the block rate (1 − `zero_fail_upper(3)`); the Wilson lower bound is about 44%.
 - 0 failures in 10 gives an exact one-sided bound of 26% (`zero_fail_upper(10)` below); the rule of three's 3/n is slightly conservative at small n.
 
-For a safety or "never do X" claim, size the suite from the rate you need to rule out. If the suite can't reach that size before launch, state the bound it does support ("zero failures in 40 tasks: below about 7.5%") and keep a human approval on that action until it can.
+**Count only the scenarios that can produce the failure.** A zero-failure bound for a critical check rests on the scenarios that exercise it: ones that hold the restricted document, carry the injected instruction or offer the forbidden action. A scenario that cannot trigger the failure says nothing about it, however clean.
+- Give one row per critical check, each with its own exercising n and its own bound. Never quote the whole suite's scenario count for a check that most scenarios cannot trigger.
+- Worked line: 0 failures in 15 entitlement scenarios bounds the entitlement failure rate at about 18% (exact one-sided 95%; 20% by the rule of three), whether the suite holds 15 scenarios or 2,000. Quoting 3/200 = 1.5% for that check overstates the evidence by a factor of about 12.
+- Two critical checks with 15 exercising scenarios each give one bound per check (about 18% each), not a pooled bound for "critical failures" over 30. Pool only scenarios that exercise the same check.
+
+For a safety or "never do X" claim, size the exercising slice from the rate you need to rule out. If it can't reach that size before launch, state the bound it does support ("zero failures in 40 exercising scenarios: below about 7.5%"). For an action with consequences, keep a human approval on it until the bound is reached; for an agent with no consequential action, the staged cohort rule in SKILL.md step 11 applies instead.
 
 ## Compare versions paired, on the same tasks
 
@@ -92,7 +97,7 @@ The task set has a dev split (iterate freely) and a held-out split (scored only 
 | PR and nightly comparisons (paired, sign test) | Dev split | Running held-out on every PR leaks it: people see which tasks fail and tune toward them |
 | Hard-check regressions at release | Dev + held-out | Every task must pass anyway; more tasks, more chances to catch a failure |
 | Release claims: pass@1, pass^k, judge-scored quality, with intervals | Held-out only | Dev numbers are inflated by tuning; label them "tuned on" if shown |
-| Zero-failure bounds for critical behaviour | Dev + held-out, counted as effective independent tasks | The bound comes from the number of clean independent tasks, whichever split they sit in |
+| Zero-failure bounds for critical behaviour, one row per check | Dev + held-out, counting only the scenarios that exercise that check, as effective independent tasks | The bound comes from the number of clean independent scenarios that could have produced the failure, whichever split they sit in |
 
 **Size the held-out split for the release claim**, not as a fixed percentage. A 300-task suite with 25% held out has 75 release tasks, which gives about ±9 points at 80% and ±7 at 90%. If the release needs ±5, the held-out split alone needs about 250 to 400 tasks. Three ways to get there:
 - grow the suite;
@@ -120,7 +125,7 @@ Rules:
 - treat near-duplicate tasks as a cluster;
 - use repeats to estimate per-task reliability (pass^k) and to reduce noise within each task.
 
-Evaluate the agent at production temperature. Lowering it to cut variance measures a system users never see. The judge is different: make it as reproducible as the provider allows, with temperature 0 [EVALS ch5] where accepted, or a pinned prompt and a majority of three samples on models that reject non-default sampling.
+Evaluate the agent at production temperature. Lowering it to cut variance measures a system users never see. The judge is different: make it as reproducible as the provider allows, with temperature 0 [EVALS ch5] where accepted, or a pinned prompt and a majority of three samples on models or API versions that reject sampling parameters (as of 2026-10, Anthropic API version 2026-10-21 rejects them at any value, so omit them there).
 
 ## pass@1, pass@k, pass^k
 
@@ -238,6 +243,7 @@ if __name__ == "__main__":
     assert [round(x, 2) for x in wilson(24, 30)] == [0.63, 0.9]
     assert [round(x, 2) for x in wilson(27, 30)] == [0.74, 0.97]
     assert round(zero_fail_upper(10), 2) == 0.26 and round(zero_fail_upper(30), 3) == 0.095
+    assert round(zero_fail_upper(15), 3) == 0.181 and zero_fail_upper(15) > 10 * 3 / 200   # exercising n, not suite n
     assert round(1 - zero_fail_upper(3), 2) == 0.37 and round(wilson(3, 3)[0], 2) == 0.44   # 3 of 3 blocked
     assert round(2 * sign_test(6, 0), 3) == 0.031 and 2 * sign_test(3, 0) == 0.25
     assert tasks_for_halfwidth(0.8, 0.05) == 246
